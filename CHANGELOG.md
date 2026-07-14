@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+### Added
+- Copy mode now supports literal smart-case search with `/` and `?`, repeating with `n` and `N`, match highlighting, and tmux-style cross-line `w`/`b`/`e` word motions. (#1230)
+- Added Maki detection with idle, working, and blocked screen states. (#1301, #1302, thanks @tontinton)
+- Added `ui.copy_on_select` so mouse drag selection and double-click word copying can be disabled while keeping mouse capture enabled.
+- Expanded desktop Agent and Space sidebar rows can now be configured as token layouts, including agent-specific layouts, terminal-title tokens, and values supplied by `pane report-metadata` or `workspace report-metadata`.
+- Windows Terminal clients, including WSL profiles, can now deliver agent notifications through OSC 777 when the terminal profile enables `compatibility.allowOSC777`.
+- Added a repository-root `install.sh` for installing fork release assets on Linux and macOS, with version, repository, install-directory, and download-URL overrides.
+
+### Changed
+- `ui.host_cursor = "auto"` now uses Herdr's drawn cursor in WSL as well as native Windows, avoiding ConPTY cursor flicker. Set it to `"native"` to retain the outer terminal cursor. (#930)
+
+### Fixed
+- The collapsed sidebar now follows the configured all-agent ordering, aligns clicks with rendered rows, and numbers rows by their visible list position. (#1168, #1182, #1344)
+- Shifted indexed shortcuts such as `prefix+shift+1..9` now match the punctuation characters reported by terminals while preserving explicit symbol bindings. (#1184)
+- Plugin-driven tab renames now refresh the tab bar immediately. (#1111, #1179, thanks @kovalov)
+- Amp panes now remain working while an active turn is in progress. (#1208)
+- Pi lifecycle reports now re-anchor after session replacement without accepting stale or nested-session state. (#943, #1189, thanks @dmmulroy)
+- Explicit session socket paths now survive live handoff instead of reverting to default socket locations. (#1180)
+- New tabs, workspaces, splits, and applied layouts now prefer the focused pane's reported foreground working directory. (#1245)
+- The Windows installer no longer rewrites an existing config file while installing shell integration. (#1162)
+- Config warnings now state whether defaults or the current live config remain active and direct users to `herdr config check` for details.
+- Outer-terminal focus gained and lost reports now reach the focused pane when its application enables focus reporting, restoring Neovim file autoreload and other focus-aware terminal behavior. (#1337, #1388)
+- Native Windows servers now detach from the terminal console that launched them, so closing WezTerm, Windows Terminal, or another host terminal no longer stops persistent pane processes. (#1329)
+- Windows API clients now remain connected while waiting for initial named-pipe request bytes, so `status server`, `api snapshot`, and other socket commands no longer intermittently fail with BrokenPipe. (#1279)
+- `herdr --remote` now installs remote helper binaries without routing the binary stream through a multiline `/bin/sh -c` command, fixing installs for non-POSIX login shells such as xonsh. (#1203, thanks @nhumrich)
+- Codex detection now recognizes reordered title spinners instead of dropping active panes to idle. (#1281)
+- Graceful server shutdown now allows slower sessions up to 15 seconds to stop before timing out.
+- Claude Code remains working while `/btw` side questions are active. (#1366)
+- Detached custom command children are now reaped after exit instead of accumulating as zombie processes. (#1360, #1384)
+- Renamed single tabs now remain visible in Agent sidebar labels instead of being hidden as automatic tab names. (#1369)
+- Documentation search results now stay within the current language and stable or preview channel.
+- OMP lifecycle reports retry a dropped first response before publishing queued state, reducing stale agent status. (#1310)
+- Horizontal wheel events now reach pane applications that enabled mouse reporting. (#1349, #1402)
+
+### Breaking Changes
+- The `custom_status` API field and `--custom-status` / `--clear-custom-status` CLI options were removed from `pane.report_agent` and `pane.report_metadata`. Use named metadata tokens such as `--token summary="indexing"` and reference them as `$summary` in sidebar row layouts.
+
 ## [0.7.3] - 2026-07-08
 
 ### Fixed

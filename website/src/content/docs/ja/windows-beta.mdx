@@ -15,7 +15,7 @@ Windows 上の Herdr は、Herdr が本来前提としていた Unix の PTY モ
 powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
 ```
 
-Windows ベータビルドはプレビューチャンネルでのみ提供されます。Windows インストーラーはデフォルトでプレビューを使い、Herdr の設定に `channel = "preview"` を書き込み、リリースを `%USERPROFILE%\.herdr\packages\standalone\releases` に保存し、`%LOCALAPPDATA%\Programs\Herdr\bin` を現在のリリースに向け、実行中のプロセスがアップデートを妨げないよう少数の古いリリースを保持します。
+Windows ベータビルドはプレビューチャンネルでのみ提供されます。Windows では Herdr が設定を変更せずにデフォルトでプレビューを使います。インストーラーはリリースを `%USERPROFILE%\.herdr\packages\standalone\releases` に保存し、`%LOCALAPPDATA%\Programs\Herdr\bin` を現在のリリースに向け、実行中のプロセスがアップデートを妨げないよう少数の古いリリースを保持します。
 
 内部ベータテスト向けに、`HERDR_MANIFEST_URL` でインストーラーを Herdr の安定版/プレビューマニフェストではなくカスタムマニフェストに向けられます。
 
@@ -57,13 +57,36 @@ Windows Terminal は特定のエージェント向けに画像貼り付け経路
 
 Kitty graphics は実験的なままで、まだ Windows でのサポートを謳っていません。Windows Terminal での画像レンダリングを特にテストしているのでない限り、`experimental.kitty_graphics = false` のままにしてください。
 
+### Windows Terminal 通知
+
+Herdr は Windows Terminal の OSC 777 サポートを使い、Windows ネイティブセッションと WSL プロファイルからエージェント通知を送信できます。Windows Terminal の `settings.json` で、Herdr を起動するプロファイルの互換性設定を有効にします:
+
+```json
+{
+  "profiles": {
+    "defaults": {
+      "compatibility.allowOSC777": true
+    }
+  }
+}
+```
+
+次に Herdr を設定します:
+
+```toml
+[ui.toast]
+delivery = "terminal"
+```
+
+最近の Windows Terminal では、プロファイル UI に **Allow OSC 777 (Desktop Notification) to show toast notifications** と表示されます。この設定が見つからない場合は Windows Terminal を更新してください。OSC 777 を有効にすると、ターミナルアプリケーションが任意のテキストを含む Windows 通知を作成できるため、実行するプログラムを信頼できるプロファイルでのみ有効にしてください。
+
 ## 既知の注意点
 
 ### カーソル描画
 
-Windows のターミナルは ConPTY 経由で Herdr を実行するため、フルスクリーン再描画中にネイティブの端末カーソルがちらついたり、ジャンプしたり、古い位置を一瞬表示したりすることがあります。Herdr のデフォルト `host_cursor = "auto"` は、Windows では Herdr のカーソルを端末セルの内容として描画し、Linux と macOS ではネイティブの端末カーソルを使い続けます。Windows でのトレードオフは、外側ターミナルのネイティブな点滅、形状、カーソル色の代わりに、Herdr 内で安定した非点滅カーソルを表示することです。
+Windows のターミナルは ConPTY 経由で Herdr を実行するため、フルスクリーン再描画中にネイティブの端末カーソルがちらついたり、ジャンプしたり、古い位置を一瞬表示したりすることがあります。Herdr のデフォルト `host_cursor = "auto"` は、ネイティブ Windows ビルドと WSL では Herdr のカーソルを端末セルの内容として描画し、それ以外の Linux と macOS ではネイティブの端末カーソルを使い続けます。Windows でのトレードオフは、外側ターミナルのネイティブな点滅、形状、カーソル色の代わりに、Herdr 内で安定した非点滅カーソルを表示することです。
 
-Windows で外側ターミナルのカーソルに戻すには、次を設定してください:
+ネイティブ Windows または WSL で外側ターミナルのカーソルに戻すには、次を設定してください:
 
 ```toml
 [ui]
