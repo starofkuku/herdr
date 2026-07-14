@@ -5,6 +5,7 @@
 ### Added
 - Copy mode now supports literal smart-case search with `/` and `?`, repeating with `n` and `N`, match highlighting, and tmux-style cross-line `w`/`b`/`e` word motions. (#1230)
 - Added maki detection with idle, working, and blocked screen states. (#1301, thanks @tontinton)
+- Windows Terminal clients, including WSL profiles, can now deliver agent notifications through OSC 777 when the terminal profile enables `compatibility.allowOSC777`.
 
 ### Fixed
 - Outer-terminal focus gained and lost reports now reach the focused pane when its application enables focus reporting, restoring Neovim file autoreload and other focus-aware terminal behavior. (#1337)

@@ -326,6 +326,8 @@ position = "bottom-right"
 
 アプリ内トーストには `herdr`、SSH 越しでも使いやすい外側のターミナル通知には `terminal`、ローカル OS の通知サービスには `system`、ポップアップを無効にするには `off` を選びます。Herdr はアクティブなタブのポップアップを抑制します。位置、遅延の挙動、クリップボードのフィードバック設定については、[設定リファレンス](/docs/config-reference/)で `ui.toast` を検索してください。
 
+WSL プロファイルを含む Windows Terminal クライアントでは、`delivery = "terminal"` に OSC 777 を使用します。先に Windows Terminal プロファイルで `compatibility.allowOSC777` を有効にしてください。設定方法とセキュリティ上の注意は [Windows ベータ](/docs/windows-beta/#windows-terminal-通知)を参照してください。
+
 ## サウンド
 
 サウンド通知はローカルの Herdr クライアントで再生されます。カスタムサウンドは mp3 ファイルでなければなりません。相対パスは設定ファイルのディレクトリから解決されます。

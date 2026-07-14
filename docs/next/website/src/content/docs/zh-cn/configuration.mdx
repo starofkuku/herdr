@@ -326,6 +326,8 @@ position = "bottom-right"
 
 选择 `herdr` 可使用应用内 toast，选择 `terminal` 可使用适合 SSH 场景的外层终端通知，选择 `system` 可使用本地操作系统通知服务，选择 `off` 可禁用弹出通知。Herdr 会抑制活动标签页的弹出通知。在[配置参考](/docs/config-reference/)中搜索 `ui.toast`，可查看位置、延迟行为和剪贴板反馈设置。
 
+Windows Terminal 客户端（包括 WSL 配置文件）会为 `delivery = "terminal"` 使用 OSC 777。请先在 Windows Terminal 配置文件中启用 `compatibility.allowOSC777`；设置方法和安全说明请参阅 [Windows 测试版](/docs/windows-beta/#windows-terminal-通知)。
+
 ## 声音
 
 声音通知通过本地 Herdr 客户端播放。自定义声音必须是 mp3 文件；相对路径从配置文件所在目录解析。

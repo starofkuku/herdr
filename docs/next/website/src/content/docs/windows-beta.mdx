@@ -58,6 +58,29 @@ Windows Terminal may support image paste paths for specific agents, but Herdr's 
 
 Kitty graphics remains experimental and is not claimed as Windows-supported yet. Leave `experimental.kitty_graphics = false` unless you are specifically testing image rendering in Windows Terminal.
 
+### Windows Terminal notifications
+
+Herdr can send agent notifications from native Windows sessions and WSL profiles through Windows Terminal's OSC 777 support. In Windows Terminal `settings.json`, enable the compatibility setting for the profile that launches Herdr:
+
+```json
+{
+  "profiles": {
+    "defaults": {
+      "compatibility.allowOSC777": true
+    }
+  }
+}
+```
+
+Then configure Herdr:
+
+```toml
+[ui.toast]
+delivery = "terminal"
+```
+
+Recent Windows Terminal builds expose this setting in the profile UI as **Allow OSC 777 (Desktop Notification) to show toast notifications**. Update Windows Terminal if the setting is unavailable. OSC 777 lets terminal applications create Windows notifications with custom text, so enable it only for profiles where you trust the programs you run.
+
 ## Known caveats
 
 ### Cursor rendering

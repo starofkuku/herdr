@@ -6,21 +6,43 @@ pub enum TerminalNotificationBackend {
     Iterm2,
     Kitty,
     WezTerm,
+    WindowsTerminal,
 }
 
 pub fn detect_backend() -> Option<TerminalNotificationBackend> {
     let term_program = std::env::var("TERM_PROGRAM").ok();
     let term = std::env::var("TERM").ok();
 
-    match term_program.as_deref() {
+    detect_backend_from_environment(
+        term_program.as_deref(),
+        term.as_deref(),
+        std::env::var_os("KITTY_WINDOW_ID").is_some(),
+        std::env::var_os("WT_SESSION").is_some(),
+    )
+}
+
+fn detect_backend_from_environment(
+    term_program: Option<&str>,
+    term: Option<&str>,
+    kitty_window_id: bool,
+    windows_terminal_session: bool,
+) -> Option<TerminalNotificationBackend> {
+    match term_program {
         Some("ghostty") => return Some(TerminalNotificationBackend::Ghostty),
         Some("iTerm.app") => return Some(TerminalNotificationBackend::Iterm2),
         Some("WezTerm") => return Some(TerminalNotificationBackend::WezTerm),
         _ => {}
     }
 
-    if std::env::var_os("KITTY_WINDOW_ID").is_some() {
+    if kitty_window_id {
         return Some(TerminalNotificationBackend::Kitty);
+    }
+
+    // Windows Terminal exports WT_SESSION to native shells and WSL profiles.
+    // Check it after explicit terminal markers so nested terminal processes can
+    // identify themselves instead of inheriting the outer Windows Terminal.
+    if windows_terminal_session {
+        return Some(TerminalNotificationBackend::WindowsTerminal);
     }
 
     match term.as_deref() {
@@ -41,6 +63,7 @@ pub fn show_notification(title: &str, body: Option<&str>) -> io::Result<bool> {
         | TerminalNotificationBackend::Iterm2
         | TerminalNotificationBackend::WezTerm => build_osc9_notification(title, body),
         TerminalNotificationBackend::Kitty => build_osc99_notification(title, body),
+        TerminalNotificationBackend::WindowsTerminal => build_osc777_notification(title, body),
     };
 
     let sequence = if std::env::var_os("TMUX").is_some() {
@@ -79,6 +102,17 @@ fn build_osc99_notification(title: &str, body: Option<&str>) -> Vec<u8> {
         }
         _ => format!("\x1b]99;;{title}\x1b\\").into_bytes(),
     }
+}
+
+fn build_osc777_notification(title: &str, body: Option<&str>) -> Vec<u8> {
+    let title = sanitize_text(title).replace(';', ":");
+    let body = match body {
+        Some(body) if !body.is_empty() => sanitize_text(body),
+        // Windows Terminal treats an empty body as generic tab activity. A
+        // blank body keeps the caller's title as the visible notification title.
+        _ => " ".to_string(),
+    };
+    format!("\x1b]777;notify;{title};{body}\x1b\\").into_bytes()
 }
 
 fn sanitize_text(text: impl AsRef<str>) -> String {
@@ -133,6 +167,52 @@ mod tests {
             .expect("utf8");
         assert!(sequence.contains("]99;i=1:d=0;pi finished"));
         assert!(sequence.contains("]99;i=1:p=body;ws · 1"));
+    }
+
+    #[test]
+    fn windows_terminal_is_detected_from_wt_session_in_wsl_style_environment() {
+        assert_eq!(
+            detect_backend_from_environment(None, Some("xterm-256color"), false, true),
+            Some(TerminalNotificationBackend::WindowsTerminal)
+        );
+    }
+
+    #[test]
+    fn explicit_terminal_marker_wins_over_inherited_wt_session() {
+        assert_eq!(
+            detect_backend_from_environment(Some("WezTerm"), None, false, true),
+            Some(TerminalNotificationBackend::WezTerm)
+        );
+    }
+
+    #[test]
+    fn windows_terminal_notification_uses_osc777_title_and_body() {
+        let sequence = String::from_utf8(build_osc777_notification(
+            "codex finished",
+            Some("api workspace; pane 2"),
+        ))
+        .expect("utf8");
+        assert_eq!(
+            sequence,
+            "\x1b]777;notify;codex finished;api workspace; pane 2\x1b\\"
+        );
+    }
+
+    #[test]
+    fn windows_terminal_notification_sanitizes_title_delimiters() {
+        let sequence = String::from_utf8(build_osc777_notification(
+            "build; finished",
+            Some("workspace"),
+        ))
+        .expect("utf8");
+        assert_eq!(sequence, "\x1b]777;notify;build: finished;workspace\x1b\\");
+    }
+
+    #[test]
+    fn windows_terminal_title_only_notification_keeps_title_visible() {
+        let sequence =
+            String::from_utf8(build_osc777_notification("build finished", None)).expect("utf8");
+        assert_eq!(sequence, "\x1b]777;notify;build finished; \x1b\\");
     }
 
     #[test]
