@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.4] - 2026-07-14
+
 ### Added
 - Copy mode now supports literal smart-case search with `/` and `?`, repeating with `n` and `N`, match highlighting, and tmux-style cross-line `w`/`b`/`e` word motions. (#1230)
 - Added Maki detection with idle, working, and blocked screen states. (#1301, #1302, thanks @tontinton)
