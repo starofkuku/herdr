@@ -45,7 +45,7 @@ fn detect_backend_from_environment(
         return Some(TerminalNotificationBackend::WindowsTerminal);
     }
 
-    match term.as_deref() {
+    match term {
         Some("xterm-ghostty") => Some(TerminalNotificationBackend::Ghostty),
         Some("xterm-kitty") => Some(TerminalNotificationBackend::Kitty),
         Some(term) if term.contains("wezterm") => Some(TerminalNotificationBackend::WezTerm),
