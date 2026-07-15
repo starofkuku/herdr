@@ -3,11 +3,62 @@ use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::detect::Agent;
+
 const STAGED_CLIPBOARD_IMAGE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub(crate) struct StagedClipboardImage {
     pub(crate) path: PathBuf,
     pub(crate) paste_text: String,
+}
+
+/// How an agent consumes an image that Herdr staged on the remote host.
+///
+/// These are deliberately transport-level descriptions. The client still
+/// owns clipboard access; the server only chooses the text token to paste
+/// after it has received the image bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RemoteImagePasteTransport {
+    /// The agent treats an absolute path as an image attachment.
+    PastedPath,
+    /// The agent requires an `@path` mention to attach the image.
+    AtMention,
+}
+
+/// Returns the remote image-paste contract for agents with a documented,
+/// path-based attachment interface.
+///
+/// Agents without a stable path contract are intentionally omitted. Their
+/// original shortcut is forwarded unchanged so a local/native implementation
+/// can handle it instead of receiving text that merely looks like a path.
+pub(crate) fn remote_image_paste_transport(agent: Agent) -> Option<RemoteImagePasteTransport> {
+    match agent {
+        Agent::Pi
+        | Agent::Claude
+        | Agent::Codex
+        | Agent::Cursor
+        | Agent::Cline
+        | Agent::Omp
+        | Agent::Mastracode
+        | Agent::OpenCode
+        | Agent::GithubCopilot
+        | Agent::Kiro
+        | Agent::Droid
+        | Agent::Grok
+        | Agent::Hermes
+        | Agent::Kilo
+        | Agent::Qodercli
+        | Agent::Maki => Some(RemoteImagePasteTransport::PastedPath),
+        Agent::Amp => Some(RemoteImagePasteTransport::AtMention),
+        Agent::Gemini | Agent::Kimi | Agent::Devin | Agent::Antigravity => None,
+    }
+}
+
+pub(crate) fn remote_image_paste_text(agent: Agent, path: &str) -> Option<String> {
+    match remote_image_paste_transport(agent)? {
+        RemoteImagePasteTransport::PastedPath => Some(path.to_owned()),
+        RemoteImagePasteTransport::AtMention => Some(format!("@{path}")),
+    }
 }
 
 pub(crate) fn stage(
@@ -143,5 +194,43 @@ mod tests {
         assert_eq!(sanitize_extension("jpeg"), "jpg");
         assert_eq!(sanitize_extension("webp"), "webp");
         assert_eq!(sanitize_extension("sh"), "png");
+    }
+
+    #[test]
+    fn documented_path_agents_use_staged_path_transport() {
+        for agent in [
+            Agent::Pi,
+            Agent::Claude,
+            Agent::Codex,
+            Agent::Cursor,
+            Agent::Cline,
+            Agent::Omp,
+            Agent::Mastracode,
+            Agent::OpenCode,
+            Agent::GithubCopilot,
+            Agent::Kiro,
+            Agent::Droid,
+            Agent::Grok,
+            Agent::Hermes,
+            Agent::Kilo,
+            Agent::Qodercli,
+            Agent::Maki,
+        ] {
+            assert_eq!(
+                remote_image_paste_text(agent, "/tmp/image.png"),
+                Some("/tmp/image.png".to_owned())
+            );
+        }
+    }
+
+    #[test]
+    fn amp_uses_at_mention_and_unsupported_agents_fall_back() {
+        assert_eq!(
+            remote_image_paste_text(Agent::Amp, "/tmp/image.png"),
+            Some("@/tmp/image.png".to_owned())
+        );
+        for agent in [Agent::Gemini, Agent::Kimi, Agent::Devin, Agent::Antigravity] {
+            assert_eq!(remote_image_paste_text(agent, "/tmp/image.png"), None);
+        }
     }
 }

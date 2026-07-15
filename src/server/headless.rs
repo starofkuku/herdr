@@ -1457,7 +1457,10 @@ impl HeadlessServer {
             .terminals
             .get(&terminal_id)
             .filter(|terminal| {
-                terminal.effective_known_agent() == Some(crate::detect::Agent::Codex)
+                terminal
+                    .effective_known_agent()
+                    .and_then(crate::server::clipboard_image::remote_image_paste_transport)
+                    .is_some()
             })?;
         Some(terminal_id)
     }
@@ -1493,7 +1496,24 @@ impl HeadlessServer {
         }) = self.clients.get(&client_id)
         {
             if let Some(runtime) = self.runtime_for_terminal_id_string(terminal_id) {
-                let payload = paste_payload_for_runtime(runtime, &path);
+                let Some(terminal_id_value) = self.terminal_id_by_string(terminal_id) else {
+                    return false;
+                };
+                let Some(agent) = self
+                    .app
+                    .state
+                    .terminals
+                    .get(&terminal_id_value)
+                    .and_then(|terminal| terminal.effective_known_agent())
+                else {
+                    return false;
+                };
+                let Some(text) =
+                    crate::server::clipboard_image::remote_image_paste_text(agent, &path)
+                else {
+                    return false;
+                };
+                let payload = paste_payload_for_runtime(runtime, &text);
                 if let Err(err) = runtime.try_send_bytes(Bytes::from(payload)) {
                     warn!(client_id, terminal_id = %terminal_id, err = %err, "terminal attach clipboard image paste failed");
                 }
@@ -1508,8 +1528,24 @@ impl HeadlessServer {
         if let Some(client) = self.clients.get_mut(&client_id) {
             client.request_semantic_redraw_after_input();
         }
+        let Some(terminal_id) = self.clipboard_image_paste_target(client_id) else {
+            return false;
+        };
+        let Some(agent) = self
+            .app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .and_then(|terminal| terminal.effective_known_agent())
+        else {
+            return false;
+        };
+        let Some(text) = crate::server::clipboard_image::remote_image_paste_text(agent, &path)
+        else {
+            return false;
+        };
         self.app.route_client_events(
-            vec![crate::raw_input::RawInputEvent::Paste(path)],
+            vec![crate::raw_input::RawInputEvent::Paste(text)],
             self.foreground_client_id == Some(client_id),
         );
         true
@@ -1525,19 +1561,24 @@ impl HeadlessServer {
             warn!(client_id, terminal_id = %terminal_id, "clipboard image paste target disappeared");
             return false;
         };
-        if terminal.effective_known_agent() != Some(crate::detect::Agent::Codex) {
-            warn!(client_id, terminal_id = %terminal_id, "clipboard image paste target is no longer Codex");
+        let Some(agent) = terminal.effective_known_agent() else {
+            warn!(client_id, terminal_id = %terminal_id, "clipboard image paste target has no known agent");
             return false;
-        }
+        };
+        let Some(text) = crate::server::clipboard_image::remote_image_paste_text(agent, path)
+        else {
+            warn!(client_id, terminal_id = %terminal_id, agent = ?agent, "clipboard image paste target does not support staged image paths");
+            return false;
+        };
         let Some(runtime) = self.app.terminal_runtimes.get(terminal_id) else {
             warn!(client_id, terminal_id = %terminal_id, "clipboard image paste target runtime disappeared");
             return false;
         };
-        let payload = paste_payload_for_runtime(runtime, path);
+        let payload = paste_payload_for_runtime(runtime, &text);
         match runtime.try_send_bytes(Bytes::from(payload)) {
             Ok(()) => true,
             Err(err) => {
-                warn!(client_id, terminal_id = %terminal_id, err = %err, "Codex clipboard image paste failed");
+                warn!(client_id, terminal_id = %terminal_id, err = %err, "clipboard image paste failed");
                 false
             }
         }
@@ -2745,7 +2786,7 @@ impl HeadlessServer {
 
         let mut changed = if let Some(image) = image {
             if !crate::platform::clipboard_image_matches_signature(&image.extension, &image.data) {
-                warn!(client_id, request_id, extension = %image.extension, "rejected invalid Codex clipboard image");
+                warn!(client_id, request_id, extension = %image.extension, "rejected invalid clipboard image");
                 false
             } else {
                 match self.write_client_clipboard_image(client_id, &image.extension, &image.data) {
@@ -2755,7 +2796,7 @@ impl HeadlessServer {
                         &path,
                     ),
                     Err(err) => {
-                        warn!(client_id, request_id, err = %err, "failed to stage Codex clipboard image");
+                        warn!(client_id, request_id, err = %err, "failed to stage clipboard image");
                         false
                     }
                 }
@@ -4980,10 +5021,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn clipboard_image_paste_falls_back_outside_remote_codex() {
+    async fn clipboard_image_paste_falls_back_without_supported_remote_agent() {
         for (remote_session, agent) in [
             (false, crate::detect::Agent::Codex),
-            (true, crate::detect::Agent::Claude),
+            (true, crate::detect::Agent::Gemini),
+            (true, crate::detect::Agent::Kimi),
         ] {
             let (mut server, control_rx, mut input_rx, _) =
                 clipboard_image_paste_test_server(remote_session, agent);
@@ -5008,6 +5050,40 @@ mod tests {
             assert!(server.clients[&1].pending_clipboard_image_paste.is_none());
             shutdown_test_runtimes(&mut server);
         }
+    }
+
+    #[tokio::test]
+    async fn remote_amp_clipboard_image_paste_uses_at_mention() {
+        let (mut server, control_rx, mut input_rx, _) =
+            clipboard_image_paste_test_server(true, crate::detect::Agent::Amp);
+        assert!(
+            server.handle_server_event(ServerEvent::ClientClipboardImagePasteIntent {
+                client_id: 1,
+                request_id: 19,
+                fallback_input: b"\x1bv".to_vec(),
+            })
+        );
+        assert_eq!(
+            read_server_message(control_rx.recv().expect("paste decision")),
+            ServerMessage::ClipboardImagePasteDecision {
+                request_id: 19,
+                authorized: true,
+            }
+        );
+        assert!(
+            server.handle_server_event(ServerEvent::ClientClipboardImagePasteResult {
+                client_id: 1,
+                request_id: 19,
+                image: Some(crate::protocol::ClipboardImagePayload {
+                    extension: "png".to_owned(),
+                    data: b"\x89PNG\r\n\x1a\nimage".to_vec(),
+                }),
+            })
+        );
+        let pasted = input_rx.try_recv().expect("staged path paste");
+        let pasted = String::from_utf8(pasted.to_vec()).expect("utf8 staged path");
+        assert!(pasted.starts_with("@/tmp/herdr-clipboard-images-"));
+        shutdown_test_runtimes(&mut server);
     }
 
     #[tokio::test]

@@ -46,9 +46,19 @@ herdr --remote ssh://you@server:2222
 
 这种模式下,你本地的 Herdr 是瘦客户端。它通过 SSH 连接,启动或连接远程 Herdr 服务器,并把 UI 流式传回本地终端。
 
-对于 Codex pane,`Alt+V` 可以桥接本地剪贴板中的图像。远程服务器会先确认当前聚焦 pane 已被识别为 Codex;只有确认后,本地客户端才会读取剪贴板,把图像复制到远程临时文件,并粘贴远程路径,让 Codex 创建 `[Image #1]` 附件。如果当前 pane 不是 Codex 或尚未识别,Herdr 会原样转发按键,不会读取剪贴板。本地剪贴板读取支持 macOS、Linux 和运行在 WSL 内的 Herdr,不支持原生 Windows Herdr 客户端。先 SSH 到服务器再启动 Herdr 的方式无法使用此功能,因为远程进程访问不到本地桌面剪贴板。
+对于受支持的 Agent pane，`Alt+V` 可以桥接本地剪贴板中的图像。远程服务器会先确认当前识别到的 Agent 及其图片粘贴方式；只有确认支持后，本地客户端才会读取剪贴板，并把图像复制到远程主机上的私有临时文件。对于支持路径的 Agent，Herdr 会粘贴绝对路径；对于 Amp，则会粘贴 `@路径`。如果当前 Agent 不受支持或尚未识别，Herdr 会原样转发按键，不会读取剪贴板。
 
-在 macOS 上,终端通常会自行拦截 `Command+V`,而单独的 `Option+V` 可能被转换为组合字符,而不是 Alt 组合键。建议在 Mac 本地配置 `keys.remote_image_paste = "ctrl+alt+v"`;修改后请分离并重新连接,再按 Control+Option+V。裸 `Ctrl+V` 是 Codex 自己的剪贴板快捷键,因此在无桌面的 Linux 主机上按它会绕过 Herdr,并可能出现 X11 剪贴板不可用或连接超时错误。
+| 远程 Agent | 图片桥接方式 |
+| --- | --- |
+| Pi、Claude Code、Codex、Cursor CLI、Cline、OMP、MastraCode、OpenCode、GitHub Copilot CLI、Kiro、Factory Droid、Grok、Hermes、Kilo Code、Qoder CLI、Maki | 远程暂存图片的绝对路径 |
+| Amp | 远程暂存图片的 `@路径` |
+| Gemini CLI | 暂未启用：普通 Herdr 临时路径不在 Gemini 允许的项目目录内 |
+| Kimi CLI | 暂未启用：原生图片粘贴依赖 Kimi 私有的 prompt-cache token 格式 |
+| Devin CLI、Antigravity | 暂未启用：目前没有稳定的交互式 CLI 图片路径协议 |
+
+本地剪贴板读取支持 macOS、Linux 和运行在 WSL 内的 Herdr，不支持原生 Windows Herdr 客户端。先 SSH 到服务器再启动 Herdr 的方式无法使用此功能，因为远程进程访问不到本地桌面剪贴板。
+
+在 macOS 上，终端通常会自行拦截 `Command+V`，而单独的 `Option+V` 可能被转换为组合字符，而不是 Alt 组合键。建议在 Mac 本地配置 `keys.remote_image_paste = "ctrl+alt+v"`；修改后请分离并重新连接，再按 Control+Option+V。裸 `Ctrl+V` 是 Codex 等工具自身的剪贴板快捷键，因此在无桌面的 Linux 主机上按它会绕过 Herdr，并可能出现 X11 剪贴板不可用或连接超时错误。
 
 默认情况下,`herdr --remote` 在这次连接中使用你本地的 Herdr 按键绑定。即使远程服务器的配置不同,也能保持本地的肌肉记忆。本地按键绑定是连接时的快照;编辑本地按键绑定后请分离再重连。想改用远程服务器配置时,使用 `--remote-keybindings server`。本地的自定义命令按键绑定不会被发送,因为那些命令会在远程主机上执行。
 
