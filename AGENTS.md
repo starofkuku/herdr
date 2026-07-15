@@ -186,10 +186,6 @@ Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue
 
 ## Release Channels
 
-This section is maintainer-only for release actions. If the acting GitHub
-account is not `ogulcancelik`, do not run release commands, push release assets,
-or modify release channel files; follow the external contributor guardrail.
-
 Herdr has one main branch and two update channels. Stable and preview both build from `master`; there is no long-lived preview branch.
 
 Normal users default to stable. Stable docs are `/docs/`, stable updates use `website/latest.json`, and Homebrew/Nix stay stable-only.
