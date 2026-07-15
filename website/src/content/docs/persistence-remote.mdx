@@ -44,7 +44,11 @@ herdr --remote workbox
 herdr --remote ssh://you@server:2222
 ```
 
-In this mode your local Herdr is a thin client. It connects over SSH, starts or attaches to the remote Herdr server, and streams the UI back to your local terminal. Because the client runs locally, Herdr can bridge local desktop features such as image clipboard paste into the remote session by copying the image to a remote temp file and pasting that path.
+In this mode your local Herdr is a thin client. It connects over SSH, starts or attaches to the remote Herdr server, and streams the UI back to your local terminal.
+
+For Codex panes, `Alt+V` can bridge an image from the local clipboard. The remote server first verifies that the focused pane is detected as Codex; only then does the local client read the clipboard, copy the image to a remote temporary file, and paste that remote path so Codex creates an `[Image #1]` attachment. If the pane is not Codex or has not been detected yet, Herdr forwards the original key without reading the clipboard. Local clipboard reads are supported on macOS, Linux, and Herdr running inside WSL. Native Windows Herdr clients are not supported. This does not work when you SSH first and start Herdr on the server, because that process cannot access the local desktop clipboard.
+
+On macOS, terminals normally consume `Command+V` themselves, while plain `Option+V` may be translated into a composed character instead of an Alt chord. A reliable local Mac binding is `keys.remote_image_paste = "ctrl+alt+v"`; detach and reconnect after changing it, then press Control+Option+V. Raw `Ctrl+V` is Codex's own clipboard shortcut, so sending it to Codex on a headless Linux host bypasses Herdr and may produce an X11 clipboard unavailable or connection-timeout error.
 
 By default, `herdr --remote` uses your local Herdr keybindings for that attach. This keeps local muscle memory even when the remote server has different config. The local keybindings are a snapshot from attach time; detach and reattach after editing local keybindings. Use `--remote-keybindings server` when you want the remote server config instead. Local custom command keybindings are not sent, because those commands would run on the remote host.
 

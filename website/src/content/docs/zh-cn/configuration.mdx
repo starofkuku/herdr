@@ -350,7 +350,7 @@ Herdr 会通过前台客户端输出一个 ASCII BEL 字节，实际可见表现
     }
   }
   ```
-- 在 macOS 上，Ghostty 等终端可以在启用通知/提醒设置且获得 macOS 所需权限后，将 BEL 映射为 Dock 图标跳动。
+- 在 macOS 上,当 Ghostty 未聚焦时,`bell-features = attention` 会把 BEL 映射为一次 Dock 图标跳动。`attention` 默认开启,不需要 macOS 通知或辅助功能权限。修改 Ghostty 配置后按 `Command+Shift+,` 重新加载。在 `herdr --remote` 会话中,请在 Mac 本地客户端的配置里开启 `[ui.bell]`,因为 BEL 由该客户端发出。
 - 在 Linux 上，任务栏高亮取决于终端模拟器和桌面环境是否支持视觉 Bell 或 urgency 提示。
 
 tmux 等终端复用器可能拦截或抑制 BEL，因此也需要允许 Bell 传递到外层终端。Bell 只请求注意，不会抢占焦点。

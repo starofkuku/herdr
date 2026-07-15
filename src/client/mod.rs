@@ -36,12 +36,11 @@ use tracing::{debug, info, warn};
 
 use crate::ipc::LocalStream;
 use crate::protocol::render_ansi;
-#[cfg(unix)]
 use crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD;
 use crate::protocol::{
     self, AgentNotificationKind, AttachScrollDirection, AttachScrollSource, ClientKeybindings,
-    ClientLaunchMode, ClientMessage, NotifyKind, RenderEncoding, ServerMessage, MAX_FRAME_SIZE,
-    MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
+    ClientLaunchMode, ClientMessage, ClipboardImagePayload, NotifyKind, RenderEncoding,
+    ServerMessage, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
 };
 use crate::server::socket_paths::client_socket_path;
 
@@ -85,6 +84,11 @@ struct ClientState {
     /// Local-client shortcut that sends a clipboard image to a remote Herdr session.
     #[cfg(unix)]
     remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
+    /// Monotonic id for server-authorized clipboard image paste requests.
+    #[cfg(unix)]
+    next_clipboard_image_paste_request_id: u64,
+    /// Paste intents that may legitimately receive a server decision.
+    pending_clipboard_image_paste_requests: HashSet<u64>,
     /// Whether outer focus gain should force a full host-terminal redraw.
     redraw_on_focus_gained: bool,
     /// Whether this client draws the cursor into frame cells instead of using the host cursor.
@@ -667,6 +671,11 @@ fn is_remote_client_process() -> bool {
     std::env::var(crate::remote::REMOTE_KEYBINDINGS_ENV_VAR).is_ok()
 }
 
+#[cfg(not(unix))]
+fn is_remote_client_process() -> bool {
+    false
+}
+
 /// Time to wait for the server's Welcome reply during the handshake.
 ///
 /// A local client talks to an already-connected server, so 5s is plenty. The
@@ -758,6 +767,7 @@ fn do_handshake(
         } else {
             ClientLaunchMode::App
         },
+        remote_session: is_remote_client_process(),
     };
     protocol::write_message(stream, &hello)
         .map_err(|e| ClientError::ConnectionFailed(io::Error::other(e.to_string())))?;
@@ -1299,6 +1309,9 @@ async fn run_client_loop(
         mouse_scroll_lines: config.mouse_scroll_lines,
         #[cfg(unix)]
         remote_image_paste_key: config.remote_image_paste_key,
+        #[cfg(unix)]
+        next_clipboard_image_paste_request_id: 1,
+        pending_clipboard_image_paste_requests: HashSet::new(),
         redraw_on_focus_gained: config.redraw_on_focus_gained,
         draw_host_cursor,
     };
@@ -1427,32 +1440,19 @@ async fn run_client_loop(
                     is_remote_client,
                     state.remote_image_paste_key,
                 ) {
-                    if let Some(image) = crate::platform::read_clipboard_image() {
-                        if image.bytes.len() > MAX_CLIPBOARD_IMAGE_PAYLOAD {
-                            warn!(
-                                bytes = image.bytes.len(),
-                                max = MAX_CLIPBOARD_IMAGE_PAYLOAD,
-                                "local clipboard image is too large to bridge"
-                            );
-                            continue;
-                        }
-                        info!(
-                            bytes = image.bytes.len(),
-                            extension = image.extension,
-                            "bridging local clipboard image paste to remote server"
-                        );
-                        let msg = ClientMessage::ClipboardImage {
-                            extension: image.extension.to_owned(),
-                            data: image.bytes,
-                        };
-                        if let Err(e) = write_to_server(&mut write_stream, &msg) {
-                            return Err(ClientError::ConnectionLost(e));
-                        }
-                        continue;
+                    let request_id = state.next_clipboard_image_paste_request_id;
+                    state.next_clipboard_image_paste_request_id = request_id.saturating_add(1);
+                    state
+                        .pending_clipboard_image_paste_requests
+                        .insert(request_id);
+                    let msg = ClientMessage::ClipboardImagePasteIntent {
+                        request_id,
+                        fallback_input: data,
+                    };
+                    if let Err(e) = write_to_server(&mut write_stream, &msg) {
+                        return Err(ClientError::ConnectionLost(e));
                     }
-                    info!(
-                        "clipboard image paste trigger received, but local clipboard has no image"
-                    );
+                    continue;
                 }
                 if let Some(image) = read_image_file_from_terminal_drop(&data, is_remote_client) {
                     info!(
@@ -1595,6 +1595,41 @@ async fn run_client_loop(
                         prefix_input_source.switch_to_ascii();
                     } else {
                         prefix_input_source.restore();
+                    }
+                }
+                ServerMessage::ClipboardImagePasteDecision {
+                    request_id,
+                    authorized,
+                } => {
+                    if !state
+                        .pending_clipboard_image_paste_requests
+                        .remove(&request_id)
+                    {
+                        warn!(
+                            request_id,
+                            "ignored unexpected clipboard image paste decision"
+                        );
+                    } else if authorized {
+                        let image = crate::platform::read_clipboard_image().and_then(|image| {
+                            if image.bytes.len() > MAX_CLIPBOARD_IMAGE_PAYLOAD {
+                                warn!(
+                                    request_id,
+                                    bytes = image.bytes.len(),
+                                    max = MAX_CLIPBOARD_IMAGE_PAYLOAD,
+                                    "local clipboard image is too large for Codex remote paste"
+                                );
+                                None
+                            } else {
+                                Some(ClipboardImagePayload {
+                                    extension: image.extension.to_owned(),
+                                    data: image.bytes,
+                                })
+                            }
+                        });
+                        let msg = ClientMessage::ClipboardImagePasteResult { request_id, image };
+                        if let Err(e) = write_to_server(&mut write_stream, &msg) {
+                            return Err(ClientError::ConnectionLost(e));
+                        }
                     }
                 }
                 ServerMessage::Welcome { .. } => {
@@ -2252,16 +2287,16 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn clipboard_image_paste_bridge_triggers_on_configured_key_and_empty_paste() {
-        let ctrl_v = crate::config::parse_key_combo("ctrl+v").unwrap();
+        let alt_v = crate::config::parse_key_combo("alt+v").unwrap();
         assert!(should_bridge_clipboard_image_paste(
-            &[0x16],
+            b"\x1bv",
             true,
-            Some(ctrl_v)
+            Some(alt_v)
         ));
         assert!(should_bridge_clipboard_image_paste(
-            b"\x1b[118;5u",
+            b"\x1b[118;3u",
             true,
-            Some(ctrl_v)
+            Some(alt_v)
         ));
         assert!(should_bridge_clipboard_image_paste(
             b"\x1b[200~\x1b[201~",
@@ -2271,18 +2306,18 @@ mod tests {
         assert!(!should_bridge_clipboard_image_paste(
             b"\x1b[200~\x1b[201~",
             false,
-            Some(ctrl_v)
+            Some(alt_v)
         ));
         assert!(!should_bridge_clipboard_image_paste(
             b"\x1b[200~text\x1b[201~",
             true,
-            Some(ctrl_v)
+            Some(alt_v)
         ));
-        assert!(!should_bridge_clipboard_image_paste(&[0x16], true, None));
+        assert!(!should_bridge_clipboard_image_paste(b"\x1bv", true, None));
         assert!(!should_bridge_clipboard_image_paste(
             b"v",
             true,
-            Some(ctrl_v)
+            Some(alt_v)
         ));
     }
 

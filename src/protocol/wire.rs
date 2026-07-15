@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 17;
+pub const PROTOCOL_VERSION: u32 = 18;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -127,6 +127,15 @@ pub enum ClientInputEvent {
     },
     FocusGained,
     FocusLost,
+}
+
+/// Clipboard image bytes returned after the server authorizes a remote paste request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClipboardImagePayload {
+    /// Image file extension without a leading dot.
+    pub extension: String,
+    /// Raw encoded image bytes.
+    pub data: Vec<u8>,
 }
 
 impl ClientKeyKind {
@@ -324,6 +333,8 @@ pub enum ClientMessage {
         keybindings: ClientKeybindings,
         /// Whether this connection will render the full app or attach directly to a pane terminal.
         launch_mode: ClientLaunchMode,
+        /// Whether this client was launched through `herdr --remote`.
+        remote_session: bool,
     },
 
     /// Raw input bytes read from the client's stdin.
@@ -394,6 +405,22 @@ pub enum ClientMessage {
         target: String,
         /// Replace an existing writable controller for this terminal.
         takeover: bool,
+    },
+
+    /// Ask the server whether the configured remote image-paste shortcut targets Codex.
+    ClipboardImagePasteIntent {
+        /// Client-local request id used to correlate the authorization response.
+        request_id: u64,
+        /// Original terminal bytes to route normally when the request is not authorized.
+        fallback_input: Vec<u8>,
+    },
+
+    /// Return the local clipboard image after the server authorizes the request.
+    ClipboardImagePasteResult {
+        /// Request id from [`ClientMessage::ClipboardImagePasteIntent`].
+        request_id: u64,
+        /// `None` when the local clipboard did not contain a readable image.
+        image: Option<ClipboardImagePayload>,
     },
 }
 
@@ -673,6 +700,14 @@ pub enum ServerMessage {
     PrefixInputSource {
         /// Whether the ASCII input source should be active.
         active: bool,
+    },
+
+    /// Tell a remote client whether it should read its local clipboard image.
+    ClipboardImagePasteDecision {
+        /// Request id from the client's paste intent.
+        request_id: u64,
+        /// True only when the server bound the request to a Codex terminal.
+        authorized: bool,
     },
 }
 
@@ -963,6 +998,7 @@ mod tests {
             requested_encoding: RenderEncoding::SemanticFrame,
             keybindings: ClientKeybindings::Server,
             launch_mode: ClientLaunchMode::App,
+            remote_session: false,
         };
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
         let (decoded, _): (ClientMessage, _) =
@@ -1000,6 +1036,7 @@ mod tests {
                 requested_encoding: RenderEncoding::SemanticFrame,
                 keybindings: ClientKeybindings::Server,
                 launch_mode: ClientLaunchMode::App,
+                remote_session: false,
             }),
             0
         );
@@ -1052,6 +1089,20 @@ mod tests {
                 takeover: false,
             }),
             9
+        );
+        assert_eq!(
+            tag(&ClientMessage::ClipboardImagePasteIntent {
+                request_id: 1,
+                fallback_input: Vec::new(),
+            }),
+            10
+        );
+        assert_eq!(
+            tag(&ClientMessage::ClipboardImagePasteResult {
+                request_id: 1,
+                image: None,
+            }),
+            11
         );
     }
 
@@ -1126,6 +1177,28 @@ mod tests {
         let (decoded, _): (ClientMessage, _) =
             bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
         assert_eq!(msg, decoded);
+    }
+
+    #[test]
+    fn client_clipboard_image_paste_messages_roundtrip() {
+        for msg in [
+            ClientMessage::ClipboardImagePasteIntent {
+                request_id: 7,
+                fallback_input: b"\x1bv".to_vec(),
+            },
+            ClientMessage::ClipboardImagePasteResult {
+                request_id: 7,
+                image: Some(ClipboardImagePayload {
+                    extension: "png".to_owned(),
+                    data: b"\x89PNG".to_vec(),
+                }),
+            },
+        ] {
+            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+            let (decoded, _): (ClientMessage, _) =
+                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+            assert_eq!(msg, decoded);
+        }
     }
 
     #[test]
@@ -1447,6 +1520,18 @@ mod tests {
         }
     }
 
+    #[test]
+    fn server_clipboard_image_paste_decision_roundtrip() {
+        let msg = ServerMessage::ClipboardImagePasteDecision {
+            request_id: 7,
+            authorized: true,
+        };
+        let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+        let (decoded, _): (ServerMessage, _) =
+            bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+        assert_eq!(msg, decoded);
+    }
+
     // ---- Framing ----
 
     #[test]
@@ -1460,6 +1545,7 @@ mod tests {
             requested_encoding: RenderEncoding::SemanticFrame,
             keybindings: ClientKeybindings::Server,
             launch_mode: ClientLaunchMode::App,
+            remote_session: false,
         };
         let mut buf = Vec::new();
         write_message(&mut buf, &msg).unwrap();
@@ -1534,6 +1620,7 @@ mod tests {
                     requested_encoding: RenderEncoding::SemanticFrame,
                     keybindings: ClientKeybindings::Server,
                     launch_mode: ClientLaunchMode::App,
+                    remote_session: false,
                 },
                 1 => ClientMessage::Input {
                     data: vec![(i % 256) as u8; (i as usize % 50) + 1],
@@ -1970,6 +2057,7 @@ mod tests {
             requested_encoding: RenderEncoding::SemanticFrame,
             keybindings: ClientKeybindings::Server,
             launch_mode: ClientLaunchMode::App,
+            remote_session: false,
         };
         let mut buf = Vec::new();
         write_message(&mut buf, &msg).unwrap();
@@ -2006,6 +2094,7 @@ mod tests {
                 requested_encoding: RenderEncoding::SemanticFrame,
                 keybindings: ClientKeybindings::Server,
                 launch_mode: ClientLaunchMode::App,
+                remote_session: false,
             },
             ClientMessage::Input {
                 data: b"hello world".to_vec(),

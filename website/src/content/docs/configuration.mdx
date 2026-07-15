@@ -351,7 +351,7 @@ Herdr emits one ASCII BEL byte through the foreground client. The outer terminal
     }
   }
   ```
-- On macOS, Ghostty and other terminals can map BEL to a Dock bounce when their notification/attention setting is enabled and macOS grants the required permission.
+- On macOS, Ghostty maps BEL to one Dock bounce through `bell-features = attention` while Ghostty is unfocused. `attention` is enabled by default and does not require macOS notification or Accessibility permission. Reload Ghostty with `Command+Shift+,` after editing its config. During `herdr --remote`, enable `[ui.bell]` in the local Mac client's config because that client emits BEL.
 - On Linux, taskbar highlighting depends on the terminal emulator and desktop environment's visual-bell or urgency support.
 
 Multiplexers such as tmux may intercept or suppress BEL, so their bell settings must also allow it to reach the outer terminal. Bell requests attention only; Herdr does not steal focus.

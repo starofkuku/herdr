@@ -53,7 +53,8 @@ use crate::server::client_accept::{
 use crate::server::client_transport::ServerEvent;
 use crate::server::clients::{
     events_include_interaction, latest_app_client, render_targets, terminal_stream_client_ids,
-    ClientConnection, ClientConnectionMode,
+    ClientConnection, ClientConnectionMode, DeferredClipboardPasteInput,
+    PendingClipboardImagePaste,
 };
 use crate::server::keybindings::{app_keybindings, apply_keybindings};
 use crate::server::notifications::{
@@ -195,6 +196,9 @@ const SHUTDOWN_API_TIMEOUT: Duration = Duration::from_secs(5);
 /// otherwise idle. Keep this much slower than the old resize-poll cadence to
 /// avoid reintroducing the idle CPU spin.
 const CLIENT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(250);
+const CLIPBOARD_IMAGE_PASTE_TIMEOUT: Duration = Duration::from_secs(10);
+const MAX_DEFERRED_CLIPBOARD_PASTE_INPUTS: usize = 64;
+const MAX_DEFERRED_CLIPBOARD_PASTE_INPUT_BYTES: usize = 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Headless server
@@ -514,6 +518,10 @@ impl HeadlessServer {
                 needs_render = true;
                 needs_full_render = true;
                 crate::render_prof::event("full_render_cause.server_events");
+            }
+            if self.expire_clipboard_image_paste_requests(Instant::now()) {
+                needs_render = true;
+                needs_full_render = true;
             }
 
             // 6. Handle scheduled tasks.
@@ -1422,6 +1430,38 @@ impl HeadlessServer {
         self.app.terminal_runtimes.get(&terminal_id)
     }
 
+    fn clipboard_image_paste_target(&self, client_id: u64) -> Option<crate::terminal::TerminalId> {
+        let client = self.clients.get(&client_id)?;
+        if !client.remote_session || client.pending_terminal_attach {
+            return None;
+        }
+
+        let terminal_id = match &client.mode {
+            ClientConnectionMode::App => {
+                if self.app.state.mode != crate::app::state::Mode::Terminal {
+                    return None;
+                }
+                let ws_idx = self.app.state.active?;
+                let workspace = self.app.state.workspaces.get(ws_idx)?;
+                let pane_id = workspace.focused_pane_id()?;
+                workspace.terminal_id(pane_id)?.clone()
+            }
+            ClientConnectionMode::TerminalAttach { terminal_id } => {
+                self.terminal_id_by_string(terminal_id)?
+            }
+            ClientConnectionMode::TerminalObserve { .. } => return None,
+        };
+
+        self.app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .filter(|terminal| {
+                terminal.effective_known_agent() == Some(crate::detect::Agent::Codex)
+            })?;
+        Some(terminal_id)
+    }
+
     fn resolve_terminal_target_id_string(&self, target: &str) -> Option<String> {
         if self.terminal_id_by_string(target).is_some() {
             return Some(target.to_owned());
@@ -1473,6 +1513,34 @@ impl HeadlessServer {
             self.foreground_client_id == Some(client_id),
         );
         true
+    }
+
+    fn paste_clipboard_image_path_to_terminal(
+        &self,
+        client_id: u64,
+        terminal_id: &crate::terminal::TerminalId,
+        path: &str,
+    ) -> bool {
+        let Some(terminal) = self.app.state.terminals.get(terminal_id) else {
+            warn!(client_id, terminal_id = %terminal_id, "clipboard image paste target disappeared");
+            return false;
+        };
+        if terminal.effective_known_agent() != Some(crate::detect::Agent::Codex) {
+            warn!(client_id, terminal_id = %terminal_id, "clipboard image paste target is no longer Codex");
+            return false;
+        }
+        let Some(runtime) = self.app.terminal_runtimes.get(terminal_id) else {
+            warn!(client_id, terminal_id = %terminal_id, "clipboard image paste target runtime disappeared");
+            return false;
+        };
+        let payload = paste_payload_for_runtime(runtime, path);
+        match runtime.try_send_bytes(Bytes::from(payload)) {
+            Ok(()) => true,
+            Err(err) => {
+                warn!(client_id, terminal_id = %terminal_id, err = %err, "Codex clipboard image paste failed");
+                false
+            }
+        }
     }
 
     fn resolve_terminal_session_target(
@@ -2471,6 +2539,242 @@ impl HeadlessServer {
         })
     }
 
+    fn handle_client_raw_input(&mut self, client_id: u64, data: Vec<u8>) -> bool {
+        if let Some(ClientConnection {
+            mode: ClientConnectionMode::TerminalAttach { terminal_id },
+            ..
+        }) = self.clients.get(&client_id)
+        {
+            if let Some(runtime) = self.runtime_for_terminal_id_string(terminal_id) {
+                if let Err(err) = apply_terminal_attach_input(runtime, data) {
+                    warn!(client_id, terminal_id = %terminal_id, err = %err);
+                }
+            }
+            return true;
+        }
+        if matches!(
+            self.clients.get(&client_id).map(|client| &client.mode),
+            Some(ClientConnectionMode::TerminalObserve { .. })
+        ) {
+            return false;
+        }
+        let events = if let Some(client) = self.clients.get_mut(&client_id) {
+            let mut events = client.raw_input.push(&data);
+            if data.as_slice() == b"\x1b" {
+                events.extend(client.raw_input.flush_timeout());
+            }
+            events
+        } else {
+            Vec::new()
+        };
+        self.handle_client_input_events(client_id, events)
+    }
+
+    fn defer_clipboard_paste_input(
+        &mut self,
+        client_id: u64,
+        input: DeferredClipboardPasteInput,
+    ) -> bool {
+        let Some(client) = self.clients.get_mut(&client_id) else {
+            return false;
+        };
+        let next_count = client.deferred_clipboard_paste_inputs.len() + 1;
+        let next_bytes = client
+            .deferred_clipboard_paste_input_bytes
+            .saturating_add(input.payload_len());
+        if next_count > MAX_DEFERRED_CLIPBOARD_PASTE_INPUTS
+            || next_bytes > MAX_DEFERRED_CLIPBOARD_PASTE_INPUT_BYTES
+        {
+            warn!(
+                client_id,
+                next_count, next_bytes, "too much input queued behind clipboard image paste"
+            );
+            return false;
+        }
+        client.deferred_clipboard_paste_input_bytes = next_bytes;
+        client.deferred_clipboard_paste_inputs.push_back(input);
+        true
+    }
+
+    fn replay_deferred_clipboard_paste_inputs(&mut self, client_id: u64) -> bool {
+        let inputs = self.clients.get_mut(&client_id).map(|client| {
+            client.deferred_clipboard_paste_input_bytes = 0;
+            std::mem::take(&mut client.deferred_clipboard_paste_inputs)
+        });
+        let Some(inputs) = inputs else {
+            return false;
+        };
+
+        let mut changed = false;
+        for input in inputs {
+            changed |= match input {
+                DeferredClipboardPasteInput::Raw(data) => {
+                    self.handle_server_event(ServerEvent::ClientInput { client_id, data })
+                }
+                DeferredClipboardPasteInput::Events(events) => {
+                    self.handle_server_event(ServerEvent::ClientInputEvents { client_id, events })
+                }
+                DeferredClipboardPasteInput::Intent {
+                    request_id,
+                    fallback_input,
+                } => self.handle_server_event(ServerEvent::ClientClipboardImagePasteIntent {
+                    client_id,
+                    request_id,
+                    fallback_input,
+                }),
+            };
+        }
+        changed
+    }
+
+    fn expire_clipboard_image_paste_requests(&mut self, now: Instant) -> bool {
+        let expired = self
+            .clients
+            .iter()
+            .filter_map(|(client_id, client)| {
+                client
+                    .pending_clipboard_image_paste
+                    .as_ref()
+                    .filter(|pending| {
+                        now.saturating_duration_since(pending.started_at)
+                            >= CLIPBOARD_IMAGE_PASTE_TIMEOUT
+                    })
+                    .map(|pending| (*client_id, pending.request_id))
+            })
+            .collect::<Vec<_>>();
+
+        let mut changed = false;
+        for (client_id, request_id) in expired {
+            if let Some(client) = self.clients.get_mut(&client_id) {
+                client.pending_clipboard_image_paste = None;
+            }
+            warn!(
+                client_id,
+                request_id, "clipboard image paste request timed out"
+            );
+            self.send_to_client(
+                client_id,
+                ServerMessage::Notify {
+                    kind: protocol::NotifyKind::Toast,
+                    message: "clipboard image paste timed out".to_owned(),
+                    body: None,
+                },
+            );
+            changed |= self.replay_deferred_clipboard_paste_inputs(client_id);
+        }
+        changed
+    }
+
+    fn handle_clipboard_image_paste_intent(
+        &mut self,
+        client_id: u64,
+        request_id: u64,
+        fallback_input: Vec<u8>,
+    ) -> bool {
+        if self
+            .clients
+            .get(&client_id)
+            .is_some_and(|client| client.pending_clipboard_image_paste.is_some())
+        {
+            return self.defer_clipboard_paste_input(
+                client_id,
+                DeferredClipboardPasteInput::Intent {
+                    request_id,
+                    fallback_input,
+                },
+            );
+        }
+
+        let Some(terminal_id) = self.clipboard_image_paste_target(client_id) else {
+            self.send_to_client(
+                client_id,
+                ServerMessage::ClipboardImagePasteDecision {
+                    request_id,
+                    authorized: false,
+                },
+            );
+            return self.handle_client_raw_input(client_id, fallback_input);
+        };
+
+        let foreground_changed = self.promote_client_to_foreground(client_id);
+        if foreground_changed {
+            self.resize_shared_runtime_to_effective_size_before_input();
+        }
+        if let Some(client) = self.clients.get_mut(&client_id) {
+            client.pending_clipboard_image_paste = Some(PendingClipboardImagePaste {
+                request_id,
+                terminal_id,
+                started_at: Instant::now(),
+            });
+            client.request_semantic_redraw_after_input();
+        }
+        self.send_to_client(
+            client_id,
+            ServerMessage::ClipboardImagePasteDecision {
+                request_id,
+                authorized: true,
+            },
+        );
+        true
+    }
+
+    fn handle_clipboard_image_paste_result(
+        &mut self,
+        client_id: u64,
+        request_id: u64,
+        image: Option<crate::protocol::ClipboardImagePayload>,
+    ) -> bool {
+        let pending = self.clients.get_mut(&client_id).and_then(|client| {
+            if client
+                .pending_clipboard_image_paste
+                .as_ref()
+                .is_some_and(|pending| pending.request_id == request_id)
+            {
+                client.pending_clipboard_image_paste.take()
+            } else {
+                None
+            }
+        });
+        let Some(pending) = pending else {
+            warn!(
+                client_id,
+                request_id, "ignored unknown clipboard image paste result"
+            );
+            return false;
+        };
+
+        let mut changed = if let Some(image) = image {
+            if !crate::platform::clipboard_image_matches_signature(&image.extension, &image.data) {
+                warn!(client_id, request_id, extension = %image.extension, "rejected invalid Codex clipboard image");
+                false
+            } else {
+                match self.write_client_clipboard_image(client_id, &image.extension, &image.data) {
+                    Ok(path) => self.paste_clipboard_image_path_to_terminal(
+                        client_id,
+                        &pending.terminal_id,
+                        &path,
+                    ),
+                    Err(err) => {
+                        warn!(client_id, request_id, err = %err, "failed to stage Codex clipboard image");
+                        false
+                    }
+                }
+            }
+        } else {
+            self.send_to_client(
+                client_id,
+                ServerMessage::Notify {
+                    kind: protocol::NotifyKind::Toast,
+                    message: "clipboard image unavailable".to_owned(),
+                    body: Some("The local clipboard does not contain a readable image.".to_owned()),
+                },
+            );
+            false
+        };
+        changed |= self.replay_deferred_clipboard_paste_inputs(client_id);
+        changed
+    }
+
     /// Handles a server event. Returns true if the event requires a re-render.
     fn handle_client_input_events(
         &mut self,
@@ -2558,6 +2862,7 @@ impl HeadlessServer {
                 writer,
                 render_encoding,
                 direct_attach_requested,
+                remote_session,
             } => {
                 if self.handoff_in_progress {
                     if let Ok(message) =
@@ -2598,6 +2903,7 @@ impl HeadlessServer {
                         last_activity,
                         render_encoding,
                         direct_attach_requested,
+                        remote_session,
                         Some(writer),
                     ),
                 );
@@ -2646,35 +2952,17 @@ impl HeadlessServer {
                     return false;
                 }
                 debug!(client_id, len = data.len(), "client input received");
-                if let Some(ClientConnection {
-                    mode: ClientConnectionMode::TerminalAttach { terminal_id },
-                    ..
-                }) = self.clients.get(&client_id)
+                if self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.pending_clipboard_image_paste.is_some())
                 {
-                    if let Some(runtime) = self.runtime_for_terminal_id_string(terminal_id) {
-                        if let Err(err) = apply_terminal_attach_input(runtime, data) {
-                            warn!(client_id, terminal_id = %terminal_id, err = %err);
-                        }
-                    }
-                    return true;
+                    return self.defer_clipboard_paste_input(
+                        client_id,
+                        DeferredClipboardPasteInput::Raw(data),
+                    );
                 }
-                if matches!(
-                    self.clients.get(&client_id).map(|client| &client.mode),
-                    Some(ClientConnectionMode::TerminalObserve { .. })
-                ) {
-                    return false;
-                }
-                let events = if let Some(client) = self.clients.get_mut(&client_id) {
-                    let mut events = client.raw_input.push(&data);
-                    // The thin client only forwards a bare ESC after its local input timeout.
-                    if data.as_slice() == b"\x1b" {
-                        events.extend(client.raw_input.flush_timeout());
-                    }
-                    events
-                } else {
-                    Vec::new()
-                };
-                self.handle_client_input_events(client_id, events)
+                self.handle_client_raw_input(client_id, data)
             }
             ServerEvent::ClientInputEvents { client_id, events } => {
                 if self.handoff_in_progress {
@@ -2696,12 +2984,32 @@ impl HeadlessServer {
                 ) {
                     return false;
                 }
+                if self
+                    .clients
+                    .get(&client_id)
+                    .is_some_and(|client| client.pending_clipboard_image_paste.is_some())
+                {
+                    return self.defer_clipboard_paste_input(
+                        client_id,
+                        DeferredClipboardPasteInput::Events(events),
+                    );
+                }
                 let events = events
                     .iter()
                     .map(crate::protocol::ClientInputEvent::to_raw_input_event)
                     .collect();
                 self.handle_client_input_events(client_id, events)
             }
+            ServerEvent::ClientClipboardImagePasteIntent {
+                client_id,
+                request_id,
+                fallback_input,
+            } => self.handle_clipboard_image_paste_intent(client_id, request_id, fallback_input),
+            ServerEvent::ClientClipboardImagePasteResult {
+                client_id,
+                request_id,
+                image,
+            } => self.handle_clipboard_image_paste_result(client_id, request_id, image),
             ServerEvent::ClientClipboardImage {
                 client_id,
                 extension,
@@ -4572,6 +4880,191 @@ mod tests {
         )
     }
 
+    fn clipboard_image_paste_test_server(
+        remote_session: bool,
+        agent: crate::detect::Agent,
+    ) -> (
+        HeadlessServer,
+        std::sync::mpsc::Receiver<Vec<u8>>,
+        tokio::sync::mpsc::Receiver<Bytes>,
+        crate::terminal::TerminalId,
+    ) {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("clipboard-paste");
+        let pane_id = workspace.focused_pane_id().expect("focused pane");
+        let terminal_id = workspace.terminal_id(pane_id).expect("terminal id").clone();
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.ensure_test_terminals();
+        server
+            .app
+            .state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal state")
+            .set_detected_state(Some(agent), crate::detect::AgentState::Idle);
+        let (runtime, input_rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        server
+            .app
+            .terminal_runtimes
+            .insert(terminal_id.clone(), runtime);
+
+        let (writer, control_rx, _render_rx) = test_client_writer();
+        let mut client = ClientConnection::new(
+            (80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::terminal_theme::TerminalTheme::default(),
+            Some(true),
+            1,
+            RenderEncoding::SemanticFrame,
+            Some(writer),
+        );
+        client.remote_session = remote_session;
+        server.clients.insert(1, client);
+        server.foreground_client_id = Some(1);
+        (server, control_rx, input_rx, terminal_id)
+    }
+
+    #[tokio::test]
+    async fn remote_codex_clipboard_image_paste_requires_server_authorization() {
+        let (mut server, control_rx, mut input_rx, terminal_id) =
+            clipboard_image_paste_test_server(true, crate::detect::Agent::Codex);
+
+        assert!(
+            server.handle_server_event(ServerEvent::ClientClipboardImagePasteIntent {
+                client_id: 1,
+                request_id: 7,
+                fallback_input: b"\x1bv".to_vec(),
+            })
+        );
+        assert_eq!(
+            read_server_message(control_rx.recv().expect("paste decision")),
+            ServerMessage::ClipboardImagePasteDecision {
+                request_id: 7,
+                authorized: true,
+            }
+        );
+        assert_eq!(
+            server.clients[&1]
+                .pending_clipboard_image_paste
+                .as_ref()
+                .map(|pending| (&pending.terminal_id, pending.request_id)),
+            Some((&terminal_id, 7))
+        );
+        assert!(input_rx.try_recv().is_err());
+        assert!(server.handle_server_event(ServerEvent::ClientInput {
+            client_id: 1,
+            data: b"x".to_vec(),
+        }));
+        assert!(input_rx.try_recv().is_err());
+
+        assert!(
+            server.handle_server_event(ServerEvent::ClientClipboardImagePasteResult {
+                client_id: 1,
+                request_id: 7,
+                image: Some(crate::protocol::ClipboardImagePayload {
+                    extension: "png".to_owned(),
+                    data: b"\x89PNG\r\n\x1a\nimage".to_vec(),
+                }),
+            })
+        );
+        let pasted = input_rx.try_recv().expect("staged path paste");
+        let pasted = String::from_utf8(pasted.to_vec()).expect("utf8 staged path");
+        assert!(pasted.contains("herdr-clipboard-images-"));
+        assert!(pasted.ends_with(".png"));
+        assert_eq!(input_rx.try_recv().expect("deferred input").as_ref(), b"x");
+        assert!(server.clients[&1].pending_clipboard_image_paste.is_none());
+        shutdown_test_runtimes(&mut server);
+    }
+
+    #[tokio::test]
+    async fn clipboard_image_paste_falls_back_outside_remote_codex() {
+        for (remote_session, agent) in [
+            (false, crate::detect::Agent::Codex),
+            (true, crate::detect::Agent::Claude),
+        ] {
+            let (mut server, control_rx, mut input_rx, _) =
+                clipboard_image_paste_test_server(remote_session, agent);
+            assert!(
+                server.handle_server_event(ServerEvent::ClientClipboardImagePasteIntent {
+                    client_id: 1,
+                    request_id: 9,
+                    fallback_input: b"\x1bv".to_vec(),
+                })
+            );
+            assert_eq!(
+                read_server_message(control_rx.recv().expect("paste decision")),
+                ServerMessage::ClipboardImagePasteDecision {
+                    request_id: 9,
+                    authorized: false,
+                }
+            );
+            assert_eq!(
+                input_rx.try_recv().expect("fallback input").as_ref(),
+                b"\x1bv"
+            );
+            assert!(server.clients[&1].pending_clipboard_image_paste.is_none());
+            shutdown_test_runtimes(&mut server);
+        }
+    }
+
+    #[tokio::test]
+    async fn clipboard_image_paste_result_stays_bound_to_original_codex_terminal() {
+        let (mut server, control_rx, mut original_input_rx, _) =
+            clipboard_image_paste_test_server(true, crate::detect::Agent::Codex);
+        assert!(
+            server.handle_server_event(ServerEvent::ClientClipboardImagePasteIntent {
+                client_id: 1,
+                request_id: 11,
+                fallback_input: b"\x1bv".to_vec(),
+            })
+        );
+        let _ = control_rx.recv().expect("paste decision");
+
+        let second = crate::workspace::Workspace::test_new("second");
+        let second_pane = second.focused_pane_id().expect("second focused pane");
+        let second_terminal_id = second
+            .terminal_id(second_pane)
+            .expect("second terminal id")
+            .clone();
+        server.app.state.workspaces.push(second);
+        server.app.state.active = Some(1);
+        server.app.state.selected = 1;
+        server.app.state.ensure_test_terminals();
+        server
+            .app
+            .state
+            .terminals
+            .get_mut(&second_terminal_id)
+            .expect("second terminal state")
+            .set_detected_state(
+                Some(crate::detect::Agent::Codex),
+                crate::detect::AgentState::Idle,
+            );
+        let (second_runtime, mut second_input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        server
+            .app
+            .terminal_runtimes
+            .insert(second_terminal_id, second_runtime);
+
+        assert!(
+            server.handle_server_event(ServerEvent::ClientClipboardImagePasteResult {
+                client_id: 1,
+                request_id: 11,
+                image: Some(crate::protocol::ClipboardImagePayload {
+                    extension: "png".to_owned(),
+                    data: b"\x89PNG\r\n\x1a\nimage".to_vec(),
+                }),
+            })
+        );
+        assert!(original_input_rx.try_recv().is_ok());
+        assert!(second_input_rx.try_recv().is_err());
+        shutdown_test_runtimes(&mut server);
+    }
+
     fn retained_test_server(
         initial_screen: &[u8],
     ) -> (
@@ -4661,6 +5154,7 @@ new_tab = "prefix+t"
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_keybindings)),
             direct_attach_requested: false,
+            remote_session: false,
             writer: writer_a,
         }));
         assert_eq!(
@@ -4685,6 +5179,7 @@ new_tab = "prefix+t"
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: None,
             direct_attach_requested: false,
+            remote_session: false,
             writer: writer_b,
         }));
         assert_eq!(
@@ -4725,6 +5220,7 @@ new_tab = "prefix+t"
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_keybindings)),
             direct_attach_requested: false,
+            remote_session: false,
             writer: writer_a,
         }));
         assert_eq!(server.app.state.config_diagnostic, without_keybindings);
@@ -4738,6 +5234,7 @@ new_tab = "prefix+t"
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: None,
             direct_attach_requested: false,
+            remote_session: false,
             writer: writer_b,
         }));
         assert_eq!(
@@ -4781,6 +5278,7 @@ next_tab = ""
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_keybindings)),
             direct_attach_requested: false,
+            remote_session: false,
             writer,
         }));
         server.app.state.mode = crate::app::Mode::Settings;
@@ -4856,6 +5354,7 @@ next_tab = ""
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: Some(Box::new(local_config.live_keybinds().unwrap())),
             direct_attach_requested: false,
+            remote_session: false,
             writer: writer_a,
         }));
         server.app.state.mode = crate::app::Mode::Settings;
@@ -4876,6 +5375,7 @@ next_tab = ""
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: None,
             direct_attach_requested: false,
+            remote_session: false,
             writer: writer_b,
         }));
         assert_eq!(
@@ -4910,6 +5410,7 @@ next_tab = ""
             render_encoding: RenderEncoding::TerminalAnsi,
             keybindings: None,
             direct_attach_requested: true,
+            remote_session: false,
             writer,
         }));
         assert!(server.clients.contains_key(&7));
@@ -4975,6 +5476,7 @@ next_tab = ""
             render_encoding: RenderEncoding::TerminalAnsi,
             keybindings: None,
             direct_attach_requested: true,
+            remote_session: false,
             writer,
         }));
         control_rx
@@ -5277,6 +5779,7 @@ next_tab = ""
             render_encoding,
             keybindings: None,
             direct_attach_requested: false,
+            remote_session: false,
             writer,
         }));
 
@@ -5311,6 +5814,7 @@ next_tab = ""
             render_encoding: RenderEncoding::TerminalAnsi,
             keybindings: None,
             direct_attach_requested: true,
+            remote_session: false,
             writer,
         }));
 
@@ -5344,6 +5848,7 @@ next_tab = ""
             render_encoding: RenderEncoding::SemanticFrame,
             keybindings: None,
             direct_attach_requested: false,
+            remote_session: false,
             writer,
         }));
         assert!(server.has_app_client());
@@ -5389,6 +5894,7 @@ next_tab = ""
             render_encoding: RenderEncoding::TerminalAnsi,
             keybindings: None,
             direct_attach_requested: true,
+            remote_session: false,
             writer,
         }));
         assert!(
@@ -7156,6 +7662,7 @@ next_tab = ""
             render_encoding: RenderEncoding::TerminalAnsi,
             keybindings: None,
             direct_attach_requested: true,
+            remote_session: false,
             writer,
         }));
         assert!(

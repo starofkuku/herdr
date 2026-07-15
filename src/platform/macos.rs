@@ -615,7 +615,7 @@ pub fn read_clipboard_image() -> Option<ClipboardImage> {
         }
     };
     let _ = std::fs::remove_file(&path);
-    Some(ClipboardImage {
+    super::clipboard_image_matches_signature("png", &bytes).then_some(ClipboardImage {
         bytes,
         extension: "png",
     })

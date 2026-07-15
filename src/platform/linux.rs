@@ -9,8 +9,8 @@ use std::{
 };
 
 use super::{
-    read_limited_reader, ClipboardCommand, ClipboardImage, ForegroundJob, ForegroundProcess,
-    LimitedRead, Signal,
+    clipboard_image_matches_signature, read_limited_reader, ClipboardCommand, ClipboardImage,
+    ForegroundJob, ForegroundProcess, LimitedRead, Signal,
 };
 
 const FOREGROUND_MEMBERS_CACHE_TTL: Duration = Duration::from_millis(250);
@@ -413,6 +413,10 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
 }
 
 pub fn read_clipboard_image() -> Option<ClipboardImage> {
+    if running_inside_wsl() {
+        return read_wsl_clipboard_image();
+    }
+
     for (mime, extension) in [
         ("image/png", "png"),
         ("image/jpeg", "jpg"),
@@ -443,33 +447,109 @@ pub fn read_clipboard_image() -> Option<ClipboardImage> {
     None
 }
 
+const WSL_CLIPBOARD_IMAGE_SCRIPT: &str = r#"[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $img = Get-Clipboard -Format Image; if ($null -eq $img) { exit 1 }; $p = Join-Path ([System.IO.Path]::GetTempPath()) ("herdr-clipboard-" + [guid]::NewGuid().ToString("N") + ".png"); try { $img.Save($p, [System.Drawing.Imaging.ImageFormat]::Png); Write-Output $p } finally { $img.Dispose() }"#;
+
+fn read_wsl_clipboard_image() -> Option<ClipboardImage> {
+    for program in ["powershell.exe", "pwsh.exe"] {
+        let Some(path) = dump_wsl_clipboard_image(program) else {
+            continue;
+        };
+        let image = read_wsl_clipboard_image_path(&path);
+        let _ = std::fs::remove_file(&path);
+        if image.is_some() {
+            return image;
+        }
+    }
+    None
+}
+
+fn dump_wsl_clipboard_image(program: &str) -> Option<PathBuf> {
+    let output = Command::new(program)
+        .args([
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            WSL_CLIPBOARD_IMAGE_SCRIPT,
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let windows_path = normalize_powershell_path_output(&output.stdout)?;
+    windows_path_to_wsl(&windows_path)
+}
+
+fn normalize_powershell_path_output(output: &[u8]) -> Option<String> {
+    let path = String::from_utf8_lossy(output);
+    let path = path.trim().trim_start_matches('\u{feff}').trim();
+    (!path.is_empty()).then(|| path.to_owned())
+}
+
+fn windows_path_to_wsl(windows_path: &str) -> Option<PathBuf> {
+    if let Ok(output) = Command::new("wslpath")
+        .args(["-u", windows_path])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+    {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout);
+            let path = path.trim();
+            if !path.is_empty() {
+                return Some(PathBuf::from(path));
+            }
+        }
+    }
+    windows_path_to_default_wsl_mount(windows_path)
+}
+
+fn windows_path_to_default_wsl_mount(windows_path: &str) -> Option<PathBuf> {
+    if windows_path.starts_with("\\\\") {
+        return None;
+    }
+    let drive = windows_path.chars().next()?.to_ascii_lowercase();
+    if !drive.is_ascii_lowercase() || windows_path.get(1..2) != Some(":") {
+        return None;
+    }
+    let mut path = PathBuf::from(format!("/mnt/{drive}"));
+    for component in windows_path
+        .get(2..)?
+        .trim_start_matches(['\\', '/'])
+        .split(['\\', '/'])
+        .filter(|component| !component.is_empty())
+    {
+        path.push(component);
+    }
+    Some(path)
+}
+
+fn read_wsl_clipboard_image_path(path: &std::path::Path) -> Option<ClipboardImage> {
+    let file = std::fs::File::open(path).ok()?;
+    let bytes =
+        match read_limited_reader(file, crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD).ok()? {
+            LimitedRead::Complete(bytes) => bytes,
+            LimitedRead::Empty | LimitedRead::Oversized => return None,
+        };
+    clipboard_image_matches_signature("png", &bytes).then_some(ClipboardImage {
+        bytes,
+        extension: "png",
+    })
+}
+
 fn read_validated_clipboard_image(
     program: &str,
     args: &[&str],
     extension: &'static str,
 ) -> Option<ClipboardImage> {
     let bytes = read_clipboard_image_with_command(program, args)?;
-    if !bytes_match_image_signature(extension, &bytes) {
+    if !clipboard_image_matches_signature(extension, &bytes) {
         return None;
     }
     Some(ClipboardImage { bytes, extension })
-}
-
-fn bytes_match_image_signature(extension: &str, bytes: &[u8]) -> bool {
-    match extension {
-        "png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
-        "jpg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
-        "gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
-        "webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WEBP",
-        "bmp" => {
-            if bytes.len() < 26 || !bytes.starts_with(b"BM") {
-                return false;
-            }
-            let offset = u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]) as usize;
-            (26..=bytes.len()).contains(&offset)
-        }
-        _ => false,
-    }
 }
 
 /// Show a native desktop notification through libnotify's command-line helper.
@@ -743,6 +823,130 @@ mod tests {
         assert!(text_indicates_wsl("4.4.0-19041-Microsoft"));
         assert!(!text_indicates_wsl("6.8.0-64-generic"));
         assert!(!text_indicates_wsl(""));
+    }
+
+    #[test]
+    fn powershell_clipboard_path_output_trims_bom_and_crlf() {
+        assert_eq!(
+            normalize_powershell_path_output("\u{feff}C:\\Temp\\image.png\r\n".as_bytes())
+                .as_deref(),
+            Some("C:\\Temp\\image.png")
+        );
+    }
+
+    #[test]
+    fn windows_clipboard_path_maps_to_default_wsl_mount() {
+        assert_eq!(
+            windows_path_to_default_wsl_mount(r"C:\Users\Alice\My Pictures\image.png"),
+            Some(PathBuf::from("/mnt/c/Users/Alice/My Pictures/image.png"))
+        );
+        assert_eq!(
+            windows_path_to_default_wsl_mount(r"\\server\share\image.png"),
+            None
+        );
+    }
+
+    #[test]
+    fn wsl_clipboard_image_path_validates_png_and_size() {
+        let path = std::env::temp_dir().join(format!(
+            "herdr-wsl-clipboard-image-test-{}-{}.png",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("unnamed")
+        ));
+        std::fs::write(&path, b"\x89PNG\r\n\x1a\nimage").unwrap();
+        assert_eq!(
+            read_wsl_clipboard_image_path(&path),
+            Some(ClipboardImage {
+                bytes: b"\x89PNG\r\n\x1a\nimage".to_vec(),
+                extension: "png",
+            })
+        );
+        std::fs::write(&path, b"plain text").unwrap();
+        assert_eq!(read_wsl_clipboard_image_path(&path), None);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn wsl_clipboard_image_prefers_powershell_over_wslg_clipboard_tools() {
+        let _guard = env_lock().lock().unwrap();
+        let temp_dir =
+            std::env::temp_dir().join(format!("herdr-wsl-clipboard-tools-{}", std::process::id()));
+        std::fs::create_dir_all(&temp_dir).unwrap();
+        let image_path = temp_dir.join("clipboard image.png");
+        let wl_paste_called = temp_dir.join("wl-paste-called");
+        std::fs::write(&image_path, b"\x89PNG\r\n\x1a\nimage").unwrap();
+
+        let powershell = temp_dir.join("powershell.exe");
+        let wslpath = temp_dir.join("wslpath");
+        let wl_paste = temp_dir.join("wl-paste");
+        std::fs::write(
+            &powershell,
+            "#!/bin/sh\nprintf '%s\\r\\n' 'C:\\Temp\\clipboard image.png'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &wslpath,
+            "#!/bin/sh\nprintf '%s\\n' \"$HERDR_WSL_IMAGE_PATH\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            &wl_paste,
+            "#!/bin/sh\ntouch \"$HERDR_WL_PASTE_CALLED\"\nexit 1\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        for path in [&powershell, &wslpath, &wl_paste] {
+            let mut permissions = std::fs::metadata(path).unwrap().permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(path, permissions).unwrap();
+        }
+
+        let old_path = std::env::var_os("PATH");
+        let old_wsl = std::env::var_os("WSL_DISTRO_NAME");
+        let old_wayland = std::env::var_os("WAYLAND_DISPLAY");
+        let old_image_path = std::env::var_os("HERDR_WSL_IMAGE_PATH");
+        let old_wl_called = std::env::var_os("HERDR_WL_PASTE_CALLED");
+        unsafe {
+            std::env::set_var("PATH", &temp_dir);
+            std::env::set_var("WSL_DISTRO_NAME", "Ubuntu");
+            std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
+            std::env::set_var("HERDR_WSL_IMAGE_PATH", &image_path);
+            std::env::set_var("HERDR_WL_PASTE_CALLED", &wl_paste_called);
+        }
+
+        let image = read_clipboard_image();
+
+        unsafe {
+            for (key, value) in [
+                ("PATH", old_path),
+                ("WSL_DISTRO_NAME", old_wsl),
+                ("WAYLAND_DISPLAY", old_wayland),
+                ("HERDR_WSL_IMAGE_PATH", old_image_path),
+                ("HERDR_WL_PASTE_CALLED", old_wl_called),
+            ] {
+                match value {
+                    Some(value) => std::env::set_var(key, value),
+                    None => std::env::remove_var(key),
+                }
+            }
+        }
+
+        assert_eq!(
+            image,
+            Some(ClipboardImage {
+                bytes: b"\x89PNG\r\n\x1a\nimage".to_vec(),
+                extension: "png",
+            })
+        );
+        assert!(!wl_paste_called.exists());
+        assert!(
+            !image_path.exists(),
+            "WSL clipboard temp image should be removed"
+        );
+        let _ = std::fs::remove_file(powershell);
+        let _ = std::fs::remove_file(wslpath);
+        let _ = std::fs::remove_file(wl_paste);
+        let _ = std::fs::remove_dir(temp_dir);
     }
 
     #[test]
@@ -1175,14 +1379,17 @@ mod tests {
 
     #[test]
     fn image_signatures_match_only_their_format() {
-        assert!(bytes_match_image_signature("png", b"\x89PNG\r\n\x1a\n..."));
-        assert!(bytes_match_image_signature(
+        assert!(clipboard_image_matches_signature(
+            "png",
+            b"\x89PNG\r\n\x1a\n..."
+        ));
+        assert!(clipboard_image_matches_signature(
             "jpg",
             &[0xFF, 0xD8, 0xFF, 0xE0]
         ));
-        assert!(bytes_match_image_signature("gif", b"GIF87a..."));
-        assert!(bytes_match_image_signature("gif", b"GIF89a..."));
-        assert!(bytes_match_image_signature(
+        assert!(clipboard_image_matches_signature("gif", b"GIF87a..."));
+        assert!(clipboard_image_matches_signature("gif", b"GIF89a..."));
+        assert!(clipboard_image_matches_signature(
             "webp",
             b"RIFF\x10\x00\x00\x00WEBPVP8 "
         ));
@@ -1190,18 +1397,27 @@ mod tests {
         let mut bmp = vec![0u8; 26];
         bmp[..2].copy_from_slice(b"BM");
         bmp[10] = 26;
-        assert!(bytes_match_image_signature("bmp", &bmp));
+        assert!(clipboard_image_matches_signature("bmp", &bmp));
 
-        assert!(!bytes_match_image_signature("png", b"# Tasks"));
-        assert!(!bytes_match_image_signature("jpg", b"plain clipboard text"));
-        assert!(!bytes_match_image_signature("gif", b""));
-        assert!(!bytes_match_image_signature("webp", b"RIFF but not webp"));
-        assert!(!bytes_match_image_signature("bmp", b"\x89PNG\r\n\x1a\n"));
-        assert!(!bytes_match_image_signature(
+        assert!(!clipboard_image_matches_signature("png", b"# Tasks"));
+        assert!(!clipboard_image_matches_signature(
+            "jpg",
+            b"plain clipboard text"
+        ));
+        assert!(!clipboard_image_matches_signature("gif", b""));
+        assert!(!clipboard_image_matches_signature(
+            "webp",
+            b"RIFF but not webp"
+        ));
+        assert!(!clipboard_image_matches_signature(
+            "bmp",
+            b"\x89PNG\r\n\x1a\n"
+        ));
+        assert!(!clipboard_image_matches_signature(
             "bmp",
             b"BM text is not a bitmap"
         ));
-        assert!(!bytes_match_image_signature("svg", b"<svg></svg>"));
+        assert!(!clipboard_image_matches_signature("svg", b"<svg></svg>"));
     }
 
     #[test]

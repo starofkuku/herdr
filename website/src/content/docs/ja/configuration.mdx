@@ -350,7 +350,7 @@ Herdr はフォアグラウンドクライアントから ASCII BEL を 1 バイ
     }
   }
   ```
-- macOS では、Ghostty などのターミナルで通知/注意設定を有効にし、必要な macOS 権限を許可すると、BEL を Dock アイコンのバウンスに割り当てられます。
+- macOS では、Ghostty がフォーカスされていないとき、`bell-features = attention` により BEL が Dock アイコンの 1 回のバウンスへ変換されます。`attention` はデフォルトで有効で、macOS の通知権限やアクセシビリティ権限は不要です。Ghostty の設定を編集した後は `Command+Shift+,` で再読み込みしてください。`herdr --remote` では BEL を出力するローカル Mac クライアント側の設定で `[ui.bell]` を有効にします。
 - Linux では、タスクバーの強調表示はターミナルエミュレーターとデスクトップ環境の visual bell または urgency 対応に依存します。
 
 tmux などのマルチプレクサーは BEL を遮断または抑制することがあるため、Bell を外側のターミナルまで通す設定も必要です。Bell は注意を要求するだけで、フォーカスを奪いません。

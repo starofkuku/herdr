@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::protocol::RenderEncoding;
 use crate::server::client_transport::ClientWriter;
@@ -20,12 +22,39 @@ pub(crate) type RenderTarget = (
     ClientConnectionMode,
 );
 
+pub(crate) struct PendingClipboardImagePaste {
+    pub(crate) request_id: u64,
+    pub(crate) terminal_id: crate::terminal::TerminalId,
+    pub(crate) started_at: Instant,
+}
+
+pub(crate) enum DeferredClipboardPasteInput {
+    Raw(Vec<u8>),
+    Events(Vec<crate::protocol::ClientInputEvent>),
+    Intent {
+        request_id: u64,
+        fallback_input: Vec<u8>,
+    },
+}
+
+impl DeferredClipboardPasteInput {
+    pub(crate) fn payload_len(&self) -> usize {
+        match self {
+            Self::Raw(data) => data.len(),
+            Self::Events(events) => events.len(),
+            Self::Intent { fallback_input, .. } => fallback_input.len(),
+        }
+    }
+}
+
 /// A connected client tracked by the server.
 pub(crate) struct ClientConnection {
     /// Whether this connection is the full app client or a direct terminal attach.
     pub(crate) mode: ClientConnectionMode,
     /// True after the handshake for clients that will switch into direct terminal attach mode.
     pub(crate) pending_terminal_attach: bool,
+    /// True when the client was launched through `herdr --remote`.
+    pub(crate) remote_session: bool,
     /// Client-local app keybindings. None means use the server's keybindings.
     pub(crate) keybindings: Option<Box<crate::config::LiveKeybindConfig>>,
     /// The client's terminal size after clamping.
@@ -56,6 +85,11 @@ pub(crate) struct ClientConnection {
     pub(crate) host_mouse_capture_active: Option<bool>,
     /// Temporary files staged from this client's local clipboard image pastes.
     pub(crate) staged_clipboard_files: Vec<PathBuf>,
+    /// Server-authorized Codex image paste awaiting the client's clipboard result.
+    pub(crate) pending_clipboard_image_paste: Option<PendingClipboardImagePaste>,
+    /// Input held so it cannot overtake a pending clipboard image paste.
+    pub(crate) deferred_clipboard_paste_inputs: VecDeque<DeferredClipboardPasteInput>,
+    pub(crate) deferred_clipboard_paste_input_bytes: usize,
     /// Channels for sending framed ServerMessage data to the client writer thread.
     pub(crate) writer: Option<ClientWriter>,
 }
@@ -81,6 +115,7 @@ impl ClientConnection {
             last_activity,
             render_encoding,
             false,
+            false,
             writer,
         )
     }
@@ -95,11 +130,13 @@ impl ClientConnection {
         last_activity: u64,
         render_encoding: RenderEncoding,
         pending_terminal_attach: bool,
+        remote_session: bool,
         writer: Option<ClientWriter>,
     ) -> Self {
         Self {
             mode,
             pending_terminal_attach,
+            remote_session,
             keybindings,
             terminal_size,
             cell_size,
@@ -117,6 +154,9 @@ impl ClientConnection {
             render_pending: false,
             host_mouse_capture_active: None,
             staged_clipboard_files: Vec::new(),
+            pending_clipboard_image_paste: None,
+            deferred_clipboard_paste_inputs: VecDeque::new(),
+            deferred_clipboard_paste_input_bytes: 0,
             writer,
         }
     }

@@ -358,8 +358,8 @@
         {
           "key": "keys.remote_image_paste",
           "type": "string",
-          "default": "\"ctrl+v\"",
-          "description": "Local-client shortcut that sends a clipboard image to a remote Herdr session."
+          "default": "\"alt+v\"",
+          "description": "Local shortcut for clipboard image paste when using herdr --remote and the remote focused pane is detected as Codex. Other panes receive the original key."
         },
         {
           "key": "keys.new_tab",

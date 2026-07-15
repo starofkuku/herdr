@@ -296,11 +296,11 @@ command = "echo one"
     }
 
     #[test]
-    fn remote_image_paste_key_defaults_to_ctrl_v() {
+    fn remote_image_paste_key_defaults_to_alt_v() {
         let config = Config::default();
         assert_eq!(
             config.remote_image_paste_key().unwrap(),
-            Some((KeyCode::Char('v'), KeyModifiers::CONTROL))
+            Some((KeyCode::Char('v'), KeyModifiers::ALT))
         );
     }
 

@@ -82,6 +82,23 @@ pub struct ClipboardImage {
     pub extension: &'static str,
 }
 
+pub(crate) fn clipboard_image_matches_signature(extension: &str, bytes: &[u8]) -> bool {
+    match extension {
+        "png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "jpg" | "jpeg" => bytes.starts_with(&[0xFF, 0xD8, 0xFF]),
+        "gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && bytes[8..12] == *b"WEBP",
+        "bmp" => {
+            if bytes.len() < 26 || !bytes.starts_with(b"BM") {
+                return false;
+            }
+            let offset = u32::from_le_bytes([bytes[10], bytes[11], bytes[12], bytes[13]]) as usize;
+            (26..=bytes.len()).contains(&offset)
+        }
+        _ => false,
+    }
+}
+
 #[cfg(unix)]
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum LimitedRead {
@@ -290,5 +307,18 @@ mod tests {
             read_limited_reader(input, 16).expect("limited read"),
             LimitedRead::Complete(b"image".to_vec())
         );
+    }
+
+    #[test]
+    fn clipboard_image_signatures_match_only_their_format() {
+        assert!(clipboard_image_matches_signature(
+            "png",
+            b"\x89PNG\r\n\x1a\n..."
+        ));
+        assert!(clipboard_image_matches_signature(
+            "jpg",
+            &[0xFF, 0xD8, 0xFF, 0xE0]
+        ));
+        assert!(!clipboard_image_matches_signature("png", b"plain text"));
     }
 }

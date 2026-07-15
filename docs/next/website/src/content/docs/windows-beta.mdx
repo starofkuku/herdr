@@ -54,7 +54,7 @@ Plugins support `windows` as a manifest platform in preview. GitHub install, loc
 
 Herdr can launch panes in the right directory and can create the initial workspace from the directory where you started Herdr. PowerShell directory changes after startup are different: the process field Herdr can inspect does not reliably track later logical `cd` changes. Use Herdr integrations or prompt shell integration for live cwd reporting.
 
-Windows Terminal may support image paste paths for specific agents, but Herdr's own clipboard-image reader is not wired on Windows yet. Treat `alt+v` image paste as unverified until the Windows clipboard bridge is implemented and tested. Remote clipboard image bridging is separate and remains tied to Unix/macOS `herdr --remote`.
+Windows Terminal may support image paste paths for specific agents, but Herdr's own clipboard-image reader is not wired for the native Windows client. Native Windows `Alt+V` image paste remains unverified. This is separate from running Herdr inside WSL: a WSL-based local client can use the Codex-only `herdr --remote` image bridge through Windows PowerShell.
 
 Kitty graphics remains experimental and is not claimed as Windows-supported yet. Leave `experimental.kitty_graphics = false` unless you are specifically testing image rendering in Windows Terminal.
 

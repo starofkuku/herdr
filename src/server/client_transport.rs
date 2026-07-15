@@ -291,6 +291,7 @@ pub(crate) enum ServerEvent {
         render_encoding: RenderEncoding,
         keybindings: Option<Box<crate::config::LiveKeybindConfig>>,
         direct_attach_requested: bool,
+        remote_session: bool,
         writer: ClientWriter,
     },
     /// A client sent an input message.
@@ -305,6 +306,18 @@ pub(crate) enum ServerEvent {
         client_id: u64,
         extension: String,
         data: Vec<u8>,
+    },
+    /// A remote client asked whether its image-paste shortcut targets Codex.
+    ClientClipboardImagePasteIntent {
+        client_id: u64,
+        request_id: u64,
+        fallback_input: Vec<u8>,
+    },
+    /// A remote client returned the authorized clipboard image, or no image.
+    ClientClipboardImagePasteResult {
+        client_id: u64,
+        request_id: u64,
+        image: Option<crate::protocol::ClipboardImagePayload>,
     },
     /// A client requested direct attach to one terminal.
     ClientAttachTerminal {
@@ -463,6 +476,7 @@ pub(crate) fn handle_client_handshake(
         render_encoding,
         keybindings,
         direct_attach_requested,
+        remote_session,
     ) = match hello {
         ClientMessage::Hello {
             version,
@@ -473,6 +487,7 @@ pub(crate) fn handle_client_handshake(
             requested_encoding,
             keybindings,
             launch_mode,
+            remote_session,
         } => {
             // Version check.
             match protocol::check_client_version(version) {
@@ -512,6 +527,7 @@ pub(crate) fn handle_client_handshake(
                 requested_encoding,
                 keybindings,
                 launch_mode == ClientLaunchMode::TerminalAttach,
+                remote_session,
             )
         }
         _ => {
@@ -566,6 +582,7 @@ pub(crate) fn handle_client_handshake(
         render_encoding,
         keybindings,
         direct_attach_requested,
+        remote_session,
         writer,
     });
 
@@ -702,6 +719,45 @@ fn client_read_loop(
                         extension,
                         data,
                     }
+                }
+            }
+            ClientMessage::ClipboardImagePasteIntent {
+                request_id,
+                fallback_input,
+            } => {
+                if fallback_input.len() > MAX_INPUT_PAYLOAD {
+                    warn!(
+                        client_id,
+                        size = fallback_input.len(),
+                        "oversized clipboard image paste fallback input, closing"
+                    );
+                    let _ = server_event_tx
+                        .blocking_send(ServerEvent::ClientDisconnected { client_id });
+                    break;
+                }
+                ServerEvent::ClientClipboardImagePasteIntent {
+                    client_id,
+                    request_id,
+                    fallback_input,
+                }
+            }
+            ClientMessage::ClipboardImagePasteResult { request_id, image } => {
+                if image
+                    .as_ref()
+                    .is_some_and(|image| image.data.len() > MAX_CLIPBOARD_IMAGE_PAYLOAD)
+                {
+                    warn!(
+                        client_id,
+                        request_id, "oversized clipboard image paste result, closing"
+                    );
+                    let _ = server_event_tx
+                        .blocking_send(ServerEvent::ClientDisconnected { client_id });
+                    break;
+                }
+                ServerEvent::ClientClipboardImagePasteResult {
+                    client_id,
+                    request_id,
+                    image,
                 }
             }
             ClientMessage::Resize {
@@ -1057,6 +1113,7 @@ new_tab = "ctrl+notakey"
                 requested_encoding: RenderEncoding::TerminalAnsi,
                 keybindings: ClientKeybindings::Server,
                 launch_mode: ClientLaunchMode::App,
+                remote_session: true,
             },
         )
         .expect("write hello");
@@ -1089,12 +1146,14 @@ new_tab = "ctrl+notakey"
                 render_encoding,
                 keybindings,
                 direct_attach_requested,
+                remote_session,
                 writer,
             } => {
                 assert_eq!(client_id, 42);
                 assert_eq!((cols, rows), (100, 30));
                 assert_eq!((cell_width_px, cell_height_px), (8, 16));
                 assert_eq!(render_encoding, RenderEncoding::TerminalAnsi);
+                assert!(remote_session);
                 assert!(keybindings.is_none());
                 assert!(!direct_attach_requested);
                 drop(writer);
@@ -1132,6 +1191,7 @@ new_tab = "ctrl+notakey"
                 requested_encoding: RenderEncoding::TerminalAnsi,
                 keybindings: ClientKeybindings::Server,
                 launch_mode: ClientLaunchMode::TerminalAttach,
+                remote_session: false,
             },
         )
         .expect("write hello");
