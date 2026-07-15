@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.6] - 2026-07-15
+
 ### Added
 - Added server-authorized Codex image paste for `herdr --remote`. The default `keys.remote_image_paste = "alt+v"` reads the local clipboard only when the remote focused pane is detected as Codex, stages the image on the remote host, and lets Codex attach the pasted path as `[Image #1]`. Local clipboard reads support macOS, Linux, and WSL; native Windows Herdr clients remain unsupported.
 
