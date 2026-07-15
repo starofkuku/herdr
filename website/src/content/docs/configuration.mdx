@@ -327,7 +327,7 @@ position = "bottom-right"
 
 Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notification that works well over SSH, `system` for the local OS notification service, or `off` to disable popups. Herdr suppresses popups for the active tab. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
 
-Windows Terminal clients, including WSL profiles, use OSC 777 for `delivery = "terminal"`. Enable `compatibility.allowOSC777` in the Windows Terminal profile first; see [Windows beta](/docs/windows-beta/#windows-terminal-notifications) for setup and security details.
+Windows Terminal clients, including WSL profiles, use OSC 777 for `delivery = "terminal"`, but the outer terminal must contain [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012). As of July 15, 2026, Stable 1.24.11911.0 and Preview 1.25.1912.0 are unsupported; use a compatible Canary/development build or Windows Terminal 1.26 or newer once released, then enable `compatibility.allowOSC777`. See [Windows beta](/docs/windows-beta/#windows-terminal-notifications) for setup and security details.
 
 ## Sound
 

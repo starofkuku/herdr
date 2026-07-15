@@ -60,7 +60,9 @@ Kitty graphics remains experimental and is not claimed as Windows-supported yet.
 
 ### Windows Terminal notifications
 
-Herdr can send agent notifications from native Windows sessions and WSL profiles through Windows Terminal's OSC 777 support. In Windows Terminal `settings.json`, enable the compatibility setting for the profile that launches Herdr:
+Herdr can send agent notifications from native Windows sessions and WSL profiles when the outer Windows Terminal build includes OSC 777 desktop notifications. This requires a Canary/development build containing [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012), or Windows Terminal 1.26 or newer once released. As of July 15, 2026, Stable 1.24.11911.0 and Preview 1.25.1912.0 do not support OSC 777, so `delivery = "terminal"` will not produce a toast in those versions.
+
+On a supported Windows Terminal build, enable the compatibility setting in `settings.json` for the profile that launches Herdr:
 
 ```json
 {
@@ -79,7 +81,7 @@ Then configure Herdr:
 delivery = "terminal"
 ```
 
-Recent Windows Terminal builds expose this setting in the profile UI as **Allow OSC 777 (Desktop Notification) to show toast notifications**. Update Windows Terminal if the setting is unavailable. OSC 777 lets terminal applications create Windows notifications with custom text, so enable it only for profiles where you trust the programs you run.
+Supported Windows Terminal builds expose this setting in the profile UI as **Allow OSC 777 (Desktop Notification) to show toast notifications**. The setting is disabled by default. If the option is unavailable, that Windows Terminal build does not support OSC 777; updating only to the current Stable or Preview release is not sufficient. OSC 777 lets terminal applications create Windows notifications with custom text, so enable it only for profiles where you trust the programs you run.
 
 ## Known caveats
 

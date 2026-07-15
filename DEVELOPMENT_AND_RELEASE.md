@@ -12,9 +12,9 @@ Windows Terminal 会向其启动的 Shell（包括 WSL）注入 `WT_SESSION` 环
 ESC ] 777 ; notify ; <title> ; <body> ESC \
 ```
 
-Windows Terminal 收到该序列后，在 Windows 通知中心显示带标题和正文的 Toast。通知标题中的协议分隔符和控制字符会先被清理，避免破坏序列结构。
+只有包含 [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012) 的 Windows Terminal 构建会处理该序列，并在 Windows 通知中心显示带标题和正文的 Toast。预计正式支持版本为 Windows Terminal 1.26 及更高版本。截至 2026 年 7 月 15 日，Stable 1.24.11911.0 和 Preview 1.25.1912.0 均不支持 OSC 777；在这些版本中序列会被忽略。通知标题中的协议分隔符和控制字符会先被清理，避免破坏序列结构。
 
-Windows Terminal 默认禁止应用发送 OSC 777 通知。需要在对应 Profile 的 `settings.json` 中显式启用：
+在受支持的 Windows Terminal Canary/开发构建中，OSC 777 默认关闭，需要在对应 Profile 的 `settings.json` 中显式启用：
 
 ```json
 {

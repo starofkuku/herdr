@@ -9,7 +9,7 @@
 - Added Maki detection with idle, working, and blocked screen states. (#1301, #1302, thanks @tontinton)
 - Added `ui.copy_on_select` so mouse drag selection and double-click word copying can be disabled while keeping mouse capture enabled.
 - Expanded desktop Agent and Space sidebar rows can now be configured as token layouts, including agent-specific layouts, terminal-title tokens, and values supplied by `pane report-metadata` or `workspace report-metadata`.
-- Windows Terminal clients, including WSL profiles, can now deliver agent notifications through OSC 777 when the terminal profile enables `compatibility.allowOSC777`.
+- Windows Terminal clients, including WSL profiles, can deliver agent notifications through OSC 777 when the terminal profile enables `compatibility.allowOSC777`. This requires a Canary/development build containing [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012), or Windows Terminal 1.26 or newer once released; as of 2026-07-15, Stable 1.24.11911.0 and Preview 1.25.1912.0 do not support OSC 777 notifications.
 - Added a repository-root `install.sh` for installing fork release assets on Linux and macOS, with version, repository, install-directory, and download-URL overrides.
 
 ### Changed
