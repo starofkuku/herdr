@@ -53,7 +53,7 @@ Windows のエージェントプロセス検出は、ペインのシェルの子
 
 Herdr はペインを正しいディレクトリで起動でき、Herdr を起動したディレクトリから最初のワークスペースを作成できます。起動後の PowerShell のディレクトリ変更は別問題です: Herdr が調べられるプロセスのフィールドは、その後の論理的な `cd` の変化を確実には追跡しません。ライブ cwd の報告には Herdr インテグレーションかプロンプトのシェルインテグレーションを使ってください。
 
-Windows Terminal は特定のエージェント向けに画像貼り付け経路をサポートしているかもしれませんが、Herdr 自身のクリップボード画像リーダーはネイティブ Windows クライアントにはまだ配線されていません。ネイティブ Windows の `Alt+V` 画像貼り付けは未検証のままです。これは WSL 内で Herdr を動かす場合とは別で、WSL のローカルクライアントは Windows PowerShell を通じて Codex 専用の `herdr --remote` 画像ブリッジを利用できます。
+Windows Terminal は特定のエージェント向けに画像貼り付け経路をサポートしているかもしれませんが、Herdr 自身のクリップボード画像リーダーはネイティブ Windows クライアントにはまだ配線されていません。ネイティブ Windows の `Alt+V` 画像貼り付けは未検証のままです。これは WSL 内で Herdr を動かす場合とは別で、WSL のローカルクライアントは Windows PowerShell を通じて対応 Agent 向けの `herdr --remote` 画像ブリッジを利用できます。
 
 Kitty graphics は実験的なままで、まだ Windows でのサポートを謳っていません。Windows Terminal での画像レンダリングを特にテストしているのでない限り、`experimental.kitty_graphics = false` のままにしてください。
 

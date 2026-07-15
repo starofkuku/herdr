@@ -2,13 +2,16 @@
 
 ## Unreleased
 
+### Changed
+- Expanded server-authorized clipboard image paste for `herdr --remote` beyond Codex. Herdr now pastes staged absolute image paths for Pi, Claude Code, Codex, Cursor CLI, Cline, OMP, MastraCode, OpenCode, GitHub Copilot CLI, Kiro, Factory Droid, Grok, Hermes, Kilo Code, Qoder CLI, and Maki, and uses an `@path` mention for Amp. Gemini CLI, Kimi CLI, Devin CLI, and Antigravity keep the original shortcut because they do not currently expose a compatible stable path contract.
+
 ## [0.7.6] - 2026-07-15
 
 ### Added
 - Added server-authorized Codex image paste for `herdr --remote`. The default `keys.remote_image_paste = "alt+v"` reads the local clipboard only when the remote focused pane is detected as Codex, stages the image on the remote host, and lets Codex attach the pasted path as `[Image #1]`. Local clipboard reads support macOS, Linux, and WSL; native Windows Herdr clients remain unsupported.
 
 ### Changed
-- Remote clipboard image paste now preserves the original shortcut outside remote Codex panes instead of intercepting it, and binds authorized pastes to the terminal that requested them so focus changes cannot redirect an image.
+- Remote clipboard image paste now preserves the original shortcut outside supported remote-agent panes instead of intercepting it, and binds authorized pastes to the terminal that requested them so focus changes cannot redirect an image.
 - Documented remote paste troubleshooting from live macOS/Linux validation: launch `herdr --remote` on the clipboard-owning machine, prefer `ctrl+alt+v` on macOS because terminals usually consume `Command+V` and may compose plain `Option+V`, and treat a remote Codex X11 clipboard error after `Ctrl+V` as evidence that the Herdr bridge was bypassed.
 - Clarified that Ghostty's default `bell-features = attention` requests one Dock bounce only while Ghostty is unfocused, requires no macOS notification or Accessibility permission, and uses the local Mac Herdr client's `[ui.bell]` setting during `herdr --remote` sessions.
 

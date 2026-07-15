@@ -79,7 +79,7 @@ herdr --remote ssh://you@server:2222
 
 你本地的 Herdr 充当瘦客户端。它通过 SSH 连接,启动或连接远程 Herdr 服务器,并把 UI 流式传回你的本地终端。
 
-想让远程会话用起来像本地时,用这条路径。对于远程识别到的 Codex pane,macOS、Linux 或 WSL 本地客户端可以处理 `Alt+V`: 服务器授权后才读取本地剪贴板图像,并把它暂存到远程主机供 Codex 附加。其他 pane 会收到原始按键。不支持原生 Windows Herdr 客户端。如果你先 SSH 再在服务器上运行 `herdr`,Herdr 就完全运行在那台服务器上,无法读取你本地桌面的剪贴板。
+想让远程会话用起来像本地时，用这条路径。对于远程识别到且支持路径式图片附件的 Agent pane，macOS、Linux 或 WSL 本地客户端可以处理 `Alt+V`：服务器授权后才读取本地剪贴板图像，并把它暂存到远程主机供 Agent 附加。不支持或尚未识别的 pane 会收到原始按键。不支持原生 Windows Herdr 客户端。如果你先 SSH 再在服务器上运行 `herdr`，Herdr 就完全运行在那台服务器上，无法读取你本地桌面的剪贴板。
 
 对于经常连接的目标,把主机写进 SSH 配置:
 
@@ -98,6 +98,6 @@ herdr --remote workbox
 
 ## 该用哪条路径
 
-本地工作用 `herdr`。想让 Herdr 在远程 shell 上表现得像 tmux,或者在用手机 SSH 客户端时,用 `ssh you@server` 再 `herdr`。想要一个连接远程会话的本地瘦客户端 (包括服务器授权的 Codex 剪贴板图像粘贴) 时,用 `herdr --remote <host>`。
+本地工作用 `herdr`。想让 Herdr 在远程 shell 上表现得像 tmux，或者在用手机 SSH 客户端时，用 `ssh you@server` 再 `herdr`。想要一个连接远程会话的本地瘦客户端（包括受支持 Agent 的服务器授权剪贴板图片粘贴）时，用 `herdr --remote <host>`。
 
 关于远程引导细节、命名远程会话、自定义二进制、直接终端附加和 `--no-session`,参见[持久化与远程访问](/zh-cn/docs/persistence-remote/)。

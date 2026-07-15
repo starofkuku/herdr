@@ -359,7 +359,7 @@
           "key": "keys.remote_image_paste",
           "type": "string",
           "default": "\"alt+v\"",
-          "description": "Local shortcut for clipboard image paste when using herdr --remote and the remote focused pane is detected as Codex. Other panes receive the original key."
+          "description": "Local shortcut for clipboard image paste when using herdr --remote and the remote focused pane is detected as an agent with a supported path-based image attachment interface. Unsupported panes receive the original key."
         },
         {
           "key": "keys.new_tab",
