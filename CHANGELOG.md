@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.5] - 2026-07-15
+
 ### Added
 - Added a default-off terminal Bell setting for background agent finished and needs-attention events. Herdr emits BEL through the foreground client so compatible Windows/Linux terminals can flash their taskbar icon and macOS terminals can request a Dock bounce.
 
