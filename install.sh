@@ -5,13 +5,13 @@ set -eu
 #   curl -fsSL https://raw.githubusercontent.com/starofkuku/herdr/master/install.sh | sh
 #
 # Optional overrides:
-#   HERDR_VERSION=0.7.4
+#   HERDR_VERSION=0.7.5
 #   HERDR_REPOSITORY=starofkuku/herdr
 #   HERDR_INSTALL_DIR="$HOME/.local/bin"
 #   HERDR_DOWNLOAD_URL=https://example.com/herdr-linux-x86_64
 
 BIN="herdr"
-VERSION="${HERDR_VERSION:-0.7.4}"
+VERSION="${HERDR_VERSION:-0.7.5}"
 REPOSITORY="${HERDR_REPOSITORY:-starofkuku/herdr}"
 INSTALL_DIR="${HERDR_INSTALL_DIR:-$HOME/.local/bin}"
 

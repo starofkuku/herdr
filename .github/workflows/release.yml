@@ -356,8 +356,7 @@ jobs:
 
           CURRENT_VERSION=$(python3 -c 'import json; print(json.load(open("website/latest.json")).get("version", ""))')
           if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-            echo "website/latest.json is already at v$VERSION"
-            exit 0
+            echo "website/latest.json is already at v$VERSION; refreshing it from the rebuilt release"
           fi
           python3 scripts/changelog.py sync-latest-json --repo "$GITHUB_REPOSITORY"  --version "$VERSION" --output website/latest.json --announcement "$ANNOUNCEMENT_PATH" --protocol "$RELEASE_PROTOCOL"
           if cmp -s "$ANNOUNCEMENT_ORIGINAL_PATH" docs/next/product-announcement.json; then

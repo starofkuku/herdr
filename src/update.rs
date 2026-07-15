@@ -1,6 +1,6 @@
 //! Self-update mechanism.
 //!
-//! Checks the hosted herdr.dev update manifest for newer versions.
+//! Checks this fork's GitHub-hosted update manifest for newer versions.
 //! Manual `herdr update` downloads and installs the binary.
 //! Background checks only surface availability and release notes.
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
@@ -23,8 +23,10 @@ use std::time::{Duration, Instant};
 use interprocess::local_socket::traits::Stream as _;
 use serde::{Deserialize, Deserializer};
 
-const STABLE_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
-const PREVIEW_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/preview.json";
+pub(crate) const STABLE_UPDATE_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/starofkuku/herdr/master/website/latest.json";
+pub(crate) const PREVIEW_UPDATE_MANIFEST_URL: &str =
+    "https://raw.githubusercontent.com/starofkuku/herdr/master/website/preview.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/herdr.json";
 const HERDR_UPDATE_COMMAND: &str = "herdr update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
@@ -2243,6 +2245,18 @@ mod tests {
     };
     use std::sync::{Mutex, OnceLock};
     use std::thread;
+
+    #[test]
+    fn update_manifests_are_served_from_the_fork_repository() {
+        assert_eq!(
+            STABLE_UPDATE_MANIFEST_URL,
+            "https://raw.githubusercontent.com/starofkuku/herdr/master/website/latest.json"
+        );
+        assert_eq!(
+            PREVIEW_UPDATE_MANIFEST_URL,
+            "https://raw.githubusercontent.com/starofkuku/herdr/master/website/preview.json"
+        );
+    }
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
