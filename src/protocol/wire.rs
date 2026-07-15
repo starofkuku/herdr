@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 // ---------------------------------------------------------------------------
 
 /// Current protocol version. Bumped when wire format changes incompatibly.
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -594,6 +594,13 @@ pub enum NotifyKind {
     SystemToast,
 }
 
+/// Semantic background-agent event that clients may present according to local settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentNotificationKind {
+    Finished,
+    NeedsAttention,
+}
+
 /// Messages sent from the server to the client over the client protocol socket.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -636,6 +643,9 @@ pub enum ServerMessage {
         body: Option<String>,
     },
 
+    /// A background agent changed into a state that may warrant client-local attention.
+    AgentNotification { kind: AgentNotificationKind },
+
     /// OSC 52 clipboard data forwarded from a PTY through the server.
     Clipboard {
         /// Base64-encoded clipboard data.
@@ -649,7 +659,7 @@ pub enum ServerMessage {
     },
 
     /// Client-local runtime config changed on disk; refresh it without reconnecting.
-    ReloadSoundConfig,
+    ReloadClientConfig,
 
     /// Whether the client should currently capture host mouse input.
     MouseCapture {
@@ -1347,6 +1357,20 @@ mod tests {
     }
 
     #[test]
+    fn server_agent_notification_roundtrip() {
+        for kind in [
+            AgentNotificationKind::Finished,
+            AgentNotificationKind::NeedsAttention,
+        ] {
+            let msg = ServerMessage::AgentNotification { kind };
+            let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
+            let (decoded, _): (ServerMessage, _) =
+                bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();
+            assert_eq!(msg, decoded);
+        }
+    }
+
+    #[test]
     fn server_clipboard_roundtrip() {
         let msg = ServerMessage::Clipboard {
             data: "dGVzdA==".to_owned(), // base64 "test"
@@ -1395,8 +1419,8 @@ mod tests {
     }
 
     #[test]
-    fn server_reload_sound_config_roundtrip() {
-        let msg = ServerMessage::ReloadSoundConfig;
+    fn server_reload_client_config_roundtrip() {
+        let msg = ServerMessage::ReloadClientConfig;
         let encoded = bincode::serde::encode_to_vec(&msg, bincode::config::standard()).unwrap();
         let (decoded, _): (ServerMessage, _) =
             bincode::serde::decode_from_slice(&encoded, bincode::config::standard()).unwrap();

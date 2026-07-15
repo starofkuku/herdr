@@ -328,6 +328,33 @@ position = "bottom-right"
 
 WSL プロファイルを含む Windows Terminal クライアントでは、`delivery = "terminal"` に OSC 777 を使用しますが、外側のターミナルに [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012) が含まれている必要があります。2026 年 7 月 15 日時点では Stable 1.24.11911.0 と Preview 1.25.1912.0 は未対応です。対応する Canary/開発ビルド、または正式リリース後の Windows Terminal 1.26 以降を使用し、`compatibility.allowOSC777` を有効にしてください。設定方法とセキュリティ上の注意は [Windows ベータ](/docs/windows-beta/#windows-terminal-通知)を参照してください。
 
+## Bell 通知
+
+Bell は、同じバックグラウンド Agent の完了イベントと入力要求イベントに対する、独立したデフォルト無効の注意喚起です。通知遅延とアクティブタブのフォーカス抑制には従いますが、Toast やサウンドを有効にする必要はありません。
+
+```toml
+[ui.bell]
+enabled = true
+```
+
+Herdr はフォアグラウンドクライアントから ASCII BEL を 1 バイト出力します。実際の表示動作は外側のターミナルとデスクトップ環境が決定します:
+
+- Windows Terminal ではタスクバーアイコンを強調表示または点滅できます。プロファイルのデフォルト設定で `bellStyle` を `"taskbar"`（または `"all"`）にします:
+
+  ```json
+  {
+    "profiles": {
+      "defaults": {
+        "bellStyle": "taskbar"
+      }
+    }
+  }
+  ```
+- macOS では、Ghostty などのターミナルで通知/注意設定を有効にし、必要な macOS 権限を許可すると、BEL を Dock アイコンのバウンスに割り当てられます。
+- Linux では、タスクバーの強調表示はターミナルエミュレーターとデスクトップ環境の visual bell または urgency 対応に依存します。
+
+tmux などのマルチプレクサーは BEL を遮断または抑制することがあるため、Bell を外側のターミナルまで通す設定も必要です。Bell は注意を要求するだけで、フォーカスを奪いません。
+
 ## サウンド
 
 サウンド通知はローカルの Herdr クライアントで再生されます。カスタムサウンドは mp3 ファイルでなければなりません。相対パスは設定ファイルのディレクトリから解決されます。

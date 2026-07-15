@@ -18,7 +18,7 @@ use crate::{
     config::ToastDelivery,
 };
 
-pub(crate) const SETTINGS_POPUP_WIDTH: u16 = 76;
+pub(crate) const SETTINGS_POPUP_WIDTH: u16 = 80;
 pub(crate) const SETTINGS_POPUP_BASE_HEIGHT: u16 = 22;
 
 pub(crate) fn settings_popup_height(app: &AppState) -> u16 {
@@ -117,6 +117,17 @@ pub(super) fn render_settings_overlay(app: &AppState, frame: &mut Frame, area: R
                 "sound alerts",
                 "play sounds when agents change state in background",
                 app.sound_enabled(),
+                app.settings.list.selected,
+            );
+        }
+        SettingsSection::Bell => {
+            render_settings_toggle(
+                frame,
+                content_area,
+                p,
+                "terminal bell",
+                "ask the outer terminal to request attention for background agent events",
+                app.bell_enabled(),
                 app.settings.list.selected,
             );
         }

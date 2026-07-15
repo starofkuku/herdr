@@ -2966,6 +2966,13 @@ impl AppState {
     }
 
     fn apply_agent_notification_delivery(&mut self, delivery: &AgentNotificationDelivery) {
+        if self.local_sound_playback && self.bell.enabled && delivery.client_notification.is_some()
+        {
+            if let Err(err) = crate::terminal_notify::ring_bell() {
+                tracing::warn!(err = %err, "failed to emit terminal bell");
+            }
+        }
+
         if self.local_sound_playback {
             if let Some(sound) = delivery.sound {
                 crate::sound::play(sound, &self.sound);

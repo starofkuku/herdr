@@ -1,4 +1,6 @@
-use crate::config::{Keybinds, NewTerminalCwdConfig, SoundConfig, ToastConfig, ToastDelivery};
+use crate::config::{
+    BellConfig, Keybinds, NewTerminalCwdConfig, SoundConfig, ToastConfig, ToastDelivery,
+};
 use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::{Direction, Rect};
 use ratatui::style::Color;
@@ -898,6 +900,7 @@ pub enum AgentPanelSort {
 pub enum SettingsSection {
     Theme,
     Sound,
+    Bell,
     Toast,
     PaneLabels,
     Experiments,
@@ -908,6 +911,7 @@ impl SettingsSection {
     pub const ALL: &[Self] = &[
         Self::Theme,
         Self::Sound,
+        Self::Bell,
         Self::Toast,
         Self::PaneLabels,
         Self::Integrations,
@@ -918,6 +922,7 @@ impl SettingsSection {
         match self {
             Self::Theme => "theme",
             Self::Sound => "sound",
+            Self::Bell => "bell",
             Self::Toast => "toasts",
             Self::PaneLabels => "pane labels",
             Self::Experiments => "experiments",
@@ -1444,6 +1449,7 @@ pub struct AppState {
     pub accent: Color,
     pub sound: SoundConfig,
     pub local_sound_playback: bool,
+    pub bell: BellConfig,
     pub toast_config: ToastConfig,
     pub keybinds: Keybinds,
     /// Frame counter for spinner animations (wraps around).
@@ -1498,6 +1504,10 @@ impl AppState {
 
     pub fn sound_enabled(&self) -> bool {
         self.sound.enabled
+    }
+
+    pub fn bell_enabled(&self) -> bool {
+        self.bell.enabled
     }
 
     pub fn toast_delivery(&self) -> ToastDelivery {
@@ -1798,6 +1808,7 @@ impl AppState {
                 ..SoundConfig::default()
             },
             local_sound_playback: false,
+            bell: BellConfig::default(),
             toast_config: ToastConfig::default(),
             keybinds: Keybinds::default(),
             spinner_tick: 0,

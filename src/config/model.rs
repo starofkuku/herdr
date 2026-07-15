@@ -64,6 +64,13 @@ pub enum ToastDelivery {
     System,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
+#[serde(default)]
+pub struct BellConfig {
+    /// Ask the outer terminal to request attention for background agent notifications.
+    pub enabled: bool,
+}
+
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, schemars::JsonSchema, Default,
 )]
@@ -817,6 +824,8 @@ pub struct UiConfig {
     pub accent: String,
     /// Optional visual toast notifications for background workspace events.
     pub toast: ToastConfig,
+    /// Ask the outer terminal to request attention for background agent events.
+    pub bell: BellConfig,
     /// Play sounds when agents change state in background workspaces.
     pub sound: SoundConfig,
 }
@@ -1008,6 +1017,7 @@ impl Default for UiConfig {
             sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
             toast: ToastConfig::default(),
+            bell: BellConfig::default(),
             sound: SoundConfig::default(),
         }
     }
@@ -1550,6 +1560,20 @@ position = "top-center"
             config.ui.toast.clipboard.position,
             ToastClipboardPosition::TopCenter
         );
+    }
+
+    #[test]
+    fn bell_config_defaults_off_and_parses_enabled() {
+        assert!(!Config::default().ui.bell.enabled);
+
+        let config: Config = toml::from_str(
+            r#"
+[ui.bell]
+enabled = true
+"#,
+        )
+        .unwrap();
+        assert!(config.ui.bell.enabled);
     }
 
     #[test]

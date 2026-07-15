@@ -339,6 +339,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # enabled = true
 # position = "bottom-center"
 
+# Ask the outer terminal to request attention when a background agent finishes
+# or needs input. The terminal decides whether BEL flashes, bounces, or rings.
+[ui.bell]
+# enabled = false
+
 # Play sounds when agents change state in background workspaces
 [ui.sound]
 # enabled = true

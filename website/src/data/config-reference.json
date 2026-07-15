@@ -751,6 +751,18 @@
       ]
     },
     {
+      "id": "bell",
+      "title": "Bell",
+      "keys": [
+        {
+          "key": "ui.bell.enabled",
+          "type": "boolean",
+          "default": "false",
+          "description": "Emit terminal BEL for background agent finished and needs-attention events. The outer terminal decides whether this flashes a taskbar icon, bounces a Dock icon, rings, or does nothing."
+        }
+      ]
+    },
+    {
       "id": "sound",
       "title": "Sound",
       "keys": [

@@ -328,6 +328,33 @@ position = "bottom-right"
 
 Windows Terminal 客户端（包括 WSL 配置文件）会为 `delivery = "terminal"` 使用 OSC 777，但外层终端必须包含 [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012)。截至 2026 年 7 月 15 日，Stable 1.24.11911.0 和 Preview 1.25.1912.0 均不受支持；请使用兼容的 Canary/开发构建，或等待 Windows Terminal 1.26 及更高版本正式发布，然后启用 `compatibility.allowOSC777`。设置方法和安全说明请参阅 [Windows 测试版](/docs/windows-beta/#windows-terminal-通知)。
 
+## Bell 提醒
+
+Bell 是一个独立且默认关闭的强提醒，用于相同的后台智能体完成和需要输入事件。它遵循通知延迟及活动标签页焦点抑制，但不要求开启 Toast 或声音。
+
+```toml
+[ui.bell]
+enabled = true
+```
+
+Herdr 会通过前台客户端输出一个 ASCII BEL 字节，实际可见表现由外层终端和桌面环境决定：
+
+- Windows Terminal 可高亮或闪烁任务栏图标。在配置文件默认设置中把 `bellStyle` 设为 `"taskbar"`（或 `"all"`）：
+
+  ```json
+  {
+    "profiles": {
+      "defaults": {
+        "bellStyle": "taskbar"
+      }
+    }
+  }
+  ```
+- 在 macOS 上，Ghostty 等终端可以在启用通知/提醒设置且获得 macOS 所需权限后，将 BEL 映射为 Dock 图标跳动。
+- 在 Linux 上，任务栏高亮取决于终端模拟器和桌面环境是否支持视觉 Bell 或 urgency 提示。
+
+tmux 等终端复用器可能拦截或抑制 BEL，因此也需要允许 Bell 传递到外层终端。Bell 只请求注意，不会抢占焦点。
+
 ## 声音
 
 声音通知通过本地 Herdr 客户端播放。自定义声音必须是 mp3 文件；相对路径从配置文件所在目录解析。

@@ -78,6 +78,16 @@ pub fn show_notification(title: &str, body: Option<&str>) -> io::Result<bool> {
     Ok(true)
 }
 
+pub fn ring_bell() -> io::Result<()> {
+    let mut stdout = io::stdout();
+    ring_bell_with_writer(&mut stdout)
+}
+
+pub(crate) fn ring_bell_with_writer(writer: &mut impl io::Write) -> io::Result<()> {
+    writer.write_all(b"\x07")?;
+    writer.flush()
+}
+
 pub fn split_message(message: &str) -> (&str, Option<&str>) {
     match message.split_once(": ") {
         Some((title, body)) if !title.is_empty() && !body.is_empty() => (title, Some(body)),
@@ -142,6 +152,13 @@ fn wrap_tmux_passthrough(sequence: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ring_bell_writes_one_bel_byte() {
+        let mut output = Vec::new();
+        ring_bell_with_writer(&mut output).expect("bell write");
+        assert_eq!(output, b"\x07");
+    }
 
     #[test]
     fn split_message_splits_title_and_body() {

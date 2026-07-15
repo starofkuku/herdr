@@ -15,6 +15,7 @@ use crate::{
 pub(super) enum SettingsAction {
     SaveTheme(String),
     SaveSound(bool),
+    SaveBell(bool),
     SaveToastDelivery(ToastDelivery),
     SaveAgentBorderLabels(bool),
     SavePaneHistory(bool),
@@ -43,6 +44,7 @@ impl App {
             match action {
                 SettingsAction::SaveTheme(name) => self.save_theme(&name),
                 SettingsAction::SaveSound(enabled) => self.save_sound(enabled),
+                SettingsAction::SaveBell(enabled) => self.save_bell(enabled),
                 SettingsAction::SaveToastDelivery(delivery) => self.save_toast_delivery(delivery),
                 SettingsAction::SaveAgentBorderLabels(enabled) => {
                     self.save_agent_border_labels(enabled)
@@ -189,12 +191,36 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 return Some(SettingsAction::SaveSound(enabled));
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
-                state.settings.section = SettingsSection::Toast;
-                state.settings.list.selected = toast_delivery_index(state.toast_delivery());
+                state.settings.section = SettingsSection::Bell;
+                state.settings.list.selected = usize::from(!state.bell_enabled());
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::Theme;
                 state.settings.list.selected = current_theme_index(&state.theme_name);
+            }
+            _ => {
+                if let Some(super::modal::ModalAction::Close) =
+                    super::modal::modal_action_from_key(&key, super::modal::SETTINGS_ACTIONS)
+                {
+                    cancel_settings(state);
+                }
+            }
+        },
+        SettingsSection::Bell => match key.code {
+            KeyCode::Up | KeyCode::Char('k') | KeyCode::Down | KeyCode::Char('j') => {
+                state.settings.list.selected = 1 - state.settings.list.selected.min(1);
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let enabled = state.settings.list.selected == 0;
+                return Some(SettingsAction::SaveBell(enabled));
+            }
+            KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
+                state.settings.section = SettingsSection::Toast;
+                state.settings.list.selected = toast_delivery_index(state.toast_delivery());
+            }
+            KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
+                state.settings.section = SettingsSection::Sound;
+                state.settings.list.selected = usize::from(!state.sound_enabled());
             }
             _ => {
                 if let Some(super::modal::ModalAction::Close) =
@@ -212,8 +238,8 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
                 return Some(SettingsAction::SaveToastDelivery(delivery));
             }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
-                state.settings.section = SettingsSection::Sound;
-                state.settings.list.selected = usize::from(!state.sound_enabled());
+                state.settings.section = SettingsSection::Bell;
+                state.settings.list.selected = usize::from(!state.bell_enabled());
             }
             KeyCode::Tab | KeyCode::Right | KeyCode::Char('l') => {
                 state.settings.section = SettingsSection::PaneLabels;
@@ -310,6 +336,7 @@ pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
     state.settings.list.selected = match section {
         SettingsSection::Theme => current_theme_index(&state.theme_name),
         SettingsSection::Sound => usize::from(!state.sound_enabled()),
+        SettingsSection::Bell => usize::from(!state.bell_enabled()),
         SettingsSection::Toast => toast_delivery_index(state.toast_delivery()),
         SettingsSection::PaneLabels => usize::from(!state.agent_border_labels_enabled()),
         SettingsSection::Experiments => 0,
@@ -391,6 +418,14 @@ impl AppState {
                     None
                 }
             }
+            SettingsSection::Bell => {
+                let list_y = area.y + 3;
+                if row >= list_y && row < list_y + 2 {
+                    Some((row - list_y) as usize)
+                } else {
+                    None
+                }
+            }
             SettingsSection::Toast => {
                 let list_y = area.y + 3;
                 if row >= list_y && row < list_y + 8 {
@@ -427,6 +462,7 @@ impl AppState {
                     self.settings.list.select(match section {
                         SettingsSection::Theme => current_theme_index(&self.theme_name),
                         SettingsSection::Sound => usize::from(!self.sound_enabled()),
+                        SettingsSection::Bell => usize::from(!self.bell_enabled()),
                         SettingsSection::Toast => toast_delivery_index(self.toast_delivery()),
                         SettingsSection::PaneLabels => {
                             usize::from(!self.agent_border_labels_enabled())
@@ -446,6 +482,10 @@ impl AppState {
                         SettingsSection::Sound => {
                             let enabled = idx == 0;
                             Some(SettingsAction::SaveSound(enabled))
+                        }
+                        SettingsSection::Bell => {
+                            let enabled = idx == 0;
+                            Some(SettingsAction::SaveBell(enabled))
                         }
                         SettingsSection::Toast => {
                             let delivery = toast_delivery_for_index(idx);
@@ -539,6 +579,22 @@ mod tests {
 
         assert_eq!(action, Some(SettingsAction::SaveSound(true)));
         assert!(!state.sound.enabled);
+        assert_eq!(state.mode, Mode::Settings);
+    }
+
+    #[test]
+    fn settings_bell_toggle_returns_save_action() {
+        let mut state = state_with_workspaces(&["test"]);
+        open_settings_at(&mut state, SettingsSection::Bell);
+        state.settings.list.selected = 0;
+
+        let action = update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(action, Some(SettingsAction::SaveBell(true)));
+        assert!(!state.bell.enabled);
         assert_eq!(state.mode, Mode::Settings);
     }
 
@@ -667,6 +723,22 @@ mod tests {
         ));
 
         assert_eq!(action, Some(SettingsAction::SavePaneHistory(true)));
+        assert_eq!(app.state.settings.list.selected, 0);
+    }
+
+    #[test]
+    fn settings_mouse_click_enables_bell() {
+        let mut app = app_for_mouse_test();
+        open_settings_at(&mut app.state, SettingsSection::Bell);
+
+        let area = app.state.settings_content_rect();
+        let action = app.state.handle_settings_mouse(mouse(
+            MouseEventKind::Down(crossterm::event::MouseButton::Left),
+            area.x + 2,
+            area.y + 3,
+        ));
+
+        assert_eq!(action, Some(SettingsAction::SaveBell(true)));
         assert_eq!(app.state.settings.list.selected, 0);
     }
 

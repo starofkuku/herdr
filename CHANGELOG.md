@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- Added a default-off terminal Bell setting for background agent finished and needs-attention events. Herdr emits BEL through the foreground client so compatible Windows/Linux terminals can flash their taskbar icon and macOS terminals can request a Dock bounce.
+
+### Changed
+- Clarified that Windows Terminal OSC 777 notifications require a Canary/development build containing microsoft/terminal#20012, or Windows Terminal 1.26 or newer once released; Stable 1.24 and Preview 1.25 do not support them.
+
 ## [0.7.4] - 2026-07-14
 
 ### Added

@@ -845,7 +845,7 @@ mod tests {
             .expect("queue render");
         writer
             .control
-            .send(frame_server_message(&ServerMessage::ReloadSoundConfig))
+            .send(frame_server_message(&ServerMessage::ReloadClientConfig))
             .expect("queue control");
 
         let (server_event_tx, mut server_event_rx) = mpsc::channel(4);
@@ -854,7 +854,7 @@ mod tests {
         });
 
         match protocol::read_message(&mut client_stream, MAX_FRAME_SIZE).expect("read control") {
-            ServerMessage::ReloadSoundConfig => {}
+            ServerMessage::ReloadClientConfig => {}
             other => panic!("expected control message first, got {other:?}"),
         }
         match protocol::read_message(&mut client_stream, MAX_FRAME_SIZE).expect("read render") {
@@ -906,12 +906,12 @@ mod tests {
         drop(writer);
         cloned_writer
             .control
-            .send(frame_server_message(&ServerMessage::ReloadSoundConfig))
+            .send(frame_server_message(&ServerMessage::ReloadClientConfig))
             .expect("cloned writer still sends after original drops");
         match protocol::read_message(&mut client_stream, MAX_FRAME_SIZE)
             .expect("read control from cloned writer")
         {
-            ServerMessage::ReloadSoundConfig => {}
+            ServerMessage::ReloadClientConfig => {}
             other => panic!("expected cloned control message, got {other:?}"),
         }
         assert!(

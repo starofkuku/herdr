@@ -78,6 +78,18 @@ fn sound_notify_message(sound: crate::sound::Sound) -> &'static str {
     }
 }
 
+fn agent_notification_kind(
+    kind: crate::app::state::ToastKind,
+) -> Option<protocol::AgentNotificationKind> {
+    match kind {
+        crate::app::state::ToastKind::Finished => Some(protocol::AgentNotificationKind::Finished),
+        crate::app::state::ToastKind::NeedsAttention => {
+            Some(protocol::AgentNotificationKind::NeedsAttention)
+        }
+        crate::app::state::ToastKind::UpdateInstalled => None,
+    }
+}
+
 fn notification_show_response_shown(response: &str) -> bool {
     let Ok(response) = serde_json::from_str::<api::schema::SuccessResponse>(response) else {
         return false;
@@ -1596,6 +1608,30 @@ impl HeadlessServer {
         })
     }
 
+    fn forward_immediate_agent_notification_for_state_change(
+        &mut self,
+        suppress_active_tab_notifications: bool,
+        previous_state: crate::detect::AgentState,
+        state: crate::detect::AgentState,
+        previous_agent_label: Option<&str>,
+        agent_label: Option<&str>,
+    ) -> Option<crate::app::state::ToastKind> {
+        if self.app.state.toast_config.delay_seconds != 0 {
+            return None;
+        }
+        let kind = crate::app::actions::notification_toast_for_state_change_with_agent_labels(
+            suppress_active_tab_notifications,
+            previous_state,
+            state,
+            previous_agent_label,
+            agent_label,
+        )?;
+        if let Some(kind) = agent_notification_kind(kind) {
+            self.send_to_foreground_client(ServerMessage::AgentNotification { kind });
+        }
+        Some(kind)
+    }
+
     fn forward_pane_state_update_notifications_to_clients(
         &mut self,
         update: &crate::app::actions::PaneStateUpdate,
@@ -1610,6 +1646,14 @@ impl HeadlessServer {
             .pane_is_in_active_tab(update.ws_idx, update.pane_id);
         let suppress_active_tab_notifications =
             self.active_tab_suppresses_notifications(is_active_tab);
+
+        let notification_kind = crate::app::actions::notification_toast_for_pane_state_update(
+            suppress_active_tab_notifications,
+            update,
+        );
+        if let Some(kind) = notification_kind.and_then(agent_notification_kind) {
+            self.send_to_foreground_client(ServerMessage::AgentNotification { kind });
+        }
 
         if self.app.state.sound.allows(update.known_agent) {
             if let Some(sound) =
@@ -1632,10 +1676,7 @@ impl HeadlessServer {
         if !should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
             return;
         }
-        let Some(kind) = crate::app::actions::notification_toast_for_pane_state_update(
-            suppress_active_tab_notifications,
-            update,
-        ) else {
+        let Some(kind) = notification_kind else {
             return;
         };
         let Some(ws) = self.app.state.workspaces.get(update.ws_idx) else {
@@ -1669,6 +1710,12 @@ impl HeadlessServer {
         &mut self,
         delivery: &crate::app::state::AgentNotificationDelivery,
     ) {
+        if delivery.client_notification.is_some() {
+            if let Some(kind) = agent_notification_kind(delivery.kind) {
+                self.send_to_foreground_client(ServerMessage::AgentNotification { kind });
+            }
+        }
+
         if let Some(sound) = delivery.sound {
             self.send_notify_to_foreground_client(
                 protocol::NotifyKind::Sound,
@@ -1897,6 +1944,14 @@ impl HeadlessServer {
                 let next_state = self.pane_effective_state(pane_id_val);
                 let next_agent_label = self.pane_effective_agent_label(pane_id_val);
 
+                self.forward_immediate_agent_notification_for_state_change(
+                    suppress_active_tab_notifications,
+                    prev_state,
+                    next_state,
+                    prev_agent_label.as_deref(),
+                    next_agent_label.as_deref(),
+                );
+
                 if self.app.state.toast_config.delay_seconds == 0
                     && self.app.state.sound.allows(agent_val)
                 {
@@ -1988,6 +2043,14 @@ impl HeadlessServer {
 
                 let next_state = self.pane_effective_state(pane_id_val);
                 let next_agent_label = self.pane_effective_agent_label(pane_id_val);
+
+                self.forward_immediate_agent_notification_for_state_change(
+                    suppress_active_tab_notifications,
+                    prev_state,
+                    next_state,
+                    prev_agent_label.as_deref(),
+                    next_agent_label.as_deref(),
+                );
 
                 if self.app.state.toast_config.delay_seconds == 0
                     && self.app.state.sound.allows(agent_val)
@@ -2171,7 +2234,7 @@ impl HeadlessServer {
             return;
         }
         self.app.state.request_client_config_reload = false;
-        self.send_to_all_clients(ServerMessage::ReloadSoundConfig);
+        self.send_to_all_clients(ServerMessage::ReloadClientConfig);
     }
 
     /// Encodes a server message into a length-prefixed frame.
@@ -3005,6 +3068,14 @@ impl HeadlessServer {
                 "pane effective state changed during API request, checking notification"
             );
 
+            self.forward_immediate_agent_notification_for_state_change(
+                suppress_active_tab_notifications,
+                *prev_state,
+                new_state,
+                prev_agent_label.as_deref(),
+                agent_label.as_deref(),
+            );
+
             if !forwarded_toast_from_state
                 && self.app.state.toast_config.delay_seconds == 0
                 && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
@@ -3018,13 +3089,7 @@ impl HeadlessServer {
                         agent_label.as_deref(),
                     )
                 {
-                    if let Some(agent_label) = self
-                        .app
-                        .state
-                        .terminals
-                        .get(&pane_after.attached_terminal_id)
-                        .and_then(|terminal| terminal.effective_agent_label())
-                    {
+                    if let Some(agent_label) = agent_label.as_deref() {
                         let event_text = match kind {
                             crate::app::state::ToastKind::NeedsAttention => "needs attention",
                             crate::app::state::ToastKind::Finished => "finished",
@@ -7284,7 +7349,7 @@ next_tab = ""
             .recv_timeout(Duration::from_millis(100))
             .expect("initial semantic frame");
 
-        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadSoundConfig)
+        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadClientConfig)
             .expect("serialize dummy message");
         server
             .clients
@@ -7308,7 +7373,7 @@ next_tab = ""
         assert!(server.clients.get(&1).unwrap().render_pending);
         assert!(matches!(
             read_server_message(client_rx.recv_timeout(Duration::from_millis(100)).unwrap()),
-            ServerMessage::ReloadSoundConfig
+            ServerMessage::ReloadClientConfig
         ));
 
         let runtime = server
@@ -7412,7 +7477,7 @@ next_tab = ""
     fn full_render_queue_does_not_advance_terminal_ansi_baseline() {
         let mut server = test_headless_server();
         let (client_tx, _client_control_rx, client_rx) = test_client_writer();
-        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadSoundConfig)
+        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadClientConfig)
             .expect("serialize dummy message");
         client_tx
             .render
@@ -7447,7 +7512,7 @@ next_tab = ""
         );
         assert!(matches!(
             read_server_message(client_rx.recv_timeout(Duration::from_millis(100)).unwrap()),
-            ServerMessage::ReloadSoundConfig
+            ServerMessage::ReloadClientConfig
         ));
         assert!(client_rx.recv_timeout(Duration::from_millis(50)).is_err());
     }
@@ -7456,7 +7521,7 @@ next_tab = ""
     fn writer_drained_retries_pending_terminal_ansi_render() {
         let mut server = test_headless_server();
         let (client_tx, _client_control_rx, client_rx) = test_client_writer();
-        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadSoundConfig)
+        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadClientConfig)
             .expect("serialize dummy message");
         client_tx
             .render
@@ -7481,7 +7546,7 @@ next_tab = ""
         assert!(server.clients.get(&1).unwrap().render_pending);
         assert!(matches!(
             read_server_message(client_rx.recv_timeout(Duration::from_millis(100)).unwrap()),
-            ServerMessage::ReloadSoundConfig
+            ServerMessage::ReloadClientConfig
         ));
 
         assert!(server.handle_server_event(ServerEvent::ClientWriterDrained { client_id: 1 }));
@@ -7935,7 +8000,7 @@ next_tab = ""
     #[tokio::test]
     async fn full_redraw_pending_survives_full_render_queue_full() {
         let (mut server, client_rx, pane_id) = retained_test_server(b"aaaa");
-        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadSoundConfig)
+        let queued = HeadlessServer::frame_server_message(&ServerMessage::ReloadClientConfig)
             .expect("serialize dummy message");
         server
             .clients
@@ -7955,7 +8020,7 @@ next_tab = ""
         assert!(server.clients.get(&1).unwrap().render_pending);
         assert!(matches!(
             read_server_message(client_rx.recv_timeout(Duration::from_millis(100)).unwrap()),
-            ServerMessage::ReloadSoundConfig
+            ServerMessage::ReloadClientConfig
         ));
 
         let runtime = server
@@ -7995,8 +8060,8 @@ next_tab = ""
                 .recv_timeout(Duration::from_millis(100))
                 .expect("client config reload message"),
         ) {
-            ServerMessage::ReloadSoundConfig => {}
-            other => panic!("expected ReloadSoundConfig, got {other:?}"),
+            ServerMessage::ReloadClientConfig => {}
+            other => panic!("expected ReloadClientConfig, got {other:?}"),
         }
         assert!(!server.app.state.request_client_config_reload);
     }
@@ -8686,6 +8751,135 @@ next_tab = ""
     }
 
     #[test]
+    fn background_agent_events_forward_semantic_bell_independent_of_toast_and_sound() {
+        let mut server = test_headless_server();
+        let background = crate::workspace::Workspace::test_new("background");
+        let pane_id = background.tabs[0].root_pane;
+        let foreground = crate::workspace::Workspace::test_new("foreground");
+        server.app.state.workspaces = vec![background, foreground];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(1);
+        server.app.state.selected = 1;
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Off;
+        server.app.state.toast_config.delay_seconds = 0;
+        server.app.state.sound.enabled = false;
+
+        let (client_tx, client_control_rx, _client_rx) = test_client_writer();
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                Some(true),
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(client_tx),
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+
+        for (state, expected) in [
+            (
+                crate::detect::AgentState::Blocked,
+                Some(protocol::AgentNotificationKind::NeedsAttention),
+            ),
+            (crate::detect::AgentState::Working, None),
+            (
+                crate::detect::AgentState::Idle,
+                Some(protocol::AgentNotificationKind::Finished),
+            ),
+        ] {
+            assert!(
+                server.handle_internal_event_with_forwarding(AppEvent::StateChanged {
+                    pane_id,
+                    agent: Some(crate::detect::Agent::Pi),
+                    state,
+                    visible_blocker: false,
+                    visible_working: state == crate::detect::AgentState::Working,
+                    process_exited: false,
+                    observed_at: Instant::now(),
+                })
+            );
+
+            match expected {
+                Some(kind) => assert_eq!(
+                    read_server_message(
+                        client_control_rx
+                            .recv_timeout(Duration::from_millis(100))
+                            .expect("semantic agent notification"),
+                    ),
+                    ServerMessage::AgentNotification { kind }
+                ),
+                None => assert!(
+                    client_control_rx
+                        .recv_timeout(Duration::from_millis(50))
+                        .is_err(),
+                    "working transition should not request attention"
+                ),
+            }
+        }
+
+        assert!(
+            client_control_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "disabled toast and sound should not add presentation messages"
+        );
+    }
+
+    #[test]
+    fn focused_active_tab_suppresses_semantic_bell() {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("active");
+        let pane_id = workspace.tabs[0].root_pane;
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        server.app.state.active = Some(0);
+        server.app.state.selected = 0;
+        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Off;
+        server.app.state.toast_config.delay_seconds = 0;
+        server.app.state.sound.enabled = false;
+
+        let (client_tx, client_control_rx, _client_rx) = test_client_writer();
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                Some(true),
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(client_tx),
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::StateChanged {
+                pane_id,
+                agent: Some(crate::detect::Agent::Pi),
+                state: crate::detect::AgentState::Blocked,
+                visible_blocker: false,
+                visible_working: false,
+                process_exited: false,
+                observed_at: Instant::now(),
+            })
+        );
+        assert!(
+            client_control_rx
+                .recv_timeout(Duration::from_millis(50))
+                .is_err(),
+            "focused active tab should suppress the Bell event"
+        );
+    }
+
+    #[test]
     fn delayed_agent_notification_forwards_after_deadline() {
         let mut server = test_headless_server();
         let background = crate::workspace::Workspace::test_new("background");
@@ -8741,25 +8935,36 @@ next_tab = ""
             .expect("pending notification deadline");
         assert!(server.handle_scheduled_tasks_headless(deadline, false));
 
-        let first = read_server_message(
+        let bell = read_server_message(
+            client_control_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("delayed agent notification"),
+        );
+        let sound = read_server_message(
             client_control_rx
                 .recv_timeout(Duration::from_millis(100))
                 .expect("delayed sound message"),
         );
-        let second = read_server_message(
+        let toast = read_server_message(
             client_control_rx
                 .recv_timeout(Duration::from_millis(100))
                 .expect("delayed toast message"),
         );
 
         assert!(matches!(
-            first,
+            bell,
+            ServerMessage::AgentNotification {
+                kind: protocol::AgentNotificationKind::NeedsAttention
+            }
+        ));
+        assert!(matches!(
+            sound,
             ServerMessage::Notify {
                 kind: protocol::NotifyKind::Sound,
                 ..
             }
         ));
-        match second {
+        match toast {
             ServerMessage::Notify {
                 kind,
                 message,
@@ -8829,25 +9034,36 @@ next_tab = ""
             .expect("pending notification deadline");
         assert!(server.handle_scheduled_tasks_headless(deadline, false));
 
-        let first = read_server_message(
+        let bell = read_server_message(
+            client_control_rx
+                .recv_timeout(Duration::from_millis(100))
+                .expect("delayed agent notification"),
+        );
+        let sound = read_server_message(
             client_control_rx
                 .recv_timeout(Duration::from_millis(100))
                 .expect("delayed sound message"),
         );
-        let second = read_server_message(
+        let toast = read_server_message(
             client_control_rx
                 .recv_timeout(Duration::from_millis(100))
                 .expect("delayed toast message"),
         );
 
         assert!(matches!(
-            first,
+            bell,
+            ServerMessage::AgentNotification {
+                kind: protocol::AgentNotificationKind::NeedsAttention
+            }
+        ));
+        assert!(matches!(
+            sound,
             ServerMessage::Notify {
                 kind: protocol::NotifyKind::Sound,
                 ..
             }
         ));
-        match second {
+        match toast {
             ServerMessage::Notify {
                 kind,
                 message,

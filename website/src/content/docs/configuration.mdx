@@ -329,6 +329,33 @@ Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notificatio
 
 Windows Terminal clients, including WSL profiles, use OSC 777 for `delivery = "terminal"`, but the outer terminal must contain [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012). As of July 15, 2026, Stable 1.24.11911.0 and Preview 1.25.1912.0 are unsupported; use a compatible Canary/development build or Windows Terminal 1.26 or newer once released, then enable `compatibility.allowOSC777`. See [Windows beta](/docs/windows-beta/#windows-terminal-notifications) for setup and security details.
 
+## Bell
+
+The Bell setting is a separate, default-off attention signal for the same background agent finished and needs-input events. It follows the notification delay and active-tab focus suppression, but does not require Toast or Sound to be enabled.
+
+```toml
+[ui.bell]
+enabled = true
+```
+
+Herdr emits one ASCII BEL byte through the foreground client. The outer terminal and desktop decide the visible behavior:
+
+- Windows Terminal can highlight or flash its taskbar icon. Set `bellStyle` to `"taskbar"` (or `"all"`) in the profile defaults:
+
+  ```json
+  {
+    "profiles": {
+      "defaults": {
+        "bellStyle": "taskbar"
+      }
+    }
+  }
+  ```
+- On macOS, Ghostty and other terminals can map BEL to a Dock bounce when their notification/attention setting is enabled and macOS grants the required permission.
+- On Linux, taskbar highlighting depends on the terminal emulator and desktop environment's visual-bell or urgency support.
+
+Multiplexers such as tmux may intercept or suppress BEL, so their bell settings must also allow it to reach the outer terminal. Bell requests attention only; Herdr does not steal focus.
+
 ## Sound
 
 Sound notifications play through the local Herdr client. Custom sounds must be mp3 files; relative paths are resolved from the config file's directory.

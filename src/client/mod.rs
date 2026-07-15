@@ -39,8 +39,8 @@ use crate::protocol::render_ansi;
 #[cfg(unix)]
 use crate::protocol::MAX_CLIPBOARD_IMAGE_PAYLOAD;
 use crate::protocol::{
-    self, AttachScrollDirection, AttachScrollSource, ClientKeybindings, ClientLaunchMode,
-    ClientMessage, NotifyKind, RenderEncoding, ServerMessage, MAX_FRAME_SIZE,
+    self, AgentNotificationKind, AttachScrollDirection, AttachScrollSource, ClientKeybindings,
+    ClientLaunchMode, ClientMessage, NotifyKind, RenderEncoding, ServerMessage, MAX_FRAME_SIZE,
     MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
 };
 use crate::server::socket_paths::client_socket_path;
@@ -53,6 +53,7 @@ static RECEIVED_KITTY_GRAPHICS_IDS: OnceLock<Mutex<HashSet<u32>>> = OnceLock::ne
 
 struct ClientLoopConfig {
     sound_config: crate::config::SoundConfig,
+    bell_config: crate::config::BellConfig,
     mouse_scroll_lines: usize,
     redraw_on_focus_gained: bool,
     host_cursor: crate::config::HostCursorModeConfig,
@@ -72,6 +73,8 @@ struct ClientState {
     reported_size: (u16, u16),
     /// Client-local sound playback config, refreshed on server request.
     sound_config: crate::config::SoundConfig,
+    /// Client-local terminal Bell preference, refreshed on server request.
+    bell_config: crate::config::BellConfig,
     /// Whether this client may write Kitty graphics bytes to its host terminal.
     kitty_graphics_enabled: bool,
     /// Direct attach prefix escape state. None for full-app clients.
@@ -1124,6 +1127,7 @@ fn run_client_with_mode(
         loaded_config.config.experimental.kitty_graphics && !direct_attach_requested;
     let loop_config = ClientLoopConfig {
         sound_config: loaded_config.config.ui.sound,
+        bell_config: loaded_config.config.ui.bell,
         mouse_scroll_lines,
         redraw_on_focus_gained,
         host_cursor,
@@ -1288,6 +1292,7 @@ async fn run_client_loop(
         mouse_capture_active: config.mouse_capture_active,
         reported_size: (cols, rows),
         sound_config: config.sound_config,
+        bell_config: config.bell_config,
         kitty_graphics_enabled: config.kitty_graphics_enabled,
         attach_escape,
         #[cfg(unix)]
@@ -1552,6 +1557,9 @@ async fn run_client_loop(
                 } => {
                     handle_notify(kind, &message, body.as_deref(), &state.sound_config);
                 }
+                ServerMessage::AgentNotification { kind } => {
+                    handle_agent_notification(kind, &state.bell_config);
+                }
                 ServerMessage::Clipboard { data } => {
                     forward_clipboard(&data);
                     let _ = io::stdout().flush();
@@ -1560,9 +1568,10 @@ async fn run_client_loop(
                     write_window_title(title.as_deref());
                     let _ = io::stdout().flush();
                 }
-                ServerMessage::ReloadSoundConfig => {
+                ServerMessage::ReloadClientConfig => {
                     reload_local_client_config(
                         &mut state.sound_config,
+                        &mut state.bell_config,
                         &mut state.redraw_on_focus_gained,
                         &mut state.draw_host_cursor,
                         #[cfg(unix)]
@@ -1697,6 +1706,7 @@ fn client_remote_image_paste_key(
 
 fn reload_local_client_config(
     sound_config: &mut crate::config::SoundConfig,
+    bell_config: &mut crate::config::BellConfig,
     redraw_on_focus_gained: &mut bool,
     draw_host_cursor: &mut bool,
     #[cfg(unix)] remote_image_paste_key: &mut Option<(
@@ -1712,6 +1722,7 @@ fn reload_local_client_config(
             #[cfg(unix)]
             let loaded_remote_image_paste_key = client_remote_image_paste_key(&loaded.config);
             *sound_config = loaded.config.ui.sound;
+            *bell_config = loaded.config.ui.bell;
             *redraw_on_focus_gained = loaded.config.ui.redraw_on_focus_gained;
             *draw_host_cursor = should_draw_host_cursor(loaded.config.ui.host_cursor);
             #[cfg(unix)]
@@ -1724,6 +1735,24 @@ fn reload_local_client_config(
             warn!(diagnostics = ?diagnostics, "failed to reload local client config; keeping current client config");
         }
     }
+}
+
+fn handle_agent_notification(kind: AgentNotificationKind, bell_config: &crate::config::BellConfig) {
+    let mut stdout = io::stdout();
+    if let Err(err) = handle_agent_notification_with_writer(kind, bell_config, &mut stdout) {
+        warn!(err = %err, "failed to emit terminal bell");
+    }
+}
+
+fn handle_agent_notification_with_writer(
+    _kind: AgentNotificationKind,
+    bell_config: &crate::config::BellConfig,
+    writer: &mut impl io::Write,
+) -> io::Result<()> {
+    if bell_config.enabled {
+        crate::terminal_notify::ring_bell_with_writer(writer)?;
+    }
+    Ok(())
 }
 
 fn handle_notify(
@@ -2761,12 +2790,13 @@ mod tests {
         ));
         std::fs::write(
             &path,
-            "[ui]\nredraw_on_focus_gained = false\nhost_cursor = \"drawn\"\n",
+            "[ui]\nredraw_on_focus_gained = false\nhost_cursor = \"drawn\"\n\n[ui.bell]\nenabled = true\n",
         )
         .unwrap();
         let path_string = path.to_string_lossy().to_string();
         let _env = EnvVarGuard::set(crate::config::CONFIG_PATH_ENV_VAR, &path_string);
         let mut sound_config = crate::config::SoundConfig::default();
+        let mut bell_config = crate::config::BellConfig::default();
         let mut redraw_on_focus_gained = true;
         let mut draw_host_cursor = false;
         #[cfg(unix)]
@@ -2774,15 +2804,41 @@ mod tests {
 
         reload_local_client_config(
             &mut sound_config,
+            &mut bell_config,
             &mut redraw_on_focus_gained,
             &mut draw_host_cursor,
             #[cfg(unix)]
             &mut remote_image_paste_key,
         );
 
+        assert!(bell_config.enabled);
         assert!(!redraw_on_focus_gained);
         assert!(draw_host_cursor);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn agent_notification_emits_one_bel_when_enabled() {
+        let mut output = Vec::new();
+        handle_agent_notification_with_writer(
+            AgentNotificationKind::Finished,
+            &crate::config::BellConfig { enabled: true },
+            &mut output,
+        )
+        .expect("bell write");
+        assert_eq!(output, b"\x07");
+    }
+
+    #[test]
+    fn agent_notification_is_silent_when_bell_is_disabled() {
+        let mut output = Vec::new();
+        handle_agent_notification_with_writer(
+            AgentNotificationKind::NeedsAttention,
+            &crate::config::BellConfig::default(),
+            &mut output,
+        )
+        .expect("disabled bell");
+        assert!(output.is_empty());
     }
 
     #[test]
