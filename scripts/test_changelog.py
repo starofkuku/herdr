@@ -13,7 +13,7 @@ from scripts.changelog import (
     DEFAULT_PRODUCT_ANNOUNCEMENT_PATH,
     default_release_assets,
     ensure_current_release_assets_are_mirrored,
-    ensure_manifest_is_outdated,
+    ensure_manifest_is_not_newer,
     ensure_manifest_matches_expected,
     extract_section_body,
     infer_protocol_from_notes,
@@ -349,15 +349,13 @@ class ChangelogScriptTests(unittest.TestCase):
                 "0.1.1",
             )
 
-    def test_ensure_manifest_is_outdated_rejects_same_or_newer_version(self) -> None:
-        with self.assertRaisesRegex(ChangelogError, "already at v0.1.1"):
-            ensure_manifest_is_outdated({"version": "0.1.1"}, "0.1.1")
-
+    def test_ensure_manifest_is_not_newer_rejects_newer_version(self) -> None:
         with self.assertRaisesRegex(ChangelogError, "already at v0.1.2"):
-            ensure_manifest_is_outdated({"version": "0.1.2"}, "0.1.1")
+            ensure_manifest_is_not_newer({"version": "0.1.2"}, "0.1.1")
 
-    def test_ensure_manifest_is_outdated_allows_older_version(self) -> None:
-        ensure_manifest_is_outdated({"version": "0.1.0"}, "0.1.1")
+    def test_ensure_manifest_is_not_newer_allows_same_or_older_version(self) -> None:
+        ensure_manifest_is_not_newer({"version": "0.1.1"}, "0.1.1")
+        ensure_manifest_is_not_newer({"version": "0.1.0"}, "0.1.1")
 
     def test_canonicalize_manifest_requires_all_asset_targets(self) -> None:
         with self.assertRaisesRegex(ChangelogError, "missing asset URL for macos-aarch64"):

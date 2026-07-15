@@ -536,14 +536,14 @@ def verify_asset_urls_resolve(assets: dict[str, str], label: str) -> None:
             raise ChangelogError(f"failed to verify {label} asset {target}: {stderr}")
 
 
-def ensure_manifest_is_outdated(current_manifest: dict[str, Any], version: str) -> None:
+def ensure_manifest_is_not_newer(current_manifest: dict[str, Any], version: str) -> None:
     current_version = current_manifest.get("version")
     if not isinstance(current_version, str):
         raise ChangelogError("website/latest.json is missing a string version")
 
-    if parse_version(current_version) >= parse_version(version):
+    if parse_version(current_version) > parse_version(version):
         raise ChangelogError(
-            f"website/latest.json is already at v{normalize_version(current_version)}; expected something older than v{normalize_version(version)}"
+            f"website/latest.json is already at v{normalize_version(current_version)}; expected v{normalize_version(version)} or older"
         )
 
 
@@ -582,7 +582,7 @@ def cmd_sync_latest_json(args: argparse.Namespace) -> int:
     version = normalize_version(args.version)
 
     current_manifest = load_json(manifest_path)
-    ensure_manifest_is_outdated(current_manifest, version)
+    ensure_manifest_is_not_newer(current_manifest, version)
 
     release_payload = fetch_release_payload(version, args.repo)
     new_manifest = manifest_from_release_payload(release_payload, version, args.protocol)
