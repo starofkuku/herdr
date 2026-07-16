@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.7] - 2026-07-16
+
 ### Changed
 - Expanded server-authorized clipboard image paste for `herdr --remote` beyond Codex. Herdr now pastes staged absolute image paths for Pi, Claude Code, Codex, Cursor CLI, Cline, OMP, MastraCode, OpenCode, GitHub Copilot CLI, Kiro, Factory Droid, Grok, Hermes, Kilo Code, Qoder CLI, and Maki, and uses an `@path` mention for Amp. Gemini CLI, Kimi CLI, Devin CLI, and Antigravity keep the original shortcut because they do not currently expose a compatible stable path contract.
 
