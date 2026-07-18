@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+- Plugins and API clients can now schedule an idle Agent pane to restart from its officially reported native session with `agent.restart` or `herdr agent restart <target>`, preserving the pane and layout without restarting Herdr.
+- Agent pane context menus now show enabled plugin Actions that declare the `pane` context, so installed integrations can be launched without a custom keybinding.
+
 ## [0.7.7] - 2026-07-16
 
 ### Changed
