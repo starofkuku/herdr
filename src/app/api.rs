@@ -150,6 +150,32 @@ impl App {
         }
 
         if let AppEvent::PaneDied { pane_id } = &ev {
+            let pending_terminal = self.find_pane(*pane_id).and_then(|(_, pane)| {
+                self.state
+                    .terminals
+                    .get(&pane.attached_terminal_id)
+                    .filter(|terminal| terminal.pending_agent_resume_plan.is_some())
+                    .map(|_| pane.attached_terminal_id.clone())
+            });
+            if let Some(terminal_id) = pending_terminal {
+                if !self.pending_agent_restart_exits.remove(&terminal_id) {
+                    return;
+                }
+                self.sync_pending_agent_resume_deadline(Instant::now());
+                let _ = self.start_pending_agent_resumes(false);
+                self.render_dirty.store(true, Ordering::Release);
+                self.render_notify.notify_one();
+                self.schedule_session_save();
+                tracing::info!(
+                    pane = pane_id.raw(),
+                    terminal = %terminal_id,
+                    "restarting agent from native session"
+                );
+                return;
+            }
+        }
+
+        if let AppEvent::PaneDied { pane_id } = &ev {
             let previous_toast = self.state.toast.clone();
             if let Some(update) = self.state.publish_pane_process_exit_if_agent(*pane_id) {
                 self.sync_full_lifecycle_authority_detection_pauses();
@@ -985,6 +1011,7 @@ impl App {
             Method::AgentFocus(target) => return self.handle_agent_focus(request.id, target),
             Method::AgentRename(params) => return self.handle_agent_rename(request.id, params),
             Method::AgentStart(params) => return self.handle_agent_start(request.id, params),
+            Method::AgentRestart(params) => return self.handle_agent_restart(request.id, params),
             Method::AgentRead(params) => return self.handle_agent_read(request.id, params),
             Method::AgentExplain(target) => return self.handle_agent_explain(request.id, target),
             Method::AgentSend(params) => return self.handle_agent_send(request.id, params),

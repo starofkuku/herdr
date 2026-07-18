@@ -101,6 +101,10 @@ pub enum ResponseResult {
         agent: AgentInfo,
         argv: Vec<String>,
     },
+    AgentRestartScheduled {
+        agent: AgentInfo,
+        argv: Vec<String>,
+    },
     AgentList {
         agents: Vec<AgentInfo>,
     },

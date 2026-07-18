@@ -94,6 +94,9 @@ impl App {
                         .terminal_runtimes
                         .get(&pane.attached_terminal_id)
                         .is_some()
+                        || self
+                            .pending_agent_restart_exits
+                            .contains(&pane.attached_terminal_id)
                     {
                         continue;
                     }

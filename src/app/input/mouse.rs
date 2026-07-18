@@ -1049,6 +1049,7 @@ impl AppState {
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(0),
+                        plugin_actions: Vec::new(),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1065,6 +1066,7 @@ impl AppState {
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(0),
+                        plugin_actions: Vec::new(),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1090,6 +1092,7 @@ impl AppState {
                         .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
                         .and_then(|terminal| terminal.manual_label.as_ref())
                         .is_some();
+                    let plugin_actions = self.plugin_actions_for_agent_pane(ws_idx, info.id);
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Pane {
                             ws_idx,
@@ -1101,6 +1104,7 @@ impl AppState {
                         x: mouse.column,
                         y: mouse.row,
                         list: MenuListState::new(0),
+                        plugin_actions,
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1214,10 +1218,15 @@ impl AppState {
             .items()
             .iter()
             .map(|item| item.len() as u16)
+            .chain(
+                menu.plugin_actions
+                    .iter()
+                    .map(|action| action.title.len() as u16),
+            )
             .max()
             .unwrap_or(0);
         let menu_w = (max_item_w + 4).max(14).min(screen.width.max(1));
-        let menu_h = (menu.items().len() as u16 + 2).min(screen.height.max(1));
+        let menu_h = (menu.total_item_count() as u16 + 2).min(screen.height.max(1));
         let x = menu.x.min(screen.x + screen.width.saturating_sub(menu_w));
         let y = menu.y.min(screen.y + screen.height.saturating_sub(menu_h));
         Some(Rect::new(x, y, menu_w, menu_h))
@@ -1236,7 +1245,7 @@ impl AppState {
         let item_count = self
             .context_menu
             .as_ref()
-            .map(|menu| menu.items().len() as u16)
+            .map(|menu| menu.total_item_count() as u16)
             .unwrap_or(0);
         if col >= inner_x
             && col < inner_x + inner_w
@@ -2462,6 +2471,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2756,6 +2766,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(1),
+            plugin_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2796,6 +2807,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(1),
+            plugin_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2848,6 +2860,7 @@ mod tests {
             x: 2,
             y: 2,
             list: MenuListState::new(1),
+            plugin_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
 

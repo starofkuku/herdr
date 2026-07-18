@@ -1141,6 +1141,9 @@ pub struct ContextMenuState {
     pub x: u16,
     pub y: u16,
     pub list: MenuListState,
+    /// Plugin actions available for this menu's target pane. These are kept
+    /// alongside the menu so the list remains stable while it is open.
+    pub plugin_actions: Vec<crate::api::schema::PluginActionInfo>,
 }
 
 impl ContextMenuState {
@@ -1230,6 +1233,15 @@ impl ContextMenuState {
                 "Close pane",
             ],
         }
+    }
+
+    pub fn total_item_count(&self) -> usize {
+        self.items().len() + self.plugin_actions.len()
+    }
+
+    pub fn plugin_action_at(&self, idx: usize) -> Option<&crate::api::schema::PluginActionInfo> {
+        idx.checked_sub(self.items().len())
+            .and_then(|plugin_idx| self.plugin_actions.get(plugin_idx))
     }
 }
 
@@ -1496,6 +1508,62 @@ pub struct AppState {
 impl AppState {
     pub(crate) fn mark_session_dirty(&mut self) {
         self.session_dirty = true;
+    }
+
+    /// Return enabled plugin actions that explicitly support pane contexts for
+    /// an Agent pane. The menu captures this snapshot when it opens so action
+    /// ordering and indices remain stable while the user navigates it.
+    pub(crate) fn plugin_actions_for_agent_pane(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Vec<crate::api::schema::PluginActionInfo> {
+        let Some(terminal_id) = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return Vec::new();
+        };
+        let is_agent = self.terminals.get(&terminal_id).is_some_and(|terminal| {
+            terminal.detected_agent.is_some()
+                || terminal.agent_name.is_some()
+                || terminal.hook_authority.is_some()
+        });
+        if !is_agent {
+            return Vec::new();
+        }
+
+        let mut actions = self
+            .installed_plugins
+            .values()
+            .filter(|plugin| plugin.enabled)
+            .flat_map(|plugin| {
+                plugin.actions.iter().filter_map(|action| {
+                    if !action
+                        .contexts
+                        .contains(&crate::api::schema::PluginActionContext::Pane)
+                    {
+                        return None;
+                    }
+                    Some(crate::api::schema::PluginActionInfo {
+                        plugin_id: plugin.plugin_id.clone(),
+                        action_id: action.id.clone(),
+                        title: action.title.clone(),
+                        description: action.description.clone(),
+                        contexts: action.contexts.clone(),
+                        command: action.command.clone(),
+                        platforms: action
+                            .platforms
+                            .clone()
+                            .or_else(|| plugin.platforms.clone()),
+                    })
+                })
+            })
+            .collect::<Vec<_>>();
+        actions.sort_by_key(|action| action.qualified_id());
+        actions
     }
 
     pub(crate) fn remove_alias_shadowed_by_new_pane(&mut self, pane_id: PaneId) {
@@ -2280,6 +2348,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         };
 
         assert_eq!(
@@ -2300,6 +2369,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         };
 
         assert_eq!(
@@ -2320,6 +2390,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         };
 
         assert_eq!(
@@ -2332,5 +2403,76 @@ mod tests {
                 "Collapse"
             ]
         );
+    }
+
+    #[test]
+    fn agent_pane_plugin_actions_are_filtered_and_sorted() {
+        let mut state = AppState::test_new();
+        let workspace = crate::workspace::Workspace::test_new("plugin-menu");
+        let pane_id = workspace.tabs[0].root_pane;
+        let terminal_id = workspace.tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        state.workspaces = vec![workspace];
+        state.terminals.insert(
+            terminal_id.clone(),
+            crate::terminal::TerminalState::new(
+                terminal_id.clone(),
+                std::path::PathBuf::from("/tmp"),
+            ),
+        );
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .detected_agent = Some(crate::detect::Agent::Codex);
+        state.installed_plugins.insert(
+            "example.plugin".into(),
+            crate::api::schema::InstalledPluginInfo {
+                plugin_id: "example.plugin".into(),
+                name: "Example".into(),
+                version: "1.0.0".into(),
+                min_herdr_version: String::new(),
+                description: None,
+                manifest_path: "/tmp/plugin.toml".into(),
+                plugin_root: "/tmp".into(),
+                enabled: true,
+                platforms: None,
+                build: Vec::new(),
+                actions: vec![
+                    crate::api::schema::PluginManifestAction {
+                        id: "zeta".into(),
+                        title: "Zeta".into(),
+                        description: None,
+                        contexts: vec![crate::api::schema::PluginActionContext::Pane],
+                        platforms: None,
+                        command: vec!["true".into()],
+                    },
+                    crate::api::schema::PluginManifestAction {
+                        id: "alpha".into(),
+                        title: "Alpha".into(),
+                        description: None,
+                        contexts: vec![crate::api::schema::PluginActionContext::Pane],
+                        platforms: None,
+                        command: vec!["true".into()],
+                    },
+                ],
+                events: Vec::new(),
+                panes: Vec::new(),
+                link_handlers: Vec::new(),
+                source: crate::api::schema::PluginSourceInfo::default(),
+                warnings: Vec::new(),
+            },
+        );
+
+        let actions = state.plugin_actions_for_agent_pane(0, pane_id);
+        assert_eq!(
+            actions
+                .iter()
+                .map(|action| action.action_id.as_str())
+                .collect::<Vec<_>>(),
+            ["alpha", "zeta"]
+        );
+        assert_eq!(actions[0].title, "Alpha");
     }
 }

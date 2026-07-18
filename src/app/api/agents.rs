@@ -1,8 +1,8 @@
 use bytes::Bytes;
 
 use crate::api::schema::{
-    AgentRenameParams, AgentSendParams, AgentStartParams, AgentTarget, PaneReadResult, ReadFormat,
-    ReadSource, ResponseResult,
+    AgentRenameParams, AgentRestartParams, AgentSendParams, AgentStartParams, AgentTarget,
+    PaneReadResult, ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::App;
 
@@ -56,6 +56,87 @@ impl App {
         };
 
         encode_success(id, ResponseResult::AgentStarted { agent, argv })
+    }
+
+    pub(super) fn handle_agent_restart(
+        &mut self,
+        id: String,
+        params: AgentRestartParams,
+    ) -> String {
+        let target = AgentTarget {
+            target: params.target,
+        };
+        let agent = match self.agent_info_for_target(&target.target) {
+            Ok(agent) => agent,
+            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+        let resolved = match self.resolve_terminal_target(&target.target) {
+            Ok(resolved) => resolved,
+            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        };
+        let Some(pane) = self
+            .state
+            .workspaces
+            .get(resolved.ws_idx)
+            .and_then(|workspace| workspace.tabs.get(resolved.tab_idx))
+            .and_then(|tab| tab.panes.get(&resolved.pane_id))
+        else {
+            return encode_error(id, "agent_not_found", "agent target no longer exists");
+        };
+        let terminal_id = pane.attached_terminal_id.clone();
+        let Some(terminal) = self.state.terminals.get(&terminal_id) else {
+            return encode_error(id, "agent_not_found", "agent terminal no longer exists");
+        };
+        if terminal.pending_agent_resume_plan.is_some() {
+            return encode_error(
+                id,
+                "agent_restart_in_progress",
+                "agent restart is already in progress",
+            );
+        }
+        if terminal.state != crate::detect::AgentState::Idle {
+            return encode_error(
+                id,
+                "agent_not_idle",
+                "agent must be idle before it can be restarted",
+            );
+        }
+        let Some(session) = terminal.persisted_agent_session.as_ref() else {
+            return encode_error(
+                id,
+                "agent_session_unavailable",
+                "agent has no resumable native session",
+            );
+        };
+        let Some(plan) =
+            crate::agent_resume::plan(&session.source, &session.agent, &session.session_ref)
+        else {
+            return encode_error(
+                id,
+                "agent_resume_unsupported",
+                "agent session cannot be resumed by this Herdr version",
+            );
+        };
+        let argv = plan.argv.clone();
+        if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+            terminal.pending_agent_resume_plan = Some(plan);
+        }
+        self.pending_agent_restart_exits.insert(terminal_id.clone());
+        let Some(runtime) = self.terminal_runtimes.remove(&terminal_id) else {
+            self.pending_agent_restart_exits.remove(&terminal_id);
+            if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                terminal.pending_agent_resume_plan = None;
+            }
+            return encode_error(
+                id,
+                "agent_not_running",
+                "agent has no running terminal process",
+            );
+        };
+        runtime.shutdown();
+        self.schedule_session_save();
+
+        encode_success(id, ResponseResult::AgentRestartScheduled { agent, argv })
     }
 
     pub(super) fn handle_agent_read(
@@ -264,5 +345,107 @@ mod tests {
             panic!("expected agent info response");
         };
         assert_eq!(agent.agent_status, AgentStatus::Idle);
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn agent_restart_schedules_native_resume_for_idle_agent() {
+        let mut app = app_with_agent();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
+        terminal.set_detected_state(Some(Agent::Codex), AgentState::Idle);
+        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+            source: "herdr:codex".into(),
+            agent: "codex".into(),
+            session_ref: crate::agent_resume::AgentSessionRef::id("session-1").unwrap(),
+        });
+        let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+
+        let response = app.handle_agent_restart(
+            "req".into(),
+            AgentRestartParams {
+                target: "codex".into(),
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentRestartScheduled { argv, .. } = success.result else {
+            panic!("expected scheduled restart response");
+        };
+        assert_eq!(argv, vec!["codex", "resume", "session-1"]);
+        assert!(app.terminal_runtimes.get(&terminal_id).is_none());
+        assert!(app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .unwrap()
+            .pending_agent_resume_plan
+            .is_some());
+
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .pending_agent_resume_plan
+            .as_mut()
+            .unwrap()
+            .argv = vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()];
+        app.state.view.terminal_area = ratatui::layout::Rect::new(0, 0, 100, 30);
+        app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 220,
+                g: 220,
+                b: 220,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 20,
+                g: 20,
+                b: 20,
+            }),
+        };
+
+        assert!(!app.start_pending_agent_resumes(false));
+
+        app.handle_internal_event(crate::events::AppEvent::PaneDied { pane_id });
+
+        assert!(app.find_pane(pane_id).is_some());
+        assert!(app.terminal_runtimes.get(&terminal_id).is_some());
+        assert!(app
+            .state
+            .terminals
+            .get(&terminal_id)
+            .unwrap()
+            .pending_agent_resume_plan
+            .is_none());
+        if let Some(runtime) = app.terminal_runtimes.remove(&terminal_id) {
+            runtime.shutdown();
+        }
+    }
+
+    #[test]
+    fn agent_restart_rejects_non_idle_agent() {
+        let mut app = app_with_agent();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_detected_state(Some(Agent::Codex), AgentState::Working);
+
+        let response = app.handle_agent_restart(
+            "req".into(),
+            AgentRestartParams {
+                target: "codex".into(),
+            },
+        );
+        let error: crate::api::schema::ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "agent_not_idle");
     }
 }

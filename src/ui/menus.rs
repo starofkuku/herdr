@@ -296,11 +296,16 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
         return;
     };
 
-    let items: Vec<ListItem> = menu
+    let mut items: Vec<ListItem> = menu
         .items()
         .iter()
         .map(|item| ListItem::new(Line::from(*item)))
         .collect();
+    items.extend(
+        menu.plugin_actions
+            .iter()
+            .map(|action| ListItem::new(Line::from(action.title.clone()))),
+    );
     let list = List::new(items)
         .style(Style::default().fg(p.text))
         .highlight_style(

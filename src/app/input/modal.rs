@@ -670,6 +670,10 @@ pub(super) fn apply_context_menu_action(
     menu: ContextMenuState,
     idx: usize,
 ) {
+    if menu.plugin_action_at(idx).is_some() {
+        state.mode = Mode::Terminal;
+        return;
+    }
     let item = menu.items().get(idx).copied();
     match (menu.kind, item) {
         (ContextMenuKind::GitWorkspace { ws_idx, .. }, Some("New worktree")) => {
@@ -885,7 +889,7 @@ pub(crate) fn handle_context_menu_key(
         }
         KeyCode::Down => {
             if let Some(menu) = &mut state.context_menu {
-                menu.list.move_next(menu.items().len());
+                menu.list.move_next(menu.total_item_count());
             }
         }
         KeyCode::Enter => {
@@ -1071,7 +1075,7 @@ impl App {
             }
             KeyCode::Down => {
                 if let Some(menu) = &mut self.state.context_menu {
-                    menu.list.move_next(menu.items().len());
+                    menu.list.move_next(menu.total_item_count());
                 }
             }
             KeyCode::Enter => {
@@ -1085,6 +1089,28 @@ impl App {
     }
 
     pub(crate) fn apply_context_menu_action_via_api(&mut self, menu: ContextMenuState, idx: usize) {
+        if let Some(action) = menu.plugin_action_at(idx).cloned() {
+            if let ContextMenuKind::Pane {
+                ws_idx, pane_id, ..
+            } = menu.kind
+            {
+                self.focus_pane_internal_via_api(ws_idx, pane_id);
+                let _ = self.dispatch_api_request(
+                    "tui.context_menu.plugin_action",
+                    crate::api::schema::Method::PluginActionInvoke(
+                        crate::api::schema::PluginActionInvokeParams {
+                            action_id: action.action_id,
+                            plugin_id: Some(action.plugin_id),
+                            context: None,
+                        },
+                    ),
+                );
+                self.state.mode = Mode::Terminal;
+            } else {
+                leave_modal(&mut self.state);
+            }
+            return;
+        }
         let item = menu.items().get(idx).copied();
         match (menu.kind, item) {
             (ContextMenuKind::GitWorkspace { ws_idx, .. }, Some("New worktree")) => {
@@ -1913,6 +1939,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         };
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 
@@ -1958,6 +1985,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         };
         let idx = menu
             .items()
@@ -1989,6 +2017,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         };
         let idx = menu
             .items()
@@ -2023,6 +2052,7 @@ mod tests {
             x: 0,
             y: 0,
             list: MenuListState::new(0),
+            plugin_actions: Vec::new(),
         };
         let close_idx = menu
             .items()

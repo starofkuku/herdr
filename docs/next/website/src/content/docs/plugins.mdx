@@ -108,6 +108,12 @@ They may use ASCII letters, digits, colon, underscore, and hyphen, but not
 dots. Each id type must be unique inside a plugin. Herdr qualifies action ids
 as `plugin.id.action` when it needs a globally unique name.
 
+Actions that declare `contexts = ["pane"]` are also available from an Agent
+pane's right-click context menu. Herdr shows enabled pane actions when the
+target pane is recognized as an Agent, then invokes the selected action with
+that pane as the focused plugin context. Actions remain available through the
+CLI and keybindings as well.
+
 Use `platforms = ["linux", "macos", "windows"]` to declare where the plugin
 can run. Build commands, actions, event hooks, panes, and link handlers can
 also declare their own `platforms`; item-level platforms override the top-level
