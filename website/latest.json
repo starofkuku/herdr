@@ -1,14 +1,24 @@
 {
-  "version": "0.7.7",
-  "protocol": 18,
-  "notes": "### Changed\n- Expanded server-authorized clipboard image paste for `herdr --remote` beyond Codex. Herdr now pastes staged absolute image paths for Pi, Claude Code, Codex, Cursor CLI, Cline, OMP, MastraCode, OpenCode, GitHub Copilot CLI, Kiro, Factory Droid, Grok, Hermes, Kilo Code, Qoder CLI, and Maki, and uses an `@path` mention for Amp. Gemini CLI, Kimi CLI, Devin CLI, and Antigravity keep the original shortcut because they do not currently expose a compatible stable path contract.",
+  "version": "0.7.8",
+  "protocol": 19,
+  "notes": "### Added\n- Plugins and API clients can now schedule an idle Agent pane to restart from its officially reported native session with `agent.restart` or `herdr agent restart <target>`, preserving the pane and layout without restarting Herdr.\n- Agent pane context menus now show enabled plugin Actions that declare the `pane` context, so installed integrations can be launched without a custom keybinding.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.7/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.7/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.7/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.7/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.8": {
+      "notes": "### Added\n- Plugins and API clients can now schedule an idle Agent pane to restart from its officially reported native session with `agent.restart` or `herdr agent restart <target>`, preserving the pane and layout without restarting Herdr.\n- Agent pane context menus now show enabled plugin Actions that declare the `pane` context, so installed integrations can be launched without a custom keybinding.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-macos-aarch64"
+      }
+    },
     "0.7.7": {
       "notes": "### Changed\n- Expanded server-authorized clipboard image paste for `herdr --remote` beyond Codex. Herdr now pastes staged absolute image paths for Pi, Claude Code, Codex, Cursor CLI, Cline, OMP, MastraCode, OpenCode, GitHub Copilot CLI, Kiro, Factory Droid, Grok, Hermes, Kilo Code, Qoder CLI, and Maki, and uses an `@path` mention for Amp. Gemini CLI, Kimi CLI, Devin CLI, and Antigravity keep the original shortcut because they do not currently expose a compatible stable path contract.",
       "protocol": 18,
