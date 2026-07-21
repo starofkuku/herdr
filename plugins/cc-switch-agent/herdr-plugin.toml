@@ -1,0 +1,42 @@
+id = "local.cc-switch-agent"
+name = "CC Switch Agent"
+version = "0.3.0"
+min_herdr_version = "0.7.7"
+description = "Manage Agent providers and sessions via the CC Switch CLI (switch, add, export)."
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "switch"
+title = "Switch Agent provider"
+contexts = ["pane"]
+command = ["python3", "plugin.py", "open"]
+
+[[actions]]
+id = "add-provider"
+title = "Add provider"
+contexts = ["pane"]
+command = ["python3", "plugin.py", "add-open"]
+
+[[actions]]
+id = "export-session"
+title = "Export current session"
+contexts = ["pane"]
+command = ["python3", "plugin.py", "export-open"]
+
+[[panes]]
+id = "provider-picker"
+title = "Switch Provider"
+placement = "overlay"
+command = ["python3", "plugin.py", "menu"]
+
+[[panes]]
+id = "provider-add"
+title = "Add Provider"
+placement = "overlay"
+command = ["python3", "plugin.py", "add"]
+
+[[panes]]
+id = "session-export"
+title = "Export Session"
+placement = "overlay"
+command = ["python3", "plugin.py", "export"]
