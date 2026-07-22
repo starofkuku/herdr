@@ -1,14 +1,24 @@
 {
-  "version": "0.7.8",
+  "version": "0.7.9",
   "protocol": 19,
-  "notes": "### Added\n- Plugins and API clients can now schedule an idle Agent pane to restart from its officially reported native session with `agent.restart` or `herdr agent restart <target>`, preserving the pane and layout without restarting Herdr.\n- Agent pane context menus now show enabled plugin Actions that declare the `pane` context, so installed integrations can be launched without a custom keybinding.",
+  "notes": "### Added\n- Added a local `plugins/cc-switch-agent` plugin that can switch providers, add providers, and export sessions through the `cc-switch` CLI from Agent pane context menus. Install with `herdr plugin install starofkuku/herdr/plugins/cc-switch-agent`.\n\n### Fixed\n- Session snapshots now prefer each pane's foreground agent working directory over the shell process cwd. On restore, native agent resume runs in that saved directory for every supported agent (`cd <cwd> && \u2026`), and Codex also receives `resume -C <cwd>` so work-directory prompts are less likely after `herdr server stop`.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.8/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.9": {
+      "notes": "### Added\n- Added a local `plugins/cc-switch-agent` plugin that can switch providers, add providers, and export sessions through the `cc-switch` CLI from Agent pane context menus. Install with `herdr plugin install starofkuku/herdr/plugins/cc-switch-agent`.\n\n### Fixed\n- Session snapshots now prefer each pane's foreground agent working directory over the shell process cwd. On restore, native agent resume runs in that saved directory for every supported agent (`cd <cwd> && \u2026`), and Codex also receives `resume -C <cwd>` so work-directory prompts are less likely after `herdr server stop`.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-macos-aarch64"
+      }
+    },
     "0.7.8": {
       "notes": "### Added\n- Plugins and API clients can now schedule an idle Agent pane to restart from its officially reported native session with `agent.restart` or `herdr agent restart <target>`, preserving the pane and layout without restarting Herdr.\n- Agent pane context menus now show enabled plugin Actions that declare the `pane` context, so installed integrations can be launched without a custom keybinding.",
       "protocol": 19,
