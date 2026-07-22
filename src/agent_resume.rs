@@ -112,6 +112,82 @@ pub fn session_ref_from_snapshot(
     })
 }
 
+fn usable_resume_cwd(cwd: &Path) -> Option<&Path> {
+    (cwd.is_absolute() && cwd.is_dir()).then_some(cwd)
+}
+
+/// Attach agent-specific working-directory flags when the CLI supports them.
+///
+/// All agents also rely on [`resume_shell_command`], which `cd`s into `cwd`
+/// before running argv so restore works even when the agent has no cwd flag.
+pub fn argv_with_working_directory(plan: &AgentResumePlan, cwd: &Path) -> Vec<String> {
+    let mut argv = plan.argv.clone();
+    let Some(cwd) = usable_resume_cwd(cwd) else {
+        return argv;
+    };
+    let cwd_text = cwd.display().to_string();
+    match plan.agent.as_str() {
+        // codex resume -C <dir> <session-id>
+        "codex" if argv.get(1).map(String::as_str) == Some("resume") => {
+            let session = argv.get(2).cloned();
+            argv = vec!["codex".into(), "resume".into(), "-C".into(), cwd_text];
+            if let Some(session) = session {
+                argv.push(session);
+            }
+        }
+        // Agents without a documented cwd flag keep plan.argv; the shell `cd`
+        // in resume_shell_command still forces the work directory.
+        _ => {}
+    }
+    argv
+}
+
+/// Shell line typed into a restored pane to resume an agent in `cwd`.
+///
+/// When `cwd` is a usable absolute directory, the command is always:
+/// `cd <cwd> && <agent resume …>` so every supported agent (not only Codex)
+/// restarts in the previously saved agent work directory. Agent-specific
+/// flags from [`argv_with_working_directory`] are applied when available.
+pub fn resume_shell_command(plan: &AgentResumePlan, cwd: &Path) -> Option<String> {
+    let argv = argv_with_working_directory(plan, cwd);
+    let command = join_shell_argv(&argv)?;
+    match usable_resume_cwd(cwd) {
+        Some(cwd) => Some(format!(
+            "cd {} && {}",
+            shell_quote_arg(&cwd.display().to_string()),
+            command
+        )),
+        None => Some(command),
+    }
+}
+
+fn join_shell_argv(argv: &[String]) -> Option<String> {
+    let mut parts = argv.iter();
+    let first = shell_quote_arg(parts.next()?);
+    let mut command = first;
+    for part in parts {
+        command.push(' ');
+        command.push_str(&shell_quote_arg(part));
+    }
+    Some(command)
+}
+
+fn shell_quote_arg(value: &str) -> String {
+    if value.is_empty() {
+        return "''".to_string();
+    }
+    if value.bytes().all(|byte| {
+        byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'_' | b'-' | b'.' | b'/' | b':' | b'@' | b'%' | b'+' | b'='
+            )
+    }) {
+        return value.to_string();
+    }
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
 pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<AgentResumePlan> {
     if !is_official_agent_source(source, agent) {
         return None;
@@ -256,6 +332,112 @@ mod tests {
             "herdr:opencode",
             "opencode"
         ));
+    }
+
+    #[test]
+    fn argv_with_working_directory_adds_codex_cd_flag() {
+        let plan = plan(
+            "herdr:codex",
+            "codex",
+            &AgentSessionRef::id("codex-session").unwrap(),
+        )
+        .unwrap();
+        let cwd = std::env::temp_dir();
+        let argv = argv_with_working_directory(&plan, &cwd);
+        assert_eq!(
+            argv,
+            vec![
+                "codex".to_string(),
+                "resume".to_string(),
+                "-C".to_string(),
+                cwd.display().to_string(),
+                "codex-session".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn resume_shell_command_cds_for_every_agent_when_cwd_exists() {
+        let cwd = std::env::temp_dir();
+        let cwd_text = cwd.display().to_string();
+
+        let claude = plan(
+            "herdr:claude",
+            "claude",
+            &AgentSessionRef::id("claude-session").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            resume_shell_command(&claude, &cwd).unwrap(),
+            format!("cd {cwd_text} && claude --resume claude-session")
+        );
+
+        let hermes = plan(
+            "herdr:hermes",
+            "hermes",
+            &AgentSessionRef::id("hermes-session").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            resume_shell_command(&hermes, &cwd).unwrap(),
+            format!("cd {cwd_text} && hermes --resume hermes-session")
+        );
+
+        let opencode = plan(
+            "herdr:opencode",
+            "opencode",
+            &AgentSessionRef::id("oc-session").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            resume_shell_command(&opencode, &cwd).unwrap(),
+            format!("cd {cwd_text} && opencode --session oc-session")
+        );
+
+        let codex = plan(
+            "herdr:codex",
+            "codex",
+            &AgentSessionRef::id("codex-session").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            resume_shell_command(&codex, &cwd).unwrap(),
+            format!("cd {cwd_text} && codex resume -C {cwd_text} codex-session")
+        );
+    }
+
+    #[test]
+    fn resume_shell_command_skips_cd_when_cwd_unusable() {
+        let plan = plan(
+            "herdr:claude",
+            "claude",
+            &AgentSessionRef::id("claude-session").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            resume_shell_command(&plan, Path::new("relative/path")).unwrap(),
+            "claude --resume claude-session"
+        );
+        assert_eq!(
+            resume_shell_command(
+                &plan,
+                Path::new("/tmp/this-directory-does-not-exist-for-herdr-cwd-test")
+            )
+            .unwrap(),
+            "claude --resume claude-session"
+        );
+    }
+
+    #[test]
+    fn argv_with_working_directory_leaves_claude_argv_unchanged() {
+        let plan = plan(
+            "herdr:claude",
+            "claude",
+            &AgentSessionRef::id("claude-session").unwrap(),
+        )
+        .unwrap();
+        let cwd = std::env::temp_dir();
+        assert_eq!(argv_with_working_directory(&plan, &cwd), plan.argv);
     }
 
     #[test]

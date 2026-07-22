@@ -219,7 +219,11 @@ impl App {
             return false;
         }
 
-        let Some(resume_command) = shell_command_from_argv(&plan.argv) else {
+        // Spawn the shell in the saved pane cwd (agent work dir when snapshot
+        // used follow_cwd). The typed command also `cd`s there for every agent
+        // so login-shell rc cannot leave resume in $HOME; agent-specific flags
+        // (e.g. Codex -C) are applied inside resume_shell_command.
+        let Some(resume_command) = crate::agent_resume::resume_shell_command(&plan, &cwd) else {
             tracing::warn!(
                 pane = pane_id.raw(),
                 terminal = %terminal_id,
@@ -316,6 +320,7 @@ fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
     )
 }
 
+#[cfg(test)]
 fn shell_command_from_argv(argv: &[String]) -> Option<String> {
     let mut parts = argv.iter();
     let first = shell_quote(parts.next()?);
@@ -327,6 +332,7 @@ fn shell_command_from_argv(argv: &[String]) -> Option<String> {
     Some(command)
 }
 
+#[cfg(test)]
 fn shell_quote(value: &str) -> String {
     if value.is_empty() {
         return "''".to_string();

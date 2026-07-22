@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- Added a local `plugins/cc-switch-agent` plugin that can switch providers, add providers, and export sessions through the `cc-switch` CLI from Agent pane context menus. Install with `herdr plugin install starofkuku/herdr/plugins/cc-switch-agent`.
+
+### Fixed
+- Session snapshots now prefer each pane's foreground agent working directory over the shell process cwd. On restore, native agent resume runs in that saved directory for every supported agent (`cd <cwd> && …`), and Codex also receives `resume -C <cwd>` so work-directory prompts are less likely after `herdr server stop`.
+
 ## [0.7.8] - 2026-07-19
 
 ### Added

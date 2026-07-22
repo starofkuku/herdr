@@ -316,8 +316,11 @@ fn capture_tab(
 ) -> TabSnapshot {
     let mut panes = HashMap::new();
     for id in tab.panes.keys() {
+        // Prefer the foreground process cwd (running agent) over the shell
+        // process cwd so server stop / snapshot restore resume in the agent
+        // work directory the user was actually in.
         let cwd = tab
-            .cwd_for_pane(*id, terminals, terminal_runtimes)
+            .follow_cwd_for_pane(*id, terminals, terminal_runtimes)
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()));
         let label = tab
             .panes
@@ -980,6 +983,27 @@ mod tests {
         assert_eq!(workspace.identity_cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&root.raw()].cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&second.raw()].cwd, PathBuf::from("/tmp/herdr"));
+    }
+
+    #[test]
+    fn capture_prefers_follow_cwd_over_shell_cwd_when_runtime_reports_foreground() {
+        // Without a live runtime, follow_cwd falls back to terminal.cwd — the
+        // production path uses foreground_cwd when an agent process is attached.
+        // This test documents that capture uses follow_cwd_for_pane (same as
+        // terminal.cwd when no runtime is present).
+        let mut state = state_with_workspaces(&["one"]);
+        let root = state.workspaces[0].tabs[0].root_pane;
+        state.ensure_test_terminals();
+        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd =
+            PathBuf::from("/tmp/agent-project-work-dir");
+        let snapshot = capture_from_state(&state);
+        assert_eq!(
+            snapshot.workspaces[0].tabs[0].panes[&root.raw()].cwd,
+            PathBuf::from("/tmp/agent-project-work-dir")
+        );
     }
 
     #[tokio::test]
