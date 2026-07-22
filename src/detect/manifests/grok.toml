@@ -1,7 +1,7 @@
 id = "grok"
-version = "2026.07.03.1"
+version = "2026.07.22.1"
 min_engine_version = 2
-updated_at = "2026-07-03T00:00:00Z"
+updated_at = "2026-07-22T00:00:00Z"
 aliases = ["grok-build"]
 
 # Evidence: Grok Build 0.2.82 live pane reads.
@@ -64,6 +64,35 @@ priority = 200
 region = "whole_recent"
 visible_working = true
 line_regex = ['^\s*[\x{2801}-\x{28FF}]\s.*\[stop\]\s*$']
+
+# Background command / subagent chrome often lacks the [stop] spinner line and
+# still shows an idle-looking footer, which previously flipped the pane idle
+# and re-fired finished notifications.
+[[rules]]
+id = "watching_command_working"
+state = "working"
+priority = 195
+region = "whole_recent"
+visible_working = true
+line_regex = [
+  '(?i)watching\s*[-–—]?\s*\d+\s+command',
+  '(?i)waiting on subagent',
+]
+
+[[rules]]
+id = "active_task_header_working"
+state = "working"
+priority = 194
+region = "whole_recent"
+visible_working = true
+line_regex = [
+  '(?i)^\s*tasks?\s+\d+',
+  '(?i)^\s*[✱*·•]\s*task\b',
+]
+not = [
+  { contains = ["task completed"] },
+  { contains = ["tasks completed"] },
+]
 
 [[rules]]
 id = "esc_cancel_hints_working"

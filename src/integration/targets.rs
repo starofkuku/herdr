@@ -13,9 +13,9 @@ use super::config_edit::{
     remove_hook_commands, remove_kimi_config_block, remove_simple_command_hook,
 };
 use super::env::{
-    claude_dir, codex_dir, copilot_dir, cursor_dir, devin_dir, droid_dir, hermes_dir,
-    hermes_plugin_dir, kilo_dir, kimi_dir, mastracode_dir, omp_extension_dir, opencode_dir,
-    pi_extension_dir, qodercli_dir,
+    claude_dir, codex_dir, copilot_dir, cursor_dir, devin_dir, droid_dir, grok_hooks_dir,
+    hermes_dir, hermes_plugin_dir, kilo_dir, kimi_dir, mastracode_dir, omp_extension_dir,
+    opencode_dir, pi_extension_dir, qodercli_dir,
 };
 use super::file_ops::{
     make_executable, remove_dir_all_if_exists, remove_file_if_exists, remove_legacy_bash_hook_file,
@@ -24,10 +24,11 @@ use super::types::{
     ClaudeInstallPaths, ClaudeUninstallResult, CodexInstallPaths, CodexUninstallResult,
     CopilotInstallPaths, CopilotUninstallResult, CursorInstallPaths, CursorUninstallResult,
     DevinInstallPaths, DevinUninstallResult, DroidInstallPaths, DroidUninstallResult,
-    HermesInstallPaths, HermesUninstallResult, KiloInstallPaths, KiloUninstallResult,
-    KimiInstallPaths, KimiUninstallResult, MastracodeInstallPaths, MastracodeUninstallResult,
-    OmpInstallPaths, OmpUninstallResult, OpenCodeInstallPaths, OpenCodeUninstallResult,
-    PiUninstallResult, QodercliInstallPaths, QodercliUninstallResult,
+    GrokInstallPaths, GrokUninstallResult, HermesInstallPaths, HermesUninstallResult,
+    KiloInstallPaths, KiloUninstallResult, KimiInstallPaths, KimiUninstallResult,
+    MastracodeInstallPaths, MastracodeUninstallResult, OmpInstallPaths, OmpUninstallResult,
+    OpenCodeInstallPaths, OpenCodeUninstallResult, PiUninstallResult, QodercliInstallPaths,
+    QodercliUninstallResult,
 };
 use super::{
     CLAUDE_HOOK_ASSET, CLAUDE_HOOK_INSTALL_NAME, CODEX_HOOK_ASSET, CODEX_HOOK_INSTALL_NAME,
@@ -35,7 +36,8 @@ use super::{
     COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS, CURSOR_HOOK_ASSET, CURSOR_HOOK_INSTALL_NAME,
     DEVIN_HOOK_ASSET, DEVIN_HOOK_EVENTS, DEVIN_HOOK_INSTALL_NAME,
     DEVIN_REMOVED_LIFECYCLE_HOOK_EVENTS, DROID_HOOK_ASSET, DROID_HOOK_EVENTS,
-    DROID_HOOK_INSTALL_NAME, DROID_REMOVED_LIFECYCLE_HOOK_EVENTS, HERMES_PLUGIN_INIT_ASSET,
+    DROID_HOOK_INSTALL_NAME, DROID_REMOVED_LIFECYCLE_HOOK_EVENTS, GROK_HOOKS_JSON_INSTALL_NAME,
+    GROK_HOOK_ASSET, GROK_HOOK_EVENTS, GROK_HOOK_INSTALL_NAME, HERMES_PLUGIN_INIT_ASSET,
     HERMES_PLUGIN_INIT_INSTALL_NAME, HERMES_PLUGIN_MANIFEST_ASSET,
     HERMES_PLUGIN_MANIFEST_INSTALL_NAME, KILO_PLUGIN_ASSET, KILO_PLUGIN_INSTALL_NAME,
     KIMI_HOOK_ASSET, KIMI_HOOK_INSTALL_NAME, MASTRACODE_HOOK_ASSET, MASTRACODE_HOOK_EVENTS,
@@ -1192,5 +1194,61 @@ pub(crate) fn uninstall_mastracode() -> io::Result<MastracodeUninstallResult> {
         hooks_path,
         removed_hook_file,
         updated_hooks,
+    })
+}
+
+pub(crate) fn install_grok() -> io::Result<GrokInstallPaths> {
+    let hooks_dir = grok_hooks_dir()?;
+    // Grok discovers ~/.grok/hooks/*.json; create the layout if missing so install
+    // works before the first interactive grok session.
+    fs::create_dir_all(&hooks_dir)?;
+
+    let hook_path = hooks_dir.join(GROK_HOOK_INSTALL_NAME);
+    fs::write(&hook_path, GROK_HOOK_ASSET)?;
+    make_executable(&hook_path)?;
+
+    let quoted_hook = shell_single_quote(&hook_path.display().to_string());
+    let command = format!("bash {quoted_hook}");
+    let mut events = serde_json::Map::new();
+    for event in GROK_HOOK_EVENTS {
+        events.insert(
+            event.to_string(),
+            json!([
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": command
+                        }
+                    ]
+                }
+            ]),
+        );
+    }
+    let hooks_json = json!({ "hooks": events });
+    let hooks_json_path = hooks_dir.join(GROK_HOOKS_JSON_INSTALL_NAME);
+    fs::write(
+        &hooks_json_path,
+        format!("{}\n", serde_json::to_string_pretty(&hooks_json)?),
+    )?;
+
+    Ok(GrokInstallPaths {
+        hook_path,
+        hooks_json_path,
+    })
+}
+
+pub(crate) fn uninstall_grok() -> io::Result<GrokUninstallResult> {
+    let hooks_dir = grok_hooks_dir()?;
+    let hook_path = hooks_dir.join(GROK_HOOK_INSTALL_NAME);
+    let hooks_json_path = hooks_dir.join(GROK_HOOKS_JSON_INSTALL_NAME);
+    let removed_hook_file =
+        remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+    let removed_hooks_json = remove_file_if_exists(&hooks_json_path)?;
+    Ok(GrokUninstallResult {
+        hook_path,
+        hooks_json_path,
+        removed_hook_file,
+        removed_hooks_json,
     })
 }

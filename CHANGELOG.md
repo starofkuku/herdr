@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- Added `herdr integration install grok` for Grok Build lifecycle hooks under `~/.grok/hooks/`. The integration reports pane state and native session ids so Herdr can resume with `grok --resume <id>` after a server restart.
+
+### Fixed
+- Remote image paste for Pi now stages an `@/path` mention instead of a bare path. Pi's editor/CLI attach images via `@file` references; bare paths were treated as plain text, so paste worked for Codex/Grok but not Pi.
+- Grok agent status no longer treats subagent completion as root idle. The Grok integration ignores `SubagentStop` for pane state, and the Grok screen manifest recognizes `watching N command` / active task chrome as working so sidebar state and finished toasts stop thrashing during subagent or background-command work.
+
 ## [0.7.9] - 2026-07-22
 
 ### Added

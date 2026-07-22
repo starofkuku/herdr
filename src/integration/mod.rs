@@ -179,6 +179,24 @@ const QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 12] = [
 const CURSOR_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
 const CURSOR_HOOK_ASSET: &str = include_str!("assets/cursor/herdr-agent-state.sh");
 const CURSOR_INTEGRATION_VERSION: u32 = 1;
+const GROK_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
+const GROK_HOOKS_JSON_INSTALL_NAME: &str = "herdr-agent-state.json";
+const GROK_HOOK_ASSET: &str = include_str!("assets/grok/herdr-agent-state.sh");
+const GROK_INTEGRATION_VERSION: u32 = 2;
+// SubagentStop is intentionally omitted: a finished subagent is not root-idle.
+// SessionEnd / Stop still mark idle for the root turn.
+const GROK_HOOK_EVENTS: [&str; 10] = [
+    "SessionStart",
+    "UserPromptSubmit",
+    "PreToolUse",
+    "PostToolUse",
+    "PostToolUseFailure",
+    "Stop",
+    "StopFailure",
+    "Notification",
+    "SubagentStart",
+    "SessionEnd",
+];
 const MASTRACODE_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
 const MASTRACODE_HOOK_ASSET: &str = include_str!("assets/mastracode/herdr-agent-state.sh");
 const MASTRACODE_INTEGRATION_VERSION: u32 = 1;

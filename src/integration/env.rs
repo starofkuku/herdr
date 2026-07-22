@@ -28,6 +28,15 @@ pub(crate) fn pi_extension_dir() -> io::Result<PathBuf> {
     )
 }
 
+/// Grok Build config root (`~/.grok` or `GROK_HOME`).
+pub(crate) fn grok_dir() -> io::Result<PathBuf> {
+    config_dir_from_env_or_home("GROK_HOME", &[".grok"])
+}
+
+pub(crate) fn grok_hooks_dir() -> io::Result<PathBuf> {
+    Ok(grok_dir()?.join("hooks"))
+}
+
 pub(crate) fn omp_extension_dir() -> io::Result<PathBuf> {
     Ok(
         config_dir_from_env_or_home(PI_CODING_AGENT_DIR_ENV_VAR, &[".omp", "agent"])?

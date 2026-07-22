@@ -46,12 +46,12 @@ herdr --remote ssh://you@server:2222
 
 In this mode your local Herdr is a thin client. It connects over SSH, starts or attaches to the remote Herdr server, and streams the UI back to your local terminal.
 
-For supported agent panes, `Alt+V` can bridge an image from the local clipboard. The remote server first verifies the detected agent and its image-paste transport; only then does the local client read the clipboard and copy the image to a private temporary file on the remote host. Herdr pastes the absolute path for path-aware agents and an `@path` mention for Amp. If the pane is unsupported or has not been detected yet, Herdr forwards the original key without reading the clipboard.
+For supported agent panes, `Alt+V` can bridge an image from the local clipboard. The remote server first verifies the detected agent and its image-paste transport; only then does the local client read the clipboard and copy the image to a private temporary file on the remote host. Herdr pastes the absolute path for path-aware agents and an `@path` mention for Pi and Amp. If the pane is unsupported or has not been detected yet, Herdr forwards the original key without reading the clipboard.
 
 | Remote agent | Image bridge |
 | --- | --- |
-| Pi, Claude Code, Codex, Cursor CLI, Cline, OMP, MastraCode, OpenCode, GitHub Copilot CLI, Kiro, Factory Droid, Grok, Hermes, Kilo Code, Qoder CLI, Maki | Staged absolute image path |
-| Amp | Staged `@path` mention |
+| Claude Code, Codex, Cursor CLI, Cline, OMP, MastraCode, OpenCode, GitHub Copilot CLI, Kiro, Factory Droid, Grok, Hermes, Kilo Code, Qoder CLI, Maki | Staged absolute image path |
+| Pi, Amp | `@` mention of the staged absolute path |
 | Gemini CLI | Not enabled: ordinary Herdr temporary paths are outside Gemini's allowed project directories |
 | Kimi CLI | Not enabled: native image paste depends on Kimi's private prompt-cache token format |
 | Devin CLI, Antigravity | Not enabled: no stable interactive CLI image-path contract is available |

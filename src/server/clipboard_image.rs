@@ -33,8 +33,10 @@ pub(crate) enum RemoteImagePasteTransport {
 /// can handle it instead of receiving text that merely looks like a path.
 pub(crate) fn remote_image_paste_transport(agent: Agent) -> Option<RemoteImagePasteTransport> {
     match agent {
-        Agent::Pi
-        | Agent::Claude
+        // Pi's interactive editor and CLI treat `@path` as a file/image attachment
+        // (`pi @image.png "…"`). A bare path is just text and will not attach.
+        Agent::Pi | Agent::Amp => Some(RemoteImagePasteTransport::AtMention),
+        Agent::Claude
         | Agent::Codex
         | Agent::Cursor
         | Agent::Cline
@@ -49,7 +51,6 @@ pub(crate) fn remote_image_paste_transport(agent: Agent) -> Option<RemoteImagePa
         | Agent::Kilo
         | Agent::Qodercli
         | Agent::Maki => Some(RemoteImagePasteTransport::PastedPath),
-        Agent::Amp => Some(RemoteImagePasteTransport::AtMention),
         Agent::Gemini | Agent::Kimi | Agent::Devin | Agent::Antigravity => None,
     }
 }
@@ -199,7 +200,6 @@ mod tests {
     #[test]
     fn documented_path_agents_use_staged_path_transport() {
         for agent in [
-            Agent::Pi,
             Agent::Claude,
             Agent::Codex,
             Agent::Cursor,
@@ -224,11 +224,13 @@ mod tests {
     }
 
     #[test]
-    fn amp_uses_at_mention_and_unsupported_agents_fall_back() {
-        assert_eq!(
-            remote_image_paste_text(Agent::Amp, "/tmp/image.png"),
-            Some("@/tmp/image.png".to_owned())
-        );
+    fn pi_and_amp_use_at_mention_and_unsupported_agents_fall_back() {
+        for agent in [Agent::Pi, Agent::Amp] {
+            assert_eq!(
+                remote_image_paste_text(agent, "/tmp/image.png"),
+                Some("@/tmp/image.png".to_owned())
+            );
+        }
         for agent in [Agent::Gemini, Agent::Kimi, Agent::Devin, Agent::Antigravity] {
             assert_eq!(remote_image_paste_text(agent, "/tmp/image.png"), None);
         }

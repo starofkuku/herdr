@@ -46,12 +46,12 @@ herdr --remote ssh://you@server:2222
 
 このモードでは、ローカルの Herdr はシンクライアントです。SSH 越しに接続し、リモートの Herdr サーバーを起動またはアタッチして、UI をローカルターミナルにストリーミングします。
 
-対応 Agent の pane では、`Alt+V` でローカルクリップボードの画像をブリッジできます。リモートサーバーは、検出された Agent と画像貼り付け方式を先に確認します。対応している場合にのみローカルクライアントがクリップボードを読み、画像をリモートホスト上の非公開一時ファイルへコピーします。パス対応 Agent には絶対パスを、Amp には `@path` メンションを貼り付けます。未対応または未検出の場合は、クリップボードを読まず元のキーをそのまま転送します。
+対応 Agent の pane では、`Alt+V` でローカルクリップボードの画像をブリッジできます。リモートサーバーは、検出された Agent と画像貼り付け方式を先に確認します。対応している場合にのみローカルクライアントがクリップボードを読み、画像をリモートホスト上の非公開一時ファイルへコピーします。パス対応 Agent には絶対パスを、Pi と Amp には `@path` メンションを貼り付けます。未対応または未検出の場合は、クリップボードを読まず元のキーをそのまま転送します。
 
 | リモート Agent | 画像ブリッジ |
 | --- | --- |
-| Pi、Claude Code、Codex、Cursor CLI、Cline、OMP、MastraCode、OpenCode、GitHub Copilot CLI、Kiro、Factory Droid、Grok、Hermes、Kilo Code、Qoder CLI、Maki | 一時保存した画像の絶対パス |
-| Amp | 一時保存した画像の `@path` メンション |
+| Claude Code、Codex、Cursor CLI、Cline、OMP、MastraCode、OpenCode、GitHub Copilot CLI、Kiro、Factory Droid、Grok、Hermes、Kilo Code、Qoder CLI、Maki | 一時保存した画像の絶対パス |
+| Pi、Amp | 一時保存した画像の `@path` メンション |
 | Gemini CLI | 未対応: 通常の Herdr 一時パスは Gemini が許可するプロジェクトディレクトリ外 |
 | Kimi CLI | 未対応: ネイティブ画像貼り付けが Kimi の非公開 prompt-cache token 形式に依存 |
 | Devin CLI、Antigravity | 未対応: 安定した対話型 CLI の画像パス契約が未公開 |
