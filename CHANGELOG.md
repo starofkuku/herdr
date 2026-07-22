@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.10] - 2026-07-22
+
 ### Added
 - Added `herdr integration install grok` for Grok Build lifecycle hooks under `~/.grok/hooks/`. The integration reports pane state and native session ids so Herdr can resume with `grok --resume <id>` after a server restart.
 
