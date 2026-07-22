@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.9] - 2026-07-22
+
 ### Added
 - Added a local `plugins/cc-switch-agent` plugin that can switch providers, add providers, and export sessions through the `cc-switch` CLI from Agent pane context menus. Install with `herdr plugin install starofkuku/herdr/plugins/cc-switch-agent`.
 
