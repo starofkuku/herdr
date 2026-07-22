@@ -1,14 +1,24 @@
 {
-  "version": "0.7.9",
+  "version": "0.7.10",
   "protocol": 19,
-  "notes": "### Added\n- Added a local `plugins/cc-switch-agent` plugin that can switch providers, add providers, and export sessions through the `cc-switch` CLI from Agent pane context menus. Install with `herdr plugin install starofkuku/herdr/plugins/cc-switch-agent`.\n\n### Fixed\n- Session snapshots now prefer each pane's foreground agent working directory over the shell process cwd. On restore, native agent resume runs in that saved directory for every supported agent (`cd <cwd> && \u2026`), and Codex also receives `resume -C <cwd>` so work-directory prompts are less likely after `herdr server stop`.",
+  "notes": "### Added\n- Added `herdr integration install grok` for Grok Build lifecycle hooks under `~/.grok/hooks/`. The integration reports pane state and native session ids so Herdr can resume with `grok --resume <id>` after a server restart.\n\n### Fixed\n- Remote image paste for Pi now stages an `@/path` mention instead of a bare path. Pi's editor/CLI attach images via `@file` references; bare paths were treated as plain text, so paste worked for Codex/Grok but not Pi.\n- Grok agent status no longer treats subagent completion as root idle. The Grok integration ignores `SubagentStop` for pane state, and the Grok screen manifest recognizes `watching N command` / active task chrome as working so sidebar state and finished toasts stop thrashing during subagent or background-command work.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.9/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.10": {
+      "notes": "### Added\n- Added `herdr integration install grok` for Grok Build lifecycle hooks under `~/.grok/hooks/`. The integration reports pane state and native session ids so Herdr can resume with `grok --resume <id>` after a server restart.\n\n### Fixed\n- Remote image paste for Pi now stages an `@/path` mention instead of a bare path. Pi's editor/CLI attach images via `@file` references; bare paths were treated as plain text, so paste worked for Codex/Grok but not Pi.\n- Grok agent status no longer treats subagent completion as root idle. The Grok integration ignores `SubagentStop` for pane state, and the Grok screen manifest recognizes `watching N command` / active task chrome as working so sidebar state and finished toasts stop thrashing during subagent or background-command work.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-macos-aarch64"
+      }
+    },
     "0.7.9": {
       "notes": "### Added\n- Added a local `plugins/cc-switch-agent` plugin that can switch providers, add providers, and export sessions through the `cc-switch` CLI from Agent pane context menus. Install with `herdr plugin install starofkuku/herdr/plugins/cc-switch-agent`.\n\n### Fixed\n- Session snapshots now prefer each pane's foreground agent working directory over the shell process cwd. On restore, native agent resume runs in that saved directory for every supported agent (`cd <cwd> && \u2026`), and Codex also receives `resume -C <cwd>` so work-directory prompts are less likely after `herdr server stop`.",
       "protocol": 19,
