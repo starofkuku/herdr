@@ -39,7 +39,7 @@ impl App {
             agent: Some(crate::detect::Agent::Codex),
             state: crate::detect::AgentState::Blocked,
             process_exited: false,
-            observed_at,
+            observed_at: _,
             ..
         } = event
         else {
@@ -67,12 +67,18 @@ impl App {
             self.codex_capacity_retry.clear(*pane_id);
             return;
         }
+        let Some(occurrence_key) =
+            crate::automation::codex_capacity_occurrence_key(&detection_text)
+        else {
+            self.codex_capacity_retry.clear(*pane_id);
+            return;
+        };
 
         let config = self.codex_capacity_retry_config;
         if !config.enabled
             || !self
                 .codex_capacity_retry
-                .can_attempt(*pane_id, config.max_retries, *observed_at)
+                .can_attempt(*pane_id, occurrence_key, config.max_retries)
         {
             return;
         }
@@ -94,7 +100,7 @@ impl App {
             .unwrap_or(false);
         if sent {
             self.codex_capacity_retry
-                .record_attempt(*pane_id, *observed_at);
+                .record_attempt(*pane_id, occurrence_key);
             tracing::info!(
                 pane = pane_id.raw(),
                 max_retries = config.max_retries,
