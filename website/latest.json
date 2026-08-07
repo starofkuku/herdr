@@ -1,14 +1,24 @@
 {
-  "version": "0.7.10",
+  "version": "0.7.11",
   "protocol": 19,
-  "notes": "### Added\n- Added `herdr integration install grok` for Grok Build lifecycle hooks under `~/.grok/hooks/`. The integration reports pane state and native session ids so Herdr can resume with `grok --resume <id>` after a server restart.\n\n### Fixed\n- Remote image paste for Pi now stages an `@/path` mention instead of a bare path. Pi's editor/CLI attach images via `@file` references; bare paths were treated as plain text, so paste worked for Codex/Grok but not Pi.\n- Grok agent status no longer treats subagent completion as root idle. The Grok integration ignores `SubagentStop` for pane state, and the Grok screen manifest recognizes `watching N command` / active task chrome as working so sidebar state and finished toasts stop thrashing during subagent or background-command work.",
+  "notes": "### Added\n- Added Codex capacity-error automation. When the Codex screen reports `Selected model is at capacity. Please try a different model.`, Herdr can send `\u7ee7\u7eed` and Enter to the same pane, with configurable finite or infinite retry limits (`automation.codex_capacity_retry`).\n- Added a high-priority Codex screen rule for the capacity blocker so the automation is driven by screen evidence rather than a generic blocked state.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.10/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.11": {
+      "notes": "### Added\n- Added Codex capacity-error automation. When the Codex screen reports `Selected model is at capacity. Please try a different model.`, Herdr can send `\u7ee7\u7eed` and Enter to the same pane, with configurable finite or infinite retry limits (`automation.codex_capacity_retry`).\n- Added a high-priority Codex screen rule for the capacity blocker so the automation is driven by screen evidence rather than a generic blocked state.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-macos-aarch64"
+      }
+    },
     "0.7.10": {
       "notes": "### Added\n- Added `herdr integration install grok` for Grok Build lifecycle hooks under `~/.grok/hooks/`. The integration reports pane state and native session ids so Herdr can resume with `grok --resume <id>` after a server restart.\n\n### Fixed\n- Remote image paste for Pi now stages an `@/path` mention instead of a bare path. Pi's editor/CLI attach images via `@file` references; bare paths were treated as plain text, so paste worked for Codex/Grok but not Pi.\n- Grok agent status no longer treats subagent completion as root idle. The Grok integration ignores `SubagentStop` for pane state, and the Grok screen manifest recognizes `watching N command` / active task chrome as working so sidebar state and finished toasts stop thrashing during subagent or background-command work.",
       "protocol": 19,
