@@ -356,6 +356,18 @@ Herdr emits one ASCII BEL byte through the foreground client. The outer terminal
 
 Multiplexers such as tmux may intercept or suppress BEL, so their bell settings must also allow it to reach the outer terminal. Bell requests attention only; Herdr does not steal focus.
 
+## Codex capacity retry
+
+Herdr can automatically retry Codex when its screen shows the exact capacity message `Selected model is at capacity. Please try a different model.` It sends `继续` followed by Enter to the same pane that reported the error.
+
+```toml
+[automation.codex_capacity_retry]
+enabled = true
+max_retries = 1
+```
+
+`max_retries` defaults to `1`; set it to `0` (or `enabled = false`) to disable the automation, or `-1` to retry indefinitely. Infinite retries still use a one-second debounce and can repeat the same provider/model failure, so use that mode only when an external provider failover is expected.
+
 ## Sound
 
 Sound notifications play through the local Herdr client. Custom sounds must be mp3 files; relative paths are resolved from the config file's directory.

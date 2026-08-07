@@ -305,6 +305,58 @@ pub struct Config {
     pub advanced: AdvancedConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
+    pub automation: AutomationConfig,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct AutomationConfig {
+    pub codex_capacity_retry: CodexCapacityRetryConfig,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CodexCapacityRetryConfig {
+    /// Enable automatic replies to Codex capacity errors. Default: true.
+    pub enabled: bool,
+    /// Maximum automatic replies for one visible capacity occurrence. `-1`
+    /// retries indefinitely; `0` disables retries. Default: `1`.
+    pub max_retries: i32,
+}
+
+impl Default for CodexCapacityRetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_retries: 1,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for CodexCapacityRetryConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct RawCodexCapacityRetryConfig {
+            enabled: Option<bool>,
+            max_retries: Option<i32>,
+        }
+
+        let raw = RawCodexCapacityRetryConfig::deserialize(deserializer)?;
+        let default = Self::default();
+        let max_retries = raw.max_retries.unwrap_or(default.max_retries);
+        if max_retries < -1 {
+            return Err(de::Error::custom(
+                "automation.codex_capacity_retry.max_retries must be -1 or greater",
+            ));
+        }
+        Ok(Self {
+            enabled: raw.enabled.unwrap_or(default.enabled),
+            max_retries,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -1574,6 +1626,34 @@ enabled = true
         )
         .unwrap();
         assert!(config.ui.bell.enabled);
+    }
+
+    #[test]
+    fn codex_capacity_retry_defaults_and_parses() {
+        let default_config = Config::default();
+        assert!(default_config.automation.codex_capacity_retry.enabled);
+        assert_eq!(
+            default_config.automation.codex_capacity_retry.max_retries,
+            1
+        );
+
+        let config: Config = toml::from_str(
+            r#"
+[automation.codex_capacity_retry]
+enabled = false
+max_retries = -1
+"#,
+        )
+        .unwrap();
+        assert!(!config.automation.codex_capacity_retry.enabled);
+        assert_eq!(config.automation.codex_capacity_retry.max_retries, -1);
+    }
+
+    #[test]
+    fn codex_capacity_retry_rejects_other_negative_values() {
+        let result =
+            toml::from_str::<Config>("[automation.codex_capacity_retry]\nmax_retries = -2\n");
+        assert!(result.is_err());
     }
 
     #[test]

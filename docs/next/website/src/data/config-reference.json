@@ -1038,6 +1038,24 @@
       ]
     },
     {
+      "id": "automation",
+      "title": "Automation",
+      "keys": [
+        {
+          "key": "automation.codex_capacity_retry.enabled",
+          "type": "boolean",
+          "default": "true",
+          "description": "Automatically reply to Codex's exact capacity error with \"继续\" and Enter. Set false to disable."
+        },
+        {
+          "key": "automation.codex_capacity_retry.max_retries",
+          "type": "integer",
+          "default": "1",
+          "description": "Maximum automatic replies for one visible Codex capacity occurrence. `-1` retries indefinitely, while `0` disables retries. A one-second safety debounce still applies."
+        }
+      ]
+    },
+    {
       "id": "advanced",
       "title": "Advanced",
       "keys": [
