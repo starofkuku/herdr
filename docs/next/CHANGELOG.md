@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.12] - 2026-08-07
+
 ### Fixed
 - Codex capacity retries now send at most one `继续` reply for each visible error occurrence. Stable blocked-state refreshes no longer loop indefinitely when `max_retries = -1`; a later upstream capacity response can still trigger the next retry.
 
