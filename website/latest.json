@@ -1,14 +1,24 @@
 {
-  "version": "0.7.11",
+  "version": "0.7.12",
   "protocol": 19,
-  "notes": "### Added\n- Added Codex capacity-error automation. When the Codex screen reports `Selected model is at capacity. Please try a different model.`, Herdr can send `\u7ee7\u7eed` and Enter to the same pane, with configurable finite or infinite retry limits (`automation.codex_capacity_retry`).\n- Added a high-priority Codex screen rule for the capacity blocker so the automation is driven by screen evidence rather than a generic blocked state.",
+  "notes": "### Fixed\n- Codex capacity retries now send at most one `\u7ee7\u7eed` reply for each visible error occurrence. Stable blocked-state refreshes no longer loop indefinitely when `max_retries = -1`; a later upstream capacity response can still trigger the next retry.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.11/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.12": {
+      "notes": "### Fixed\n- Codex capacity retries now send at most one `\u7ee7\u7eed` reply for each visible error occurrence. Stable blocked-state refreshes no longer loop indefinitely when `max_retries = -1`; a later upstream capacity response can still trigger the next retry.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-macos-aarch64"
+      }
+    },
     "0.7.11": {
       "notes": "### Added\n- Added Codex capacity-error automation. When the Codex screen reports `Selected model is at capacity. Please try a different model.`, Herdr can send `\u7ee7\u7eed` and Enter to the same pane, with configurable finite or infinite retry limits (`automation.codex_capacity_retry`).\n- Added a high-priority Codex screen rule for the capacity blocker so the automation is driven by screen evidence rather than a generic blocked state.",
       "protocol": 19,
