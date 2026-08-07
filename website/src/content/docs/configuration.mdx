@@ -366,7 +366,7 @@ enabled = true
 max_retries = 1
 ```
 
-`max_retries` defaults to `1`; set it to `0` (or `enabled = false`) to disable the automation, or `-1` to retry indefinitely. Infinite retries still use a one-second debounce and can repeat the same provider/model failure, so use that mode only when an external provider failover is expected.
+`max_retries` defaults to `1`; set it to `0` (or `enabled = false`) to disable the automation, or `-1` to retry indefinitely. Each visible capacity-error occurrence is consumed at most once, so a stable screen refresh cannot resend `继续`; a later upstream response with the same error is treated as a new occurrence.
 
 ## Sound
 
