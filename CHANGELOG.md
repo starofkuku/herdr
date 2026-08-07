@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.11] - 2026-08-07
+
 ### Added
 - Added Codex capacity-error automation. When the Codex screen reports `Selected model is at capacity. Please try a different model.`, Herdr can send `继续` and Enter to the same pane, with configurable finite or infinite retry limits (`automation.codex_capacity_retry`).
 - Added a high-priority Codex screen rule for the capacity blocker so the automation is driven by screen evidence rather than a generic blocked state.
