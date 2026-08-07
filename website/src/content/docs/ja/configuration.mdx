@@ -355,6 +355,18 @@ Herdr はフォアグラウンドクライアントから ASCII BEL を 1 バイ
 
 tmux などのマルチプレクサーは BEL を遮断または抑制することがあるため、Bell を外側のターミナルまで通す設定も必要です。Bell は注意を要求するだけで、フォーカスを奪いません。
 
+## Codex の容量リトライ
+
+Codex の画面に正確な容量エラー `Selected model is at capacity. Please try a different model.` が表示されたとき、Herdr はエラーを報告した同じ pane に `继续` と Enter を自動送信できます。
+
+```toml
+[automation.codex_capacity_retry]
+enabled = true
+max_retries = 1
+```
+
+`max_retries` のデフォルトは `1` です。`0`（または `enabled = false`）で無効化し、`-1` で無期限リトライにできます。無期限リトライにも 1 秒のデバウンスがあり、同じ provider/model の容量エラーを繰り返す可能性があるため、外部のフェイルオーバーが期待できる場合だけ使用してください。
+
 ## サウンド
 
 サウンド通知はローカルの Herdr クライアントで再生されます。カスタムサウンドは mp3 ファイルでなければなりません。相対パスは設定ファイルのディレクトリから解決されます。
