@@ -1,14 +1,24 @@
 {
-  "version": "0.7.12",
+  "version": "0.7.13",
   "protocol": 19,
-  "notes": "### Fixed\n- Codex capacity retries now send at most one `\u7ee7\u7eed` reply for each visible error occurrence. Stable blocked-state refreshes no longer loop indefinitely when `max_retries = -1`; a later upstream capacity response can still trigger the next retry.",
+  "notes": "### Removed\n- Removed Codex capacity-error auto-retry, including the automatic `\u7ee7\u7eed` response and the `automation.codex_capacity_retry` configuration.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.12/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.13": {
+      "notes": "### Removed\n- Removed Codex capacity-error auto-retry, including the automatic `\u7ee7\u7eed` response and the `automation.codex_capacity_retry` configuration.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-macos-aarch64"
+      }
+    },
     "0.7.12": {
       "notes": "### Fixed\n- Codex capacity retries now send at most one `\u7ee7\u7eed` reply for each visible error occurrence. Stable blocked-state refreshes no longer loop indefinitely when `max_retries = -1`; a later upstream capacity response can still trigger the next retry.",
       "protocol": 19,
