@@ -20,14 +20,6 @@ visible_working = true
 regex = ['(?:^| )[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏](?: |$)']
 
 [[rules]]
-id = "capacity_blocker"
-state = "blocked"
-priority = 1200
-region = "whole_recent"
-visible_blocker = true
-contains = ["Selected model is at capacity. Please try a different model."]
-
-[[rules]]
 id = "transcript_viewer"
 state = "unknown"
 priority = 1000

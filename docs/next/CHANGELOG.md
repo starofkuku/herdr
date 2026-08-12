@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Removed
+- Removed Codex capacity-error auto-retry, including the automatic `继续` response and the `automation.codex_capacity_retry` configuration.
+
+## [0.7.12] - 2026-08-07
+
+### Fixed
+- Codex capacity retries now send at most one `继续` reply for each visible error occurrence. Stable blocked-state refreshes no longer loop indefinitely when `max_retries = -1`; a later upstream capacity response can still trigger the next retry.
+
+## [0.7.11] - 2026-08-07
+
+### Added
+- Added Codex capacity-error automation. When the Codex screen reports `Selected model is at capacity. Please try a different model.`, Herdr can send `继续` and Enter to the same pane, with configurable finite or infinite retry limits (`automation.codex_capacity_retry`).
+- Added a high-priority Codex screen rule for the capacity blocker so the automation is driven by screen evidence rather than a generic blocked state.
+
 ## [0.7.10] - 2026-07-22
 
 ### Added
