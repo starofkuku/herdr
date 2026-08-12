@@ -146,8 +146,6 @@ pub struct App {
     /// even when an App-internal drain consumes the event before the forwarding drain.
     pub(crate) local_input_source_switch: bool,
     pub(crate) config_reloaded_from_disk: bool,
-    pub(crate) codex_capacity_retry_config: crate::config::CodexCapacityRetryConfig,
-    pub(crate) codex_capacity_retry: crate::automation::CodexCapacityRetryController,
     prefix_input_source: Box<dyn crate::platform::PrefixInputSource>,
 }
 
@@ -750,8 +748,6 @@ impl App {
             local_terminal_notifications: true,
             local_input_source_switch: true,
             config_reloaded_from_disk: false,
-            codex_capacity_retry_config: config.automation.codex_capacity_retry,
-            codex_capacity_retry: crate::automation::CodexCapacityRetryController::default(),
             prefix_input_source: Box::new(crate::platform::RealPrefixInputSource::default()),
         }
     }
@@ -1424,13 +1420,6 @@ impl App {
                 self.state.bell = config.ui.bell;
                 self.state.toast_config = config.ui.toast.clone();
             }
-        }
-
-        if !invalid_section("automation") {
-            if self.codex_capacity_retry_config != config.automation.codex_capacity_retry {
-                self.codex_capacity_retry.clear_all();
-            }
-            self.codex_capacity_retry_config = config.automation.codex_capacity_retry;
         }
 
         if !invalid_section("experimental") {

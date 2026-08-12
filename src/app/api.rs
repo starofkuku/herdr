@@ -1,8 +1,6 @@
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
-
 mod agents;
 mod env;
 mod integrations;
@@ -29,91 +27,6 @@ enum RuntimeExitAction {
 }
 
 impl App {
-    fn handle_codex_capacity_retry(&mut self, event: &AppEvent) {
-        if let AppEvent::PaneDied { pane_id } = event {
-            self.codex_capacity_retry.clear(*pane_id);
-            return;
-        }
-        let AppEvent::StateChanged {
-            pane_id,
-            agent: Some(crate::detect::Agent::Codex),
-            state: crate::detect::AgentState::Blocked,
-            process_exited: false,
-            observed_at: _,
-            ..
-        } = event
-        else {
-            if let AppEvent::StateChanged { pane_id, .. } = event {
-                self.codex_capacity_retry.clear(*pane_id);
-            }
-            return;
-        };
-
-        let detection_text = self
-            .state
-            .workspaces
-            .iter()
-            .enumerate()
-            .find_map(|(ws_idx, _)| {
-                self.state
-                    .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, *pane_id)
-                    .map(|runtime| runtime.detection_text())
-            });
-        let Some(detection_text) = detection_text else {
-            self.codex_capacity_retry.clear(*pane_id);
-            return;
-        };
-        if !detection_text.contains(crate::automation::CODEX_CAPACITY_ERROR) {
-            self.codex_capacity_retry.clear(*pane_id);
-            return;
-        }
-        let Some(occurrence_key) =
-            crate::automation::codex_capacity_occurrence_key(&detection_text)
-        else {
-            self.codex_capacity_retry.clear(*pane_id);
-            return;
-        };
-
-        let config = self.codex_capacity_retry_config;
-        if !config.enabled
-            || !self
-                .codex_capacity_retry
-                .can_attempt(*pane_id, occurrence_key, config.max_retries)
-        {
-            return;
-        }
-
-        let sent = self
-            .state
-            .workspaces
-            .iter()
-            .enumerate()
-            .find_map(|(ws_idx, _)| {
-                self.state
-                    .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, *pane_id)
-                    .map(|runtime| {
-                        runtime
-                            .try_send_bytes(Bytes::from_static("继续\r".as_bytes()))
-                            .is_ok()
-                    })
-            })
-            .unwrap_or(false);
-        if sent {
-            self.codex_capacity_retry
-                .record_attempt(*pane_id, occurrence_key);
-            tracing::info!(
-                pane = pane_id.raw(),
-                max_retries = config.max_retries,
-                "automatically replied to Codex capacity error"
-            );
-        } else {
-            tracing::warn!(
-                pane = pane_id.raw(),
-                "failed to queue automatic Codex capacity retry"
-            );
-        }
-    }
-
     pub(crate) fn dispatch_api_request(
         &mut self,
         id: &'static str,
@@ -352,7 +265,6 @@ impl App {
                 None
             };
         let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
-        self.handle_codex_capacity_retry(&ev);
         let previous_toast = self.state.toast.clone();
         let pane_updates = self.state.handle_app_event(ev);
         if let Some(agents) = manifest_update_agents {
@@ -1367,7 +1279,6 @@ pub(super) mod test_support {
 mod tests {
     use super::*;
     use crate::detect::{Agent, AgentState};
-    use bytes::Bytes;
 
     #[cfg(unix)]
     fn init_repo(path: &std::path::Path) {
@@ -2202,45 +2113,5 @@ mod tests {
             app.state.toast.as_ref().map(|toast| toast.context.as_str()),
             Some("__herdr_original__ · 1")
         );
-    }
-
-    #[tokio::test]
-    async fn codex_capacity_retry_targets_the_reporting_pane_once_by_default() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        let mut workspace = crate::workspace::Workspace::test_new("codex");
-        let pane_id = workspace.tabs[0].root_pane;
-        let (runtime, mut input_rx) =
-            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
-                80,
-                24,
-                4096,
-                crate::automation::CODEX_CAPACITY_ERROR.as_bytes(),
-                4,
-            );
-        workspace.insert_test_runtime(pane_id, runtime);
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-
-        let event = || AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Codex),
-            state: AgentState::Blocked,
-            visible_blocker: true,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        };
-        app.handle_internal_event(event());
-        assert_eq!(input_rx.try_recv().unwrap(), Bytes::from("继续\r"));
-
-        app.handle_internal_event(event());
-        assert!(input_rx.try_recv().is_err());
     }
 }

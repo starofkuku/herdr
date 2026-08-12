@@ -712,15 +712,3 @@ fn codex_osc_working_beats_weak_blocker_screen() {
         Some("osc_title_working")
     );
 }
-
-#[test]
-fn codex_capacity_error_is_a_high_priority_blocker() {
-    let screen = "Selected model is at capacity. Please try a different model.\n";
-    let result = explain(Agent::Codex, screen);
-    assert_eq!(result.state, AgentState::Blocked);
-    assert_eq!(
-        result.matched_rule.as_ref().map(|r| r.id.as_str()),
-        Some("capacity_blocker")
-    );
-    assert!(result.visible_blocker);
-}

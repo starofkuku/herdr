@@ -57,7 +57,6 @@ fn set_host_color_scheme_reports(enabled: bool) -> io::Result<()> {
 mod agent_resume;
 mod api;
 mod app;
-mod automation;
 mod build_info;
 #[cfg(not(windows))]
 mod checksum;
@@ -373,13 +372,6 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Set false to run plain ssh against your ssh config unchanged — this does not
 # force keepalive or multiplexing off, it only stops herdr from adding its own.
 # manage_ssh_config = true
-
-[automation.codex_capacity_retry]
-# Automatically answer Codex's exact capacity error with "继续" and Enter.
-# Set enabled = false or max_retries = 0 to disable. Default: enabled, one retry.
-# max_retries = 1
-# Use -1 to retry indefinitely (a one-second safety debounce still applies).
-# enabled = true
 
 [experimental]
 # Allow launching herdr from inside a herdr-managed pane.

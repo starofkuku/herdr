@@ -6,7 +6,6 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
-    "automation",
     "experimental",
     "keys",
     "onboarding",
@@ -324,14 +323,6 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.remote = section,
-    );
-    load_live_section(
-        table,
-        "automation",
-        "automation config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.automation = section,
     );
 
     Ok(LoadedConfig {
@@ -711,26 +702,6 @@ resume_agents_on_restore = true
         .unwrap();
 
         assert!(loaded.config.session.resume_agents_on_restore);
-        assert!(loaded.diagnostics.is_empty());
-        assert!(loaded.invalid_sections.is_empty());
-    }
-
-    #[test]
-    fn load_live_config_parses_automation_section() {
-        let loaded = load_live_config_from_str(
-            r#"
-[automation.codex_capacity_retry]
-enabled = false
-max_retries = -1
-"#,
-        )
-        .unwrap();
-
-        assert!(!loaded.config.automation.codex_capacity_retry.enabled);
-        assert_eq!(
-            loaded.config.automation.codex_capacity_retry.max_retries,
-            -1
-        );
         assert!(loaded.diagnostics.is_empty());
         assert!(loaded.invalid_sections.is_empty());
     }
