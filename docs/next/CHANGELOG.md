@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.13] - 2026-08-12
+
 ### Removed
 - Removed Codex capacity-error auto-retry, including the automatic `继续` response and the `automation.codex_capacity_retry` configuration.
 
