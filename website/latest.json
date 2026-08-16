@@ -1,14 +1,24 @@
 {
-  "version": "0.7.13",
+  "version": "0.7.14",
   "protocol": 19,
-  "notes": "### Removed\n- Removed Codex capacity-error auto-retry, including the automatic `\u7ee7\u7eed` response and the `automation.codex_capacity_retry` configuration.",
+  "notes": "### Added\n- Added a first-party Codex rollout monitor on Linux and macOS. `herdr integration install codex` now installs a server-side plugin that reads the matching Codex rollout JSONL, reports suspected stalled tools without changing Agent lifecycle state or sending input, and exposes a closable activity card from the Agent pane context menu.\n- Plugins can now declare managed `[[services]]` that run once for each enabled plugin on the Herdr server, restart with bounded backoff, and stop when the plugin is disabled, unlinked, or the server shuts down.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.13/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.14": {
+      "notes": "### Added\n- Added a first-party Codex rollout monitor on Linux and macOS. `herdr integration install codex` now installs a server-side plugin that reads the matching Codex rollout JSONL, reports suspected stalled tools without changing Agent lifecycle state or sending input, and exposes a closable activity card from the Agent pane context menu.\n- Plugins can now declare managed `[[services]]` that run once for each enabled plugin on the Herdr server, restart with bounded backoff, and stop when the plugin is disabled, unlinked, or the server shuts down.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.14/herdr-macos-aarch64"
+      }
+    },
     "0.7.13": {
       "notes": "### Removed\n- Removed Codex capacity-error auto-retry, including the automatic `\u7ee7\u7eed` response and the `automation.codex_capacity_retry` configuration.",
       "protocol": 19,
