@@ -132,6 +132,7 @@ pub struct App {
     pub(crate) session_save_deadline: Option<Instant>,
     pub(crate) session_save_thread: Option<std::thread::JoinHandle<()>>,
     pub(crate) detached_custom_command_children: Vec<std::process::Child>,
+    pub(crate) plugin_services: api::plugins::PluginServiceManager,
     pub(crate) persist_pane_history: bool,
     pub(crate) last_render_at: Option<Instant>,
     pub(crate) suppressed_repeat_keys:
@@ -570,6 +571,8 @@ impl App {
                 mobile_header_rect: Rect::default(),
                 mobile_menu_hit_area: Rect::default(),
                 toast_hit_area: Rect::default(),
+                diagnostic_card_hit_area: Rect::default(),
+                diagnostic_card_close_hit_area: Rect::default(),
                 pane_infos: Vec::new(),
                 split_borders: Vec::new(),
             },
@@ -585,6 +588,7 @@ impl App {
             update_dismissed: false,
             config_diagnostic,
             toast: None,
+            diagnostic_card: None,
             pending_agent_notifications: std::collections::HashMap::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
@@ -730,6 +734,10 @@ impl App {
             session_save_deadline: None,
             session_save_thread: None,
             detached_custom_command_children: Vec::new(),
+            // Managed services belong to the persistent server runtime. Monolithic
+            // `--no-session` clients deliberately skip the plugin registry and must
+            // not add a background service reconciliation timer of their own.
+            plugin_services: api::plugins::PluginServiceManager::new(!no_session),
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
             persist_pane_history: config.experimental.pane_history,
@@ -765,6 +773,8 @@ impl App {
         >,
     ) -> io::Result<Self> {
         let mut app = Self::new(config, true, config_diagnostic, api_rx, event_hub);
+        app.state.installed_plugins = load_plugin_registry(false);
+        app.plugin_services.suspend();
         let (workspaces, terminals, runtimes) = crate::persist::restore_handoff(
             snapshot,
             config.advanced.scrollback_limit_bytes,
@@ -830,6 +840,8 @@ impl App {
     #[cfg(unix)]
     pub fn assume_handoff_ownership(&mut self) {
         self.terminal_runtimes.assume_handoff_ownership();
+        self.plugin_services.resume();
+        self.reconcile_plugin_services(Instant::now());
     }
 
     fn request_full_redraw(&mut self) {
@@ -1262,7 +1274,20 @@ impl App {
         for target in targets {
             let label = crate::integration::integration_target_label(target);
             match crate::integration::install_target(target) {
-                Ok(messages) => {
+                Ok(mut messages) => {
+                    if target == crate::api::schema::IntegrationTarget::Codex
+                        && crate::integration::codex_monitor_supported()
+                    {
+                        match self.register_codex_monitor_plugin() {
+                            Ok(message) => messages.push(message),
+                            Err(err) => {
+                                self.state
+                                    .integration_install_messages
+                                    .push(format!("{label}: {err}"));
+                                continue;
+                            }
+                        }
+                    }
                     self.state
                         .integration_install_messages
                         .push(format!("installed {label}"));

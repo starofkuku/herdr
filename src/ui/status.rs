@@ -6,13 +6,140 @@ use ratatui::{
     Frame,
 };
 
-use super::text::display_width_u16;
+use super::text::{display_width_u16, truncate_end};
 use super::widgets::panel_contrast_fg;
 use crate::{
+    api::schema::{PaneDiagnosticInfo, PaneDiagnosticSeverity},
     app::state::{CopyFeedback, Palette, ToastKind, ToastNotification},
     config::{ToastClipboardPosition, ToastHerdrPosition},
     detect::AgentState,
 };
+
+const DIAGNOSTIC_CARD_WIDTH: u16 = 52;
+const DIAGNOSTIC_CARD_HEIGHT: u16 = 10;
+
+pub(crate) fn diagnostic_card_geometry(
+    area: Rect,
+    top_offset: u16,
+    toast_rect: Option<Rect>,
+) -> (Rect, Rect) {
+    if area.width == 0 || area.height == 0 {
+        return (Rect::default(), Rect::default());
+    }
+    let width = DIAGNOSTIC_CARD_WIDTH.min(area.width);
+    let height = DIAGNOSTIC_CARD_HEIGHT.min(area.height);
+    let x = area.x + area.width.saturating_sub(width);
+    let mut y = area.y + top_offset.min(area.height.saturating_sub(height));
+    let mut card = Rect::new(x, y, width, height);
+    if toast_rect.is_some_and(|toast| rects_overlap(card, toast)) {
+        y = toast_rect
+            .map(|toast| toast.y.saturating_add(toast.height))
+            .unwrap_or(y)
+            .min(area.y + area.height.saturating_sub(height));
+        card.y = y;
+    }
+    let close = if width >= 5 && height >= 3 {
+        Rect::new(
+            card.x + card.width.saturating_sub(4),
+            card.y.saturating_add(1),
+            3,
+            1,
+        )
+    } else {
+        Rect::default()
+    };
+    (card, close)
+}
+
+pub(super) fn render_diagnostic_card(
+    frame: &mut Frame,
+    area: Rect,
+    close_area: Rect,
+    diagnostic: &PaneDiagnosticInfo,
+    p: &Palette,
+) {
+    if area.is_empty() {
+        return;
+    }
+    frame.render_widget(Clear, area);
+    let border = match diagnostic.severity {
+        PaneDiagnosticSeverity::Info => p.blue,
+        PaneDiagnosticSeverity::Warning => p.yellow,
+        PaneDiagnosticSeverity::Error => p.red,
+    };
+    let title_width = area.width.saturating_sub(4) as usize;
+    let block = Block::default()
+        .title(format!(
+            " {} ",
+            truncate_end(&diagnostic.title, title_width)
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border))
+        .style(Style::default().bg(p.panel_bg));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    if inner.is_empty() {
+        return;
+    }
+
+    let content_width = inner.width as usize;
+    let state_width = content_width.saturating_sub(5);
+    let state = Line::from(vec![
+        Span::styled("o ", Style::default().fg(border)),
+        Span::styled(
+            truncate_end(&diagnostic.state, state_width.saturating_sub(2)),
+            Style::default().fg(p.text).add_modifier(Modifier::BOLD),
+        ),
+    ]);
+    frame.render_widget(
+        Paragraph::new(state),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+    if !close_area.is_empty() {
+        frame.render_widget(
+            Paragraph::new("[x]").style(Style::default().fg(p.overlay1)),
+            close_area,
+        );
+    }
+
+    let mut row = inner.y.saturating_add(1);
+    let bottom = inner.y.saturating_add(inner.height);
+    if row < bottom {
+        frame.render_widget(
+            Paragraph::new(truncate_end(&diagnostic.summary, content_width))
+                .style(Style::default().fg(p.subtext0)),
+            Rect::new(inner.x, row, inner.width, 1),
+        );
+        row = row.saturating_add(2);
+    }
+    for field in &diagnostic.fields {
+        if row >= bottom {
+            break;
+        }
+        let label = format!("{}: ", field.label);
+        let label_width = display_width_u16(&label).min(inner.width);
+        let value_width = inner.width.saturating_sub(label_width) as usize;
+        let line = Line::from(vec![
+            Span::styled(label, Style::default().fg(p.overlay1)),
+            Span::styled(
+                truncate_end(&field.value, value_width),
+                Style::default().fg(p.text),
+            ),
+        ]);
+        frame.render_widget(
+            Paragraph::new(line),
+            Rect::new(inner.x, row, inner.width, 1),
+        );
+        row = row.saturating_add(1);
+    }
+}
+
+fn rects_overlap(a: Rect, b: Rect) -> bool {
+    a.x < b.x.saturating_add(b.width)
+        && b.x < a.x.saturating_add(a.width)
+        && a.y < b.y.saturating_add(b.height)
+        && b.y < a.y.saturating_add(a.height)
+}
 
 pub(crate) fn copy_feedback_rect(
     area: Rect,
@@ -321,5 +448,33 @@ mod tests {
             bottom_center.x,
             area.x + area.width.saturating_sub(bottom_center.width) / 2
         );
+    }
+
+    #[test]
+    fn diagnostic_card_uses_top_right_and_stacks_below_toast() {
+        let area = Rect::new(10, 20, 100, 40);
+        let (card, close) = diagnostic_card_geometry(area, 0, None);
+        assert_eq!(card.width, DIAGNOSTIC_CARD_WIDTH);
+        assert_eq!(card.height, DIAGNOSTIC_CARD_HEIGHT);
+        assert_eq!(card.x + card.width, area.x + area.width);
+        assert_eq!(card.y, area.y);
+        assert!(rects_overlap(card, close));
+
+        let toast = Rect::new(card.x, card.y, card.width, 3);
+        let (stacked, _) = diagnostic_card_geometry(area, 0, Some(toast));
+        assert_eq!(stacked.y, toast.y + toast.height);
+        assert!(!rects_overlap(stacked, toast));
+    }
+
+    #[test]
+    fn diagnostic_card_geometry_clamps_to_small_viewports() {
+        let area = Rect::new(2, 3, 18, 6);
+        let (card, close) = diagnostic_card_geometry(area, 1, None);
+
+        assert_eq!(card, Rect::new(2, 3, 18, 6));
+        assert!(close.x >= card.x);
+        assert!(close.x + close.width <= card.x + card.width);
+        assert!(close.y >= card.y);
+        assert!(close.y + close.height <= card.y + card.height);
     }
 }

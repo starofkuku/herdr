@@ -800,6 +800,15 @@ pub(super) fn apply_context_menu_action(
         }
         (
             ContextMenuKind::Pane {
+                ws_idx, pane_id, ..
+            },
+            Some("Inspect activity"),
+        ) => {
+            state.open_diagnostic_card(ws_idx, pane_id);
+            state.mode = Mode::Terminal;
+        }
+        (
+            ContextMenuKind::Pane {
                 ws_idx,
                 tab_idx,
                 pane_id,
@@ -1200,6 +1209,15 @@ impl App {
                         },
                     );
                 }
+                self.state.mode = Mode::Terminal;
+            }
+            (
+                ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("Inspect activity"),
+            ) => {
+                self.state.open_diagnostic_card(ws_idx, pane_id);
                 self.state.mode = Mode::Terminal;
             }
             (
@@ -1981,6 +1999,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                has_diagnostics: false,
             },
             x: 0,
             y: 0,
@@ -2048,6 +2067,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                has_diagnostics: false,
             },
             x: 0,
             y: 0,

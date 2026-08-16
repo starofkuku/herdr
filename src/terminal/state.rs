@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-#[cfg(any(windows, test))]
 use std::time::Duration;
 use std::time::Instant;
 
@@ -85,6 +84,7 @@ pub struct TerminalState {
     pub hook_authority: Option<HookAuthority>,
     pub agent_metadata: HashMap<String, AgentMetadata>,
     pub metadata_tokens: crate::metadata_tokens::MetadataTokens,
+    diagnostics: super::diagnostics::PaneDiagnostics,
     pub persisted_agent_session: Option<crate::agent_resume::PersistedAgentSession>,
     pub terminal_title: Option<String>,
     pub manual_label: Option<String>,
@@ -115,6 +115,7 @@ impl TerminalState {
             hook_authority: None,
             agent_metadata: HashMap::new(),
             metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
+            diagnostics: super::diagnostics::PaneDiagnostics::default(),
             persisted_agent_session: None,
             terminal_title: None,
             manual_label: None,
@@ -138,6 +139,57 @@ impl TerminalState {
         self.terminal_title
             .as_deref()
             .and_then(super::stripped_terminal_title)
+    }
+
+    pub(crate) fn report_diagnostic(
+        &mut self,
+        diagnostic: crate::api::schema::PaneDiagnosticInfo,
+        seq: Option<u64>,
+        ttl: Option<Duration>,
+        now: Instant,
+    ) -> Result<bool, super::diagnostics::PaneDiagnosticReportError> {
+        let changed = self.diagnostics.report(diagnostic, seq, ttl, now)?;
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(changed)
+    }
+
+    pub(crate) fn clear_diagnostic(
+        &mut self,
+        source: &str,
+        diagnostic_id: &str,
+        seq: Option<u64>,
+    ) -> Result<bool, super::diagnostics::PaneDiagnosticReportError> {
+        let changed = self.diagnostics.clear(source, diagnostic_id, seq)?;
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(changed)
+    }
+
+    pub(crate) fn active_diagnostics(
+        &self,
+        now: Instant,
+    ) -> Vec<crate::api::schema::PaneDiagnosticInfo> {
+        self.diagnostics.active(now)
+    }
+
+    pub(crate) fn diagnostic(
+        &self,
+        source: &str,
+        diagnostic_id: &str,
+        now: Instant,
+    ) -> Option<&crate::api::schema::PaneDiagnosticInfo> {
+        self.diagnostics.get(source, diagnostic_id, now)
+    }
+
+    pub(crate) fn expire_diagnostics_at(&mut self, now: Instant) -> bool {
+        self.diagnostics.expire_at(now)
+    }
+
+    pub(crate) fn next_diagnostic_expiry(&self) -> Option<Instant> {
+        self.diagnostics.next_expiry()
     }
 
     pub(crate) fn set_terminal_title(&mut self, title: Option<String>) -> TerminalTitleChange {
@@ -1876,13 +1928,14 @@ mod tests {
         let mut terminal = test_terminal();
         let session_path = test_session_path("pi.jsonl");
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Working);
-        terminal.set_hook_authority_with_session_ref(
+        terminal.set_hook_authority_at(
             "herdr:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
             crate::agent_resume::AgentSessionRef::path(session_path.clone()),
             Some(20),
+            now,
         );
 
         terminal.set_detected_state_with_screen_signals_at(
@@ -1894,13 +1947,14 @@ mod tests {
             true,
             now + Duration::from_millis(1),
         );
-        let late = terminal.set_hook_authority_with_session_ref(
+        let late = terminal.set_hook_authority_at(
             "herdr:pi".into(),
             "pi".into(),
             AgentState::Working,
             None,
             crate::agent_resume::AgentSessionRef::path(session_path),
             Some(21),
+            now + Duration::from_millis(2),
         );
 
         assert!(late.is_none());

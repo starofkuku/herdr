@@ -1,17 +1,17 @@
 use bytes::Bytes;
 
 use crate::api::schema::{
-    EventData, EventEnvelope, EventKind, PaneClearAgentAuthorityParams, PaneCurrentParams,
-    PaneDirection, PaneEdgesParams, PaneEdgesResult, PaneFocusDirectionParams,
+    EventData, EventEnvelope, EventKind, PaneClearAgentAuthorityParams, PaneClearDiagnosticParams,
+    PaneCurrentParams, PaneDirection, PaneEdgesParams, PaneEdgesResult, PaneFocusDirectionParams,
     PaneFocusDirectionReason, PaneFocusDirectionResult, PaneInfo, PaneLayoutPane, PaneLayoutParams,
     PaneLayoutRect, PaneLayoutSnapshot, PaneLayoutSplit, PaneListParams, PaneMoveDestination,
     PaneMoveParams, PaneMoveReason, PaneMoveResult, PaneNeighborParams, PaneNeighborResult,
     PaneProcessInfo, PaneProcessInfoParams, PaneProcessInfoProcess, PaneReadParams, PaneReadResult,
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
-    PaneReportMetadataParams, PaneResizeParams, PaneResizeReason, PaneResizeResult,
-    PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams,
-    PaneSwapReason, PaneSwapResult, PaneTarget, PaneZoomMode, PaneZoomParams, PaneZoomReason,
-    PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
+    PaneReportDiagnosticParams, PaneReportMetadataParams, PaneResizeParams, PaneResizeReason,
+    PaneResizeResult, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams,
+    PaneSwapParams, PaneSwapReason, PaneSwapResult, PaneTarget, PaneZoomMode, PaneZoomParams,
+    PaneZoomReason, PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1431,6 +1431,114 @@ impl App {
         encode_success(id, ResponseResult::Ok {})
     }
 
+    pub(super) fn handle_pane_report_diagnostic(
+        &mut self,
+        id: String,
+        mut params: PaneReportDiagnosticParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        if let Err(message) = normalize_pane_diagnostic(&mut params.diagnostic) {
+            return encode_error(id, "invalid_pane_diagnostic", message);
+        }
+        let ttl = match normalize_metadata_ttl(params.ttl_ms) {
+            Ok(ttl) => ttl,
+            Err(message) => return encode_error(id, "invalid_diagnostic_ttl", message),
+        };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let changed = match terminal.report_diagnostic(
+            params.diagnostic,
+            params.seq,
+            ttl,
+            std::time::Instant::now(),
+        ) {
+            Ok(changed) => changed,
+            Err(crate::terminal::PaneDiagnosticReportError::RecordLimit) => {
+                return encode_error(
+                    id,
+                    "pane_diagnostic_limit",
+                    format!(
+                        "pane may contain at most {} diagnostics",
+                        crate::terminal::MAX_PANE_DIAGNOSTICS
+                    ),
+                );
+            }
+            Err(crate::terminal::PaneDiagnosticReportError::SequenceLimit) => {
+                return encode_error(
+                    id,
+                    "pane_diagnostic_sequence_limit",
+                    "pane diagnostic sequence source limit reached",
+                );
+            }
+        };
+        self.sync_agent_metadata_deadline();
+        if changed {
+            self.emit_pane_updated(ws_idx, pane_id);
+        }
+        encode_success(id, ResponseResult::Ok {})
+    }
+
+    pub(super) fn handle_pane_clear_diagnostic(
+        &mut self,
+        id: String,
+        params: PaneClearDiagnosticParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let source = match normalize_metadata_source(params.source) {
+            Ok(source) => source,
+            Err(message) => return encode_error(id, "invalid_diagnostic_source", message),
+        };
+        let diagnostic_id =
+            match normalize_diagnostic_identifier(&params.diagnostic_id, 80, "diagnostic_id") {
+                Ok(value) => value,
+                Err(message) => return encode_error(id, "invalid_pane_diagnostic", message),
+            };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let changed = match terminal.clear_diagnostic(&source, &diagnostic_id, params.seq) {
+            Ok(changed) => changed,
+            Err(crate::terminal::PaneDiagnosticReportError::RecordLimit) => false,
+            Err(crate::terminal::PaneDiagnosticReportError::SequenceLimit) => {
+                return encode_error(
+                    id,
+                    "pane_diagnostic_sequence_limit",
+                    "pane diagnostic sequence source limit reached",
+                );
+            }
+        };
+        self.sync_agent_metadata_deadline();
+        if changed {
+            self.state
+                .close_diagnostic_card_for(&terminal_id, &source, &diagnostic_id);
+            self.emit_pane_updated(ws_idx, pane_id);
+        }
+        encode_success(id, ResponseResult::Ok {})
+    }
+
     pub(super) fn handle_pane_clear_agent_authority(
         &mut self,
         id: String,
@@ -1623,6 +1731,83 @@ fn normalize_presentation_text(value: Option<String>) -> Option<String> {
         .take(80)
         .collect();
     (!normalized.trim().is_empty()).then(|| normalized.trim().to_string())
+}
+
+fn normalize_pane_diagnostic(
+    diagnostic: &mut crate::api::schema::PaneDiagnosticInfo,
+) -> Result<(), &'static str> {
+    diagnostic.source = normalize_metadata_source(std::mem::take(&mut diagnostic.source))?;
+    diagnostic.diagnostic_id =
+        normalize_diagnostic_identifier(&diagnostic.diagnostic_id, 80, "diagnostic_id")?;
+    diagnostic.state = normalize_diagnostic_identifier(&diagnostic.state, 64, "state")?;
+    diagnostic.title = normalize_diagnostic_text(&diagnostic.title, 80, "title")?;
+    diagnostic.summary = normalize_diagnostic_text(&diagnostic.summary, 240, "summary")?;
+    if diagnostic.fields.len() > 12 {
+        return Err("diagnostic may contain at most 12 fields");
+    }
+    for field in &mut diagnostic.fields {
+        field.key = normalize_diagnostic_identifier(&field.key, 32, "field key")?;
+        field.label = normalize_diagnostic_text(&field.label, 40, "field label")?;
+        field.value = normalize_diagnostic_text(&field.value, 240, "field value")?;
+    }
+    diagnostic.session_id =
+        normalize_optional_diagnostic_text(diagnostic.session_id.take(), 512, "session_id")?;
+    diagnostic.episode_id =
+        normalize_optional_diagnostic_text(diagnostic.episode_id.take(), 512, "episode_id")?;
+    Ok(())
+}
+
+fn normalize_diagnostic_identifier(
+    value: &str,
+    max_chars: usize,
+    label: &'static str,
+) -> Result<String, &'static str> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(match label {
+            "diagnostic_id" => "diagnostic_id must not be empty",
+            "state" => "diagnostic state must not be empty",
+            "field key" => "diagnostic field key must not be empty",
+            _ => "diagnostic identifier must not be empty",
+        });
+    }
+    if value.chars().count() > max_chars {
+        return Err("diagnostic identifier is too long");
+    }
+    if !value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, ':' | '.' | '_' | '-'))
+    {
+        return Err("diagnostic identifiers may contain only ASCII letters, digits, colon, dot, underscore, and hyphen");
+    }
+    Ok(value.to_string())
+}
+
+fn normalize_diagnostic_text(
+    value: &str,
+    max_chars: usize,
+    _label: &'static str,
+) -> Result<String, &'static str> {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return Err("diagnostic text must not be empty");
+    }
+    if normalized.chars().count() > max_chars {
+        return Err("diagnostic text is too long");
+    }
+    Ok(normalized)
+}
+
+fn normalize_optional_diagnostic_text(
+    value: Option<String>,
+    max_chars: usize,
+    label: &'static str,
+) -> Result<Option<String>, &'static str> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = normalize_diagnostic_text(&value, max_chars, label)?;
+    Ok(Some(value))
 }
 
 fn normalize_state_labels(
@@ -1941,6 +2126,31 @@ mod tests {
             clear_state_labels: false,
             seq: None,
             ttl_ms: None,
+        }
+    }
+
+    fn diagnostic_params(pane_id: String) -> PaneReportDiagnosticParams {
+        PaneReportDiagnosticParams {
+            pane_id,
+            diagnostic: crate::api::schema::PaneDiagnosticInfo {
+                source: "herdr.test-monitor".into(),
+                diagnostic_id: "activity".into(),
+                severity: crate::api::schema::PaneDiagnosticSeverity::Warning,
+                state: "suspected_stalled".into(),
+                title: "Codex activity".into(),
+                summary: "The active tool has not produced a new rollout event".into(),
+                fields: vec![crate::api::schema::PaneDiagnosticField {
+                    key: "tool".into(),
+                    label: "Tool".into(),
+                    value: "exec_command".into(),
+                }],
+                session_id: Some("session-1".into()),
+                episode_id: Some("session-1:1".into()),
+                last_activity_unix_ms: Some(1),
+                updated_unix_ms: 2,
+            },
+            seq: Some(10),
+            ttl_ms: Some(1_000),
         }
     }
 
@@ -3780,5 +3990,101 @@ mod tests {
 
             assert_eq!(metadata_error_code(&response), "invalid_metadata_ttl");
         }
+    }
+
+    #[test]
+    fn pane_diagnostic_is_visible_over_api_without_changing_agent_lifecycle() {
+        let (mut app, pane_id) = app_with_test_workspace();
+        let (_, internal_pane_id) = app.parse_pane_id(&pane_id).unwrap();
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(internal_pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_detected_state(Some(Agent::Codex), AgentState::Working);
+        app.state.workspaces[0].tabs[0]
+            .panes
+            .get_mut(&internal_pane_id)
+            .unwrap()
+            .seen = false;
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "report".into(),
+            method: crate::api::schema::Method::PaneReportDiagnostic(diagnostic_params(
+                pane_id.clone(),
+            )),
+        });
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.result, ResponseResult::Ok {});
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "get".into(),
+            method: crate::api::schema::Method::PaneGet(PaneTarget {
+                pane_id: pane_id.clone(),
+            }),
+        });
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneInfo { pane } = success.result else {
+            panic!("expected pane info");
+        };
+        assert_eq!(pane.diagnostics.len(), 1);
+        assert_eq!(pane.diagnostics[0].state, "suspected_stalled");
+        assert_eq!(pane.agent_status, crate::api::schema::AgentStatus::Working);
+        assert!(
+            !app.state.workspaces[0]
+                .pane_state(internal_pane_id)
+                .unwrap()
+                .seen
+        );
+
+        let agent = app.collect_agent_infos().pop().unwrap();
+        assert_eq!(agent.diagnostics, pane.diagnostics);
+    }
+
+    #[test]
+    fn pane_diagnostic_clear_rejects_stale_report_and_expiry_removes_it() {
+        let (mut app, pane_id) = app_with_test_workspace();
+        let response =
+            app.handle_pane_report_diagnostic("report".into(), diagnostic_params(pane_id.clone()));
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+
+        let response = app.handle_pane_clear_diagnostic(
+            "clear".into(),
+            PaneClearDiagnosticParams {
+                pane_id: pane_id.clone(),
+                source: "herdr.test-monitor".into(),
+                diagnostic_id: "activity".into(),
+                seq: Some(11),
+            },
+        );
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+
+        let mut stale = diagnostic_params(pane_id.clone());
+        stale.seq = Some(10);
+        let response = app.handle_pane_report_diagnostic("stale".into(), stale);
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert!(app
+            .pane_info(0, app.parse_pane_id(&pane_id).unwrap().1)
+            .unwrap()
+            .diagnostics
+            .is_empty());
+
+        let mut fresh = diagnostic_params(pane_id.clone());
+        fresh.seq = Some(12);
+        fresh.ttl_ms = Some(1);
+        let response = app.handle_pane_report_diagnostic("fresh".into(), fresh);
+        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let _ = app
+            .state
+            .expire_metadata_tokens(std::time::Instant::now() + std::time::Duration::from_secs(1));
+        assert!(app
+            .pane_info(0, app.parse_pane_id(&pane_id).unwrap().1)
+            .unwrap()
+            .diagnostics
+            .is_empty());
     }
 }

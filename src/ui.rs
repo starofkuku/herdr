@@ -52,8 +52,8 @@ pub(crate) use self::scrollbar::{
 use self::settings::render_settings_overlay;
 use self::sidebar::{render_sidebar, render_sidebar_collapsed};
 use self::status::{
-    copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
-    toast_notification_rect,
+    copy_feedback_rect, diagnostic_card_geometry, render_config_diagnostic, render_copy_feedback,
+    render_diagnostic_card, render_toast_notification, toast_notification_rect,
 };
 use self::tabs::render_tab_bar;
 pub(crate) use self::{
@@ -301,6 +301,16 @@ fn compute_view_internal(
             )
         })
         .unwrap_or_default();
+    let (diagnostic_card_hit_area, diagnostic_card_close_hit_area) =
+        if app.mode == Mode::Terminal && app.current_diagnostic_card().is_some() {
+            diagnostic_card_geometry(
+                area,
+                u16::from(app.config_diagnostic.is_some()),
+                (!toast_hit_area.is_empty()).then_some(toast_hit_area),
+            )
+        } else {
+            (Rect::default(), Rect::default())
+        };
 
     app.view = crate::app::ViewState {
         layout: ViewLayout::Desktop,
@@ -315,6 +325,8 @@ fn compute_view_internal(
         mobile_header_rect: Rect::default(),
         mobile_menu_hit_area: Rect::default(),
         toast_hit_area,
+        diagnostic_card_hit_area,
+        diagnostic_card_close_hit_area,
         pane_infos,
         split_borders,
     };
@@ -372,6 +384,16 @@ fn compute_mobile_view(
         .as_ref()
         .map(|_| mobile_toast_banner_rect(area, app.config_diagnostic.is_some()))
         .unwrap_or_default();
+    let (diagnostic_card_hit_area, diagnostic_card_close_hit_area) =
+        if app.mode == Mode::Terminal && app.current_diagnostic_card().is_some() {
+            diagnostic_card_geometry(
+                area,
+                u16::from(app.config_diagnostic.is_some()),
+                (!toast_hit_area.is_empty()).then_some(toast_hit_area),
+            )
+        } else {
+            (Rect::default(), Rect::default())
+        };
 
     app.view = crate::app::ViewState {
         layout: ViewLayout::Mobile,
@@ -386,6 +408,8 @@ fn compute_mobile_view(
         mobile_header_rect: header_rect,
         mobile_menu_hit_area: header_hits.menu,
         toast_hit_area,
+        diagnostic_card_hit_area,
+        diagnostic_card_close_hit_area,
         pane_infos,
         split_borders,
     };
@@ -523,6 +547,17 @@ fn render_notifications(app: &AppState, frame: &mut Frame, terminal_area: Rect) 
             app.toast_config.clipboard.position,
             &app.palette,
         );
+    }
+    if app.mode == Mode::Terminal {
+        if let Some(diagnostic) = app.current_diagnostic_card() {
+            render_diagnostic_card(
+                frame,
+                app.view.diagnostic_card_hit_area,
+                app.view.diagnostic_card_close_hit_area,
+                diagnostic,
+                &app.palette,
+            );
+        }
     }
 }
 

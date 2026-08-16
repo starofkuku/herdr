@@ -62,7 +62,7 @@ Herdr 以两种不同方式使用集成:
 
 一些集成会上报智能体的原生会话引用。除非被 `[session] resume_agents_on_restore = false` 禁用,Herdr 会在服务器重启后使用官方会话引用恢复 Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Cursor Agent CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode 和 Grok Build 的窗格。
 
-原生会话恢复需要最新的 Herdr 集成: Pi 集成版本 `2`、OMP 版本 `3`、Claude Code 版本 `6`、Codex 版本 `5`、GitHub Copilot CLI 版本 `2`、Devin CLI 版本 `2`、Droid 版本 `2`、Kimi Code CLI 版本 `3`、Qoder CLI 版本 `2`、Cursor Agent CLI 版本 `1`、OpenCode 版本 `5`、Kilo Code CLI 版本 `1`、Hermes Agent 版本 `2`、MastraCode 版本 `1`、Grok Build 版本 `2`。用 `herdr integration status` 查看已安装版本。
+原生会话恢复需要最新的 Herdr 集成: Pi 集成版本 `2`、OMP 版本 `3`、Claude Code 版本 `6`、Codex 版本 `7`、GitHub Copilot CLI 版本 `2`、Devin CLI 版本 `2`、Droid 版本 `2`、Kimi Code CLI 版本 `3`、Qoder CLI 版本 `2`、Cursor Agent CLI 版本 `1`、OpenCode 版本 `5`、Kilo Code CLI 版本 `1`、Hermes Agent 版本 `2`、MastraCode 版本 `1`、Grok Build 版本 `2`。用 `herdr integration status` 查看已安装版本。
 
 ## Grok Build
 
@@ -138,6 +138,41 @@ herdr integration install codex
 Codex 钩子通过与其他集成相同的本地 socket API 上报会话身份。Codex 的状态来自 Herdr 的屏幕清单检测。
 
 Herdr 默认使用 `~/.codex`,设置了 `CODEX_HOME` 时使用后者。Codex 配置目录必须已经存在。安装会写入 `herdr-agent-state.sh`、更新 `hooks.json`,并确保 `config.toml` 中有 `[features] hooks = true`。如果存在已弃用的顶层 `codex_hooks` 标志,它也会一并移除。卸载会从 `hooks.json` 中移除 Herdr 条目并删除钩子脚本,但不改动 `config.toml`。
+
+在 Linux 和 macOS 上,同一个安装命令还会在 Herdr 服务器主机上启用第一方
+Codex rollout 监控插件。它通过官方 Codex 会话 id 找到对应的 rollout JSONL,
+并上报结构化活动诊断。它不会发送“继续”、按 Escape、中断命令、切换模型,
+也不会改变 Herdr 的 `working`、`idle` 或 `blocked` 智能体状态。诊断存在时,
+右击智能体窗格并选择 **Inspect activity**,即可在右上角打开可关闭的状态卡。
+
+监控配置位于服务器主机。运行以下命令查看目录:
+
+```bash
+herdr plugin config-dir herdr.codex-rollout-monitor
+```
+
+默认 `config.toml` 为:
+
+```toml
+[monitor]
+enabled = true
+silent_after_seconds = 60
+suspected_stalled_after_seconds = 180
+startup_grace_seconds = 30
+poll_interval_ms = 1000
+
+[notification]
+enabled = true
+
+[diagnostic]
+include_command = true
+```
+
+`suspected_stalled_after_seconds` 是活动工具长时间没有新 rollout 事件的警告
+阈值;`silent_after_seconds` 只影响中间的命令静默运行状态。
+`notification.enabled` 控制每轮疑似卡住时最多一次的通知,后续 rollout 进展会
+结束这一轮。`monitor.enabled` 可以暂停监控,但不会禁用整个插件服务。配置文件
+会在运行时重新加载。原生 Windows 仍会安装 Codex 钩子,但不会运行此监控服务。
 
 ## GitHub Copilot CLI
 

@@ -1164,6 +1164,7 @@ fn print_install_preview(
     eprintln!("  actions: {}", plugin.actions.len());
     eprintln!("  events: {}", plugin.events.len());
     eprintln!("  panes: {}", plugin.panes.len());
+    eprintln!("  services: {}", plugin.services.len());
     eprintln!("  link handlers: {}", plugin.link_handlers.len());
     eprintln!("  build commands: {}", plugin.build.len());
     for build in &plugin.build {
@@ -1185,6 +1186,18 @@ fn print_install_preview(
     }
     for pane in &plugin.panes {
         eprintln!("    pane {}: {}", pane.id, pane.command.join(" "));
+    }
+    for service in &plugin.services {
+        let restart = match service.restart {
+            crate::api::schema::PluginServiceRestart::Never => "never",
+            crate::api::schema::PluginServiceRestart::Always => "always",
+        };
+        eprintln!(
+            "    service {} (restart {}): {}",
+            service.id,
+            restart,
+            service.command.join(" ")
+        );
     }
     for warning in &plugin.warnings {
         eprintln!("  warning: {warning}");
@@ -1641,6 +1654,7 @@ mod tests {
             actions: vec![],
             events: vec![],
             panes: vec![],
+            services: vec![],
             link_handlers: vec![],
             source: PluginSourceInfo {
                 kind: PluginSourceKind::Github,

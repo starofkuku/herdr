@@ -3,6 +3,9 @@ mod env;
 mod manifest;
 mod panes;
 mod runtime;
+mod services;
+
+pub(crate) use services::PluginServiceManager;
 
 use super::responses::{encode_error, encode_success};
 use crate::api::schema::{
@@ -56,6 +59,7 @@ impl App {
             }
             return encode_error(id, "plugin_registry_save_failed", err.to_string());
         }
+        self.reconcile_plugin_services_now();
         encode_success(id, ResponseResult::PluginLinked { plugin })
     }
 
@@ -110,6 +114,7 @@ impl App {
                 }
                 return encode_error(id, "plugin_registry_save_failed", err.to_string());
             }
+            self.reconcile_plugin_services_now();
         }
         encode_success(id, ResponseResult::PluginUnlinked { plugin_id, removed })
     }
@@ -575,6 +580,7 @@ impl App {
         let Some(plugin) = self.state.installed_plugins.get(&plugin_id).cloned() else {
             return encode_error(id, "plugin_not_found", "plugin not found");
         };
+        self.reconcile_plugin_services_now();
         if enabled {
             encode_success(id, ResponseResult::PluginEnabled { plugin })
         } else {

@@ -960,6 +960,7 @@ impl HeadlessServer {
         }
 
         self.handoff_in_progress = true;
+        self.app.suspend_plugin_services();
         self.disconnect_all_clients_for_handoff();
         let _ = reject_pending_client_connections(&self.client_listener);
 
@@ -1191,6 +1192,7 @@ impl HeadlessServer {
         }
         self.handoff_in_progress = false;
         let _ = std::fs::remove_file(socket_path);
+        self.app.resume_plugin_services();
     }
 
     #[cfg(unix)]
@@ -4038,6 +4040,7 @@ impl HeadlessServer {
         let mut changed = false;
 
         self.app.sync_headless_animation_timer(now);
+        self.app.reconcile_plugin_services(now);
 
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.
@@ -4172,6 +4175,7 @@ impl HeadlessServer {
         }
         info!("server shutdown initiated");
         self.shutting_down = true;
+        self.app.suspend_plugin_services();
 
         // Clear client-local host graphics, then send ServerShutdown to all connected clients.
         self.send_all_clients_graphics_cleanup();

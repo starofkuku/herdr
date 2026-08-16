@@ -13,11 +13,15 @@ pub(super) fn ensure_plugin_user_dirs(plugin: &InstalledPluginInfo) -> std::io::
 }
 
 pub(super) fn plugin_path_env(plugin: &InstalledPluginInfo) -> Vec<(String, String)> {
-    let config_dir = plugin_config_dir(&plugin.plugin_id);
-    let state_dir = plugin_state_dir(&plugin.plugin_id);
+    plugin_path_env_for(&plugin.plugin_id, &plugin.plugin_root)
+}
+
+pub(super) fn plugin_path_env_for(plugin_id: &str, plugin_root: &str) -> Vec<(String, String)> {
+    let config_dir = plugin_config_dir(plugin_id);
+    let state_dir = plugin_state_dir(plugin_id);
 
     vec![
-        ("HERDR_PLUGIN_ROOT".to_string(), plugin.plugin_root.clone()),
+        ("HERDR_PLUGIN_ROOT".to_string(), plugin_root.to_string()),
         (
             "HERDR_PLUGIN_CONFIG_DIR".to_string(),
             config_dir.display().to_string(),

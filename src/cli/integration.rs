@@ -1,4 +1,7 @@
-use crate::api::schema::IntegrationTarget;
+use crate::api::schema::{
+    IntegrationInstallParams, IntegrationTarget, IntegrationUninstallParams, Method, Request,
+    ResponseResult, SuccessResponse,
+};
 
 pub(super) fn run_integration_command(args: &[String]) -> std::io::Result<i32> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
@@ -62,8 +65,19 @@ fn integration_install(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
+    if let Some(code) = request_integration(target, true)? {
+        return Ok(code);
+    }
+
     match crate::integration::install_target(target) {
-        Ok(messages) => {
+        Ok(mut messages) => {
+            if target == IntegrationTarget::Codex && crate::integration::codex_monitor_supported() {
+                persist_codex_monitor_plugin()?;
+                messages.push(format!(
+                    "enabled codex rollout monitor service {}",
+                    crate::integration::CODEX_MONITOR_PLUGIN_ID
+                ));
+            }
             print_integration_messages(messages);
             Ok(0)
         }
@@ -79,8 +93,18 @@ fn integration_uninstall(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     };
 
+    if let Some(code) = request_integration(target, false)? {
+        return Ok(code);
+    }
+
     match crate::integration::uninstall_target(target) {
-        Ok(messages) => {
+        Ok(mut messages) => {
+            if target == IntegrationTarget::Codex && remove_codex_monitor_plugin_from_registry()? {
+                messages.push(format!(
+                    "disabled codex rollout monitor service {}",
+                    crate::integration::CODEX_MONITOR_PLUGIN_ID
+                ));
+            }
             print_integration_messages(messages);
             Ok(0)
         }
@@ -89,6 +113,73 @@ fn integration_uninstall(args: &[String]) -> std::io::Result<i32> {
             Ok(1)
         }
     }
+}
+
+fn request_integration(target: IntegrationTarget, install: bool) -> std::io::Result<Option<i32>> {
+    let method = if install {
+        Method::IntegrationInstall(IntegrationInstallParams { target })
+    } else {
+        Method::IntegrationUninstall(IntegrationUninstallParams { target })
+    };
+    let response = match super::send_request(&Request {
+        id: "cli:integration".into(),
+        method,
+    }) {
+        Ok(response) => response,
+        Err(err) if is_connection_error(&err) => return Ok(None),
+        Err(err) => return Err(err),
+    };
+    if response.get("error").is_some() {
+        eprintln!("{}", serde_json::to_string(&response).unwrap());
+        return Ok(Some(1));
+    }
+    let success: SuccessResponse =
+        serde_json::from_value(response).map_err(std::io::Error::other)?;
+    let messages = match success.result {
+        ResponseResult::IntegrationInstall { details, .. } => details.messages,
+        ResponseResult::IntegrationUninstall { details, .. } => details.messages,
+        _ => return Err(std::io::Error::other("unexpected integration API response")),
+    };
+    print_integration_messages(messages);
+    Ok(Some(0))
+}
+
+fn persist_codex_monitor_plugin() -> std::io::Result<()> {
+    let root = crate::integration::codex_monitor_plugin_root();
+    let mut plugins = crate::persist::plugin_registry::load();
+    let enabled = plugins
+        .iter()
+        .find(|plugin| plugin.plugin_id == crate::integration::CODEX_MONITOR_PLUGIN_ID)
+        .map(|plugin| plugin.enabled)
+        .unwrap_or(true);
+    let plugin = crate::app::load_plugin_manifest(&root.display().to_string(), enabled)
+        .map_err(|(_, message)| std::io::Error::other(message))?;
+    crate::plugin_paths::ensure_plugin_user_dirs(&plugin.plugin_id)?;
+    plugins.retain(|entry| entry.plugin_id != plugin.plugin_id);
+    plugins.push(plugin);
+    crate::persist::plugin_registry::save(&plugins)
+}
+
+fn remove_codex_monitor_plugin_from_registry() -> std::io::Result<bool> {
+    let mut plugins = crate::persist::plugin_registry::load();
+    let previous_len = plugins.len();
+    plugins.retain(|plugin| plugin.plugin_id != crate::integration::CODEX_MONITOR_PLUGIN_ID);
+    if plugins.len() == previous_len {
+        return Ok(false);
+    }
+    crate::persist::plugin_registry::save(&plugins)?;
+    Ok(true)
+}
+
+fn is_connection_error(err: &std::io::Error) -> bool {
+    matches!(
+        err.kind(),
+        std::io::ErrorKind::NotFound
+            | std::io::ErrorKind::ConnectionRefused
+            | std::io::ErrorKind::ConnectionAborted
+            | std::io::ErrorKind::ConnectionReset
+            | std::io::ErrorKind::BrokenPipe
+    )
 }
 
 fn print_integration_messages(messages: Vec<String>) {

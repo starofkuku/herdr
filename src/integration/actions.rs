@@ -72,7 +72,7 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
         }
         crate::api::schema::IntegrationTarget::Codex => {
             let installed = install_codex()?;
-            vec![
+            let mut messages = vec![
                 format!(
                     "installed codex integration hook to {}",
                     installed.hook_path.display()
@@ -82,7 +82,14 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                     "ensured codex config at {}",
                     installed.config_path.display()
                 ),
-            ]
+            ];
+            if let Some(path) = installed.monitor_plugin_path {
+                messages.push(format!(
+                    "installed codex rollout monitor plugin at {}",
+                    path.display()
+                ));
+            }
+            messages
         }
         crate::api::schema::IntegrationTarget::Copilot => {
             let installed = install_copilot()?;
@@ -314,6 +321,17 @@ pub(crate) fn uninstall_target(
                 "left codex config unchanged at {}",
                 result.config_path.display()
             ));
+            if result.removed_monitor_plugin {
+                messages.push(format!(
+                    "removed codex rollout monitor plugin at {}",
+                    result.monitor_plugin_path.display()
+                ));
+            } else {
+                messages.push(format!(
+                    "no codex rollout monitor plugin found at {}",
+                    result.monitor_plugin_path.display()
+                ));
+            }
             messages
         }
         crate::api::schema::IntegrationTarget::Copilot => {

@@ -98,7 +98,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | ワークスペース | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.report_metadata`、`workspace.close` |
 | Worktree | `worktree.list`、`worktree.create`、`worktree.open`、`worktree.remove` |
 | タブ | `tab.create`、`tab.list`、`tab.get`、`tab.focus`、`tab.rename`、`tab.close` |
-| ペイン | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
+| ペイン | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.report_diagnostic`、`pane.clear_diagnostic`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
 | レイアウト | `layout.export`、`layout.apply` |
 | エージェント | `agent.list`、`agent.get`、`agent.read`、`agent.explain`、`agent.send`、`agent.rename`、`agent.focus`、`agent.start` |
 | イベント | `events.subscribe`、`events.wait` |
@@ -501,6 +501,20 @@ workspace の get/list 応答は結果の `tokens` マップを公開し、ス�
 短寿命のメタデータには `ttl_ms` を使ってください。`1` から `86400000` ミリ秒の間でなければなりません。置き換え・クリア・ペインまたはワークスペースのクローズまで残るべきメタデータでは省略します。表示フィールドは従来どおりソース単位で失効し、呼び出しで更新した各トークンには個別の期限が設定されます。トークンメタデータはサーバー再起動後に復元されません。
 
 フックが順不同で更新を送る可能性がある場合は `seq` を使ってください。同じ `source` について、最後に受理されたシーケンス以下のシーケンス番号を持つ報告は、API には受理されますがペイン状態には無視されます。ペインまたはワークスペースが存続する間、シーケンス付きトークン報告を送れる異なるソースは最大 32 個です。クリアや失効でもそのソース枠は解放されません。
+
+`pane.report_diagnostic` は、エージェントのライフサイクル状態を引き継がない
+構造化された短寿命の診断に使います。`pane.get`、`pane.list`、`agent.get`、
+`agent.list` は、有効な診断を `diagnostics` 配列で返します。診断はサーバーの
+ランタイムだけに保持され、コールドリスタート後には復元されません。
+
+```json
+{"id":"req_diagnostic","method":"pane.report_diagnostic","params":{"pane_id":"w1:p1","source":"example.monitor","diagnostic_id":"activity","severity":"warning","state":"suspected_stalled","title":"Agent activity","summary":"The active tool has not produced a new event","fields":[{"key":"tool","label":"Tool","value":"exec_command"}],"seq":42,"ttl_ms":5000,"updated_unix_ms":1770000000000}}
+```
+
+1 ペインにつき最大 8 件、各診断は最大 12 フィールドです。`ttl_ms` は省略可能で、
+メタデータと同じ 1 から 86400000 ミリ秒の範囲です。`seq` を使った後は、同じ
+source と diagnostic id に対する報告と `pane.clear_diagnostic` で、厳密に大きい
+シーケンス番号が必要です。シーケンスなしの報告は、シーケンス付きの記録を置き換えません。
 
 ## イベント購読
 

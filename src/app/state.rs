@@ -742,6 +742,8 @@ pub struct ViewState {
     pub mobile_header_rect: Rect,
     pub mobile_menu_hit_area: Rect,
     pub toast_hit_area: Rect,
+    pub diagnostic_card_hit_area: Rect,
+    pub diagnostic_card_close_hit_area: Rect,
     pub pane_infos: Vec<PaneInfo>,
     pub split_borders: Vec<SplitBorder>,
 }
@@ -1132,6 +1134,7 @@ pub enum ContextMenuKind {
         pane_id: PaneId,
         source_pane_id: Option<PaneId>,
         has_manual_label: bool,
+        has_diagnostics: bool,
     },
 }
 
@@ -1187,6 +1190,63 @@ impl ContextMenuState {
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 source_pane_id: Some(_),
+                has_diagnostics: true,
+                ..
+            } => &[
+                "Rename pane",
+                "Clear pane name",
+                "Swap with focused pane",
+                "Split right",
+                "Split down",
+                "Zoom",
+                "Inspect activity",
+                "Close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: false,
+                source_pane_id: Some(_),
+                has_diagnostics: true,
+                ..
+            } => &[
+                "Rename pane",
+                "Swap with focused pane",
+                "Split right",
+                "Split down",
+                "Zoom",
+                "Inspect activity",
+                "Close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: true,
+                source_pane_id: None,
+                has_diagnostics: true,
+                ..
+            } => &[
+                "Rename pane",
+                "Clear pane name",
+                "Split right",
+                "Split down",
+                "Zoom",
+                "Inspect activity",
+                "Close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: false,
+                source_pane_id: None,
+                has_diagnostics: true,
+                ..
+            } => &[
+                "Rename pane",
+                "Split right",
+                "Split down",
+                "Zoom",
+                "Inspect activity",
+                "Close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: true,
+                source_pane_id: Some(_),
+                has_diagnostics: false,
                 ..
             } => &[
                 "Rename pane",
@@ -1200,6 +1260,7 @@ impl ContextMenuState {
             ContextMenuKind::Pane {
                 has_manual_label: false,
                 source_pane_id: Some(_),
+                has_diagnostics: false,
                 ..
             } => &[
                 "Rename pane",
@@ -1212,6 +1273,7 @@ impl ContextMenuState {
             ContextMenuKind::Pane {
                 has_manual_label: true,
                 source_pane_id: None,
+                has_diagnostics: false,
                 ..
             } => &[
                 "Rename pane",
@@ -1224,6 +1286,7 @@ impl ContextMenuState {
             ContextMenuKind::Pane {
                 has_manual_label: false,
                 source_pane_id: None,
+                has_diagnostics: false,
                 ..
             } => &[
                 "Rename pane",
@@ -1265,6 +1328,13 @@ pub struct ToastNotification {
     pub context: String,
     pub position: Option<crate::config::ToastHerdrPosition>,
     pub target: Option<ToastTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticCardState {
+    pub terminal_id: crate::terminal::TerminalId,
+    pub source: String,
+    pub diagnostic_id: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1400,6 +1470,7 @@ pub struct AppState {
     pub update_dismissed: bool,
     pub config_diagnostic: Option<String>,
     pub toast: Option<ToastNotification>,
+    pub diagnostic_card: Option<DiagnosticCardState>,
     pub pending_agent_notifications: std::collections::HashMap<PaneId, PendingAgentNotification>,
     pub copy_feedback: Option<CopyFeedback>,
     /// Last reported focus state for the outer terminal hosting herdr.
@@ -1813,6 +1884,8 @@ impl AppState {
                 mobile_header_rect: Rect::default(),
                 mobile_menu_hit_area: Rect::default(),
                 toast_hit_area: Rect::default(),
+                diagnostic_card_hit_area: Rect::default(),
+                diagnostic_card_close_hit_area: Rect::default(),
                 pane_infos: Vec::new(),
                 split_borders: Vec::new(),
             },
@@ -1828,6 +1901,7 @@ impl AppState {
             update_dismissed: false,
             config_diagnostic: None,
             toast: None,
+            diagnostic_card: None,
             pending_agent_notifications: std::collections::HashMap::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
@@ -2406,6 +2480,40 @@ mod tests {
     }
 
     #[test]
+    fn pane_context_menu_includes_diagnostic_inspection_before_plugin_actions() {
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: crate::layout::PaneId::from_raw(1),
+                source_pane_id: None,
+                has_manual_label: false,
+                has_diagnostics: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+            plugin_actions: vec![crate::api::schema::PluginActionInfo {
+                plugin_id: "test.plugin".into(),
+                action_id: "inspect".into(),
+                title: "Plugin inspect".into(),
+                description: None,
+                contexts: vec![crate::api::schema::PluginActionContext::Pane],
+                command: vec!["true".into()],
+                platforms: None,
+            }],
+        };
+
+        assert_eq!(menu.items()[menu.items().len() - 2], "Inspect activity");
+        assert_eq!(menu.items().last(), Some(&"Close pane"));
+        assert_eq!(menu.total_item_count(), menu.items().len() + 1);
+        assert_eq!(
+            menu.plugin_action_at(menu.items().len()).unwrap().title,
+            "Plugin inspect"
+        );
+    }
+
+    #[test]
     fn agent_pane_plugin_actions_are_filtered_and_sorted() {
         let mut state = AppState::test_new();
         let workspace = crate::workspace::Workspace::test_new("plugin-menu");
@@ -2459,6 +2567,7 @@ mod tests {
                 ],
                 events: Vec::new(),
                 panes: Vec::new(),
+                services: Vec::new(),
                 link_handlers: Vec::new(),
                 source: crate::api::schema::PluginSourceInfo::default(),
                 warnings: Vec::new(),

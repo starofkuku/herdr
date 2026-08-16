@@ -62,7 +62,7 @@ Herdr はインテグレーションを 2 つの異なる方法で使います:
 
 一部のインテグレーションは、エージェントのネイティブセッション参照を報告します。Herdr は公式のセッション参照を使って、`[session] resume_agents_on_restore = false` で無効化されていない限り、Herdr サーバーの再起動後に Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Cursor Agent CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode、Grok Build のペインを resume します。
 
-エージェントネイティブのセッション復元には最新の Herdr インテグレーションが必要です: Pi インテグレーションはバージョン `2`、OMP は `3`、Claude Code は `6`、Codex は `5`、GitHub Copilot CLI は `2`、Devin CLI は `2`、Droid は `2`、Kimi Code CLI は `3`、Qoder CLI は `2`、Cursor Agent CLI は `1`、OpenCode は `5`、Kilo Code CLI は `1`、Hermes Agent は `2`、MastraCode は `1`、Grok Build は `2` です。インストール済みバージョンは `herdr integration status` で確認してください。
+エージェントネイティブのセッション復元には最新の Herdr インテグレーションが必要です: Pi インテグレーションはバージョン `2`、OMP は `3`、Claude Code は `6`、Codex は `7`、GitHub Copilot CLI は `2`、Devin CLI は `2`、Droid は `2`、Kimi Code CLI は `3`、Qoder CLI は `2`、Cursor Agent CLI は `1`、OpenCode は `5`、Kilo Code CLI は `1`、Hermes Agent は `2`、MastraCode は `1`、Grok Build は `2` です。インストール済みバージョンは `herdr integration status` で確認してください。
 
 ## Grok Build
 
@@ -138,6 +138,45 @@ herdr integration install codex
 Codex フックは、他のインテグレーションと同じローカルソケット API を通じてセッション識別を報告します。Codex の状態は Herdr のスクリーンマニフェスト検出から得られます。
 
 Herdr はデフォルトで `~/.codex` を使い、`CODEX_HOME` が設定されていればそちらを使います。Codex の設定ディレクトリはあらかじめ存在している必要があります。インストールは `herdr-agent-state.sh` を書き込み、`hooks.json` を更新し、`config.toml` に `[features] hooks = true` があることを保証します。非推奨のトップレベル `codex_hooks` フラグが存在すれば削除もします。アンインストールは `hooks.json` から Herdr のエントリを削除してフックスクリプトを削除しますが、`config.toml` は変更しません。
+
+Linux と macOS では、同じインストールによって Herdr サーバーホスト上の
+ファーストパーティ Codex rollout モニタープラグインも有効になります。公式の
+Codex セッション id に対応する rollout JSONL を読み、構造化されたアクティビティ
+診断を報告します。`continue` の送信、Escape、コマンドの中断、モデル変更は行わず、
+Herdr の `working`、`idle`、`blocked` 状態も変更しません。診断があるエージェント
+ペインを右クリックして **Inspect activity** を選ぶと、右上に閉じられるカードが
+表示されます。
+
+設定はサーバーホストにあります。ディレクトリは次のコマンドで確認できます:
+
+```bash
+herdr plugin config-dir herdr.codex-rollout-monitor
+```
+
+既定の `config.toml` は次のとおりです:
+
+```toml
+[monitor]
+enabled = true
+silent_after_seconds = 60
+suspected_stalled_after_seconds = 180
+startup_grace_seconds = 30
+poll_interval_ms = 1000
+
+[notification]
+enabled = true
+
+[diagnostic]
+include_command = true
+```
+
+`suspected_stalled_after_seconds` は、アクティブなツールに新しい rollout イベントが
+ない場合の警告しきい値です。`silent_after_seconds` は途中の無出力コマンド状態だけを
+制御します。`notification.enabled` は疑わしい停止のエピソードごとに最大一度の通知を
+制御し、その後に進行があればエピソードを閉じます。`monitor.enabled` はプラグイン
+サービス全体を無効にせずに監視を一時停止します。設定ファイルは実行中に再読み込み
+されます。ネイティブ Windows では Codex フックのみをインストールし、この監視
+サービスは実行しません。
 
 ## GitHub Copilot CLI
 

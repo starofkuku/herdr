@@ -1,6 +1,6 @@
 ---
 title: 插件
-description: 编写带有清单动作、事件钩子和窗格的本地 Herdr 插件。
+description: 编写带有清单动作、事件钩子、窗格和托管服务的本地 Herdr 插件。
 ---
 
 Herdr 插件是可分享、可执行的工作流包。插件可以是 Bash 脚本、JavaScript
@@ -24,7 +24,7 @@ Windows 命名管道之间保持可移植。想自己发送原始 JSON 请求时
 [socket API](/zh-cn/docs/socket-api/)。
 
 运行时动作注册和非终端的原生插件 UI 不在插件 v1 范围内。动作、事件钩子、
-窗格和链接处理器都在清单中声明。
+窗格、托管服务和链接处理器都在清单中声明。
 
 ## 信任与安全
 
@@ -78,6 +78,11 @@ title = "Project board"
 placement = "overlay"
 command = ["herdr-board"]
 
+[[services]]
+id = "monitor"
+command = ["python3", "monitor.py"]
+restart = "always"
+
 [[link_handlers]]
 id = "github-issue"
 title = "Open GitHub issue"
@@ -91,7 +96,7 @@ action = "apply"
 或安装。`description` 可选。插件 id 可以使用 ASCII 字母、数字、点、
 冒号、下划线和连字符。
 
-动作 id、窗格 id 和链接处理器 id 是插件内部的本地 id。它们可以使用
+动作 id、窗格 id、服务 id 和链接处理器 id 是插件内部的本地 id。它们可以使用
 ASCII 字母、数字、冒号、下划线和连字符,但不能用点。每种 id 在插件内
 必须唯一。当需要全局唯一名称时,Herdr 会把动作 id 限定为
 `plugin.id.action` 的形式。
@@ -101,7 +106,7 @@ ASCII 字母、数字、冒号、下划线和连字符,但不能用点。每种 
 该窗格作为聚焦的插件上下文来调用动作。动作仍可通过 CLI 和快捷键调用。
 
 用 `platforms = ["linux", "macos", "windows"]` 声明插件可以运行的平台。
-构建命令、动作、事件钩子、窗格和链接处理器也可以声明自己的 `platforms`;
+构建命令、动作、事件钩子、窗格、服务和链接处理器也可以声明自己的 `platforms`;
 条目级的 platforms 覆盖顶层列表。没有顶层 `platforms` 的本地插件在链接
 时会给出警告。
 
@@ -249,6 +254,23 @@ shell 插件可以从各个环境变量读取常用 id,或解析上下文 JSON �
 解析常见的 `PATHEXT` shim,比如 `npm.cmd`、`bun.cmd` 和 `pnpm.cmd`。
 窗格命令使用 Herdr 常规的 Windows 窗格启动器,仍然必须是有效的 Windows
 argv 命令。
+
+## 托管服务
+
+`[[services]]` 用于监控器或桥接器这类长期运行的后台进程。Herdr 会在
+服务器主机上为已启用插件的每项服务启动一个进程。服务会收到常规插件
+环境变量,包括 `HERDR_PLUGIN_ROOT`、`HERDR_PLUGIN_CONFIG_DIR`、
+`HERDR_PLUGIN_STATE_DIR`、`HERDR_BIN_PATH`、`HERDR_SOCKET_PATH`、
+`HERDR_PLUGIN_ID` 和 `HERDR_PLUGIN_SERVICE_ID`。
+
+`restart = "always"` 是默认值。服务退出或启动失败后,Herdr 会按一秒到
+30 秒的指数退避重试;`restart = "never"` 则不重启。禁用或取消链接插件、
+服务器实时交接以及服务器关闭时都会停止服务。服务不占用一次性插件命令
+名额,标准输出和错误也不会记录为插件命令日志。
+
+服务级 `platforms` 会覆盖插件顶层平台列表。`herdr plugin install` 的安装
+预览会列出服务命令。服务是持续运行的普通受信任插件代码,审查插件时也应
+检查这些命令。
 
 ## 按键绑定
 

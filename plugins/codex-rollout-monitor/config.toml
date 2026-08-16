@@ -1,0 +1,12 @@
+[monitor]
+enabled = true
+silent_after_seconds = 60
+suspected_stalled_after_seconds = 180
+startup_grace_seconds = 30
+poll_interval_ms = 1000
+
+[notification]
+enabled = true
+
+[diagnostic]
+include_command = true

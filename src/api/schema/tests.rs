@@ -226,6 +226,57 @@ fn notification_show_sound_defaults_to_none() {
 }
 
 #[test]
+fn pane_diagnostic_requests_round_trip() {
+    let report = Request {
+        id: "req_diagnostic".into(),
+        method: Method::PaneReportDiagnostic(PaneReportDiagnosticParams {
+            pane_id: "w1:p1".into(),
+            diagnostic: PaneDiagnosticInfo {
+                source: "herdr.monitor".into(),
+                diagnostic_id: "activity".into(),
+                severity: PaneDiagnosticSeverity::Warning,
+                state: "suspected_stalled".into(),
+                title: "Codex activity".into(),
+                summary: "No rollout activity".into(),
+                fields: vec![PaneDiagnosticField {
+                    key: "tool".into(),
+                    label: "Tool".into(),
+                    value: "exec_command".into(),
+                }],
+                session_id: Some("session-1".into()),
+                episode_id: Some("session-1:1".into()),
+                last_activity_unix_ms: Some(1),
+                updated_unix_ms: 2,
+            },
+            seq: Some(3),
+            ttl_ms: Some(1_000),
+        }),
+    };
+    assert_eq!(
+        serde_json::to_value(&report).unwrap()["method"],
+        "pane.report_diagnostic"
+    );
+    let restored: Request = serde_json::from_value(serde_json::to_value(&report).unwrap()).unwrap();
+    assert_eq!(restored, report);
+
+    let clear = Request {
+        id: "req_diagnostic_clear".into(),
+        method: Method::PaneClearDiagnostic(PaneClearDiagnosticParams {
+            pane_id: "w1:p1".into(),
+            source: "herdr.monitor".into(),
+            diagnostic_id: "activity".into(),
+            seq: Some(4),
+        }),
+    };
+    assert_eq!(
+        serde_json::to_value(&clear).unwrap()["method"],
+        "pane.clear_diagnostic"
+    );
+    let restored: Request = serde_json::from_value(serde_json::to_value(&clear).unwrap()).unwrap();
+    assert_eq!(restored, clear);
+}
+
+#[test]
 fn client_window_title_requests_round_trip() {
     let set = Request {
         id: "req_title_set".into(),
@@ -647,6 +698,7 @@ fn worktree_request_and_response_round_trip() {
                 state_labels: HashMap::new(),
                 tokens: HashMap::new(),
                 agent_session: None,
+                diagnostics: Vec::new(),
                 scroll: None,
                 revision: 0,
             },
@@ -831,6 +883,7 @@ fn plugin_link_list_unlink_round_trip() {
             placement: PluginPanePlacement::Overlay,
             command: vec!["bun".into(), "run".into(), "board.ts".into()],
         }],
+        services: Vec::new(),
         link_handlers: vec![PluginManifestLinkHandler {
             id: "github-pr".into(),
             title: "Open GitHub PR".into(),
@@ -1058,6 +1111,7 @@ fn create_response_round_trips_with_root_pane() {
                 state_labels: HashMap::new(),
                 tokens: HashMap::new(),
                 agent_session: None,
+                diagnostics: Vec::new(),
                 scroll: None,
                 revision: 0,
             },

@@ -369,6 +369,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneReportAgent(_) => "pane.report_agent",
         Method::PaneReportAgentSession(_) => "pane.report_agent_session",
         Method::PaneReportMetadata(_) => "pane.report_metadata",
+        Method::PaneReportDiagnostic(_) => "pane.report_diagnostic",
+        Method::PaneClearDiagnostic(_) => "pane.clear_diagnostic",
         Method::PaneClearAgentAuthority(_) => "pane.clear_agent_authority",
         Method::PaneReleaseAgent(_) => "pane.release_agent",
         Method::PaneClose(_) => "pane.close",
@@ -820,6 +822,7 @@ mod tests {
             state_labels: HashMap::new(),
             tokens: HashMap::new(),
             agent_session: None,
+            diagnostics: Vec::new(),
             scroll: None,
             revision: 0,
         }

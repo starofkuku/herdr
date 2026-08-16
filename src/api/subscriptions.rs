@@ -643,6 +643,7 @@ mod tests {
             state_labels: HashMap::new(),
             tokens: HashMap::new(),
             agent_session: None,
+            diagnostics: Vec::new(),
             scroll,
             revision: 0,
         }

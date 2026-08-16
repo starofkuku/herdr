@@ -415,6 +415,7 @@ impl App {
             state_labels: presentation.state_labels,
             tokens: terminal.metadata_tokens.values(),
             agent_session: terminal_agent_session_info(terminal),
+            diagnostics: terminal.active_diagnostics(std::time::Instant::now()),
             scroll,
             revision: terminal.revision,
         })

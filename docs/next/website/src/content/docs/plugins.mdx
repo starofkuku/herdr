@@ -1,6 +1,6 @@
 ---
 title: Plugins
-description: Author local Herdr plugins with manifest actions, event hooks, and panes.
+description: Author local Herdr plugins with manifest actions, event hooks, panes, and managed services.
 ---
 
 Herdr plugins are shareable, executable workflow packages. A plugin can be a
@@ -30,7 +30,7 @@ sockets and Windows named pipes. Use the [socket API](/docs/socket-api/) when
 you want to send raw JSON requests yourself.
 
 Runtime action registration and native non-terminal plugin UI are not part of
-plugin v1. Actions, event hooks, panes, and link handlers are all declared in
+plugin v1. Actions, event hooks, panes, managed services, and link handlers are all declared in
 the manifest.
 
 ## Trust and security
@@ -89,6 +89,11 @@ title = "Project board"
 placement = "overlay"
 command = ["herdr-board"]
 
+[[services]]
+id = "monitor"
+command = ["python3", "monitor.py"]
+restart = "always"
+
 [[link_handlers]]
 id = "github-issue"
 title = "Open GitHub issue"
@@ -103,7 +108,7 @@ or install a plugin when its minimum version is newer than the current binary.
 `description` is optional. Plugin ids may use ASCII letters, digits, dot,
 colon, underscore, and hyphen.
 
-Action ids, pane ids, and link handler ids are local ids inside the plugin.
+Action ids, pane ids, service ids, and link handler ids are local ids inside the plugin.
 They may use ASCII letters, digits, colon, underscore, and hyphen, but not
 dots. Each id type must be unique inside a plugin. Herdr qualifies action ids
 as `plugin.id.action` when it needs a globally unique name.
@@ -115,7 +120,7 @@ that pane as the focused plugin context. Actions remain available through the
 CLI and keybindings as well.
 
 Use `platforms = ["linux", "macos", "windows"]` to declare where the plugin
-can run. Build commands, actions, event hooks, panes, and link handlers can
+can run. Build commands, actions, event hooks, panes, services, and link handlers can
 also declare their own `platforms`; item-level platforms override the top-level
 list. Local plugins without top-level `platforms` link with a warning.
 
@@ -276,6 +281,29 @@ On Windows, build commands, action commands, and event commands resolve common
 `PATHEXT` shims such as `npm.cmd`, `bun.cmd`, and `pnpm.cmd` when the bare
 command is on `PATH`. Pane commands use Herdr's normal Windows pane launcher and
 must still be valid Windows argv commands.
+
+## Managed services
+
+Use `[[services]]` for a long-running background process such as a monitor or
+bridge. Herdr starts one process for each declared service of an enabled plugin
+on the server host. Services receive the normal plugin environment, including
+`HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`,
+`HERDR_BIN_PATH`, `HERDR_SOCKET_PATH`, `HERDR_PLUGIN_ID`, and
+`HERDR_PLUGIN_SERVICE_ID`.
+
+`restart = "always"` is the default. When such a service exits or cannot start,
+Herdr retries with exponential backoff from one second to 30 seconds. Use
+`restart = "never"` for a one-shot helper that must not restart. Services stop
+when their plugin is disabled or unlinked, during a live server handoff, and
+when the server shuts down. They are not action invocations: they do not consume
+the one-shot plugin command limit and their standard streams are not captured as
+plugin command logs.
+
+Service-level `platforms` works like the other manifest entrypoints and
+overrides the top-level platform list. `herdr plugin install` includes declared
+service commands in its install preview. A service is ordinary trusted plugin
+code, so treat an always-running service as part of the plugin's security
+review.
 
 ## Keybindings
 

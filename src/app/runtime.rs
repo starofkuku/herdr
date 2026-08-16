@@ -54,6 +54,26 @@ fn retain_custom_command_after_wait(
 }
 
 impl App {
+    pub(crate) fn reconcile_plugin_services(&mut self, now: Instant) {
+        self.plugin_services
+            .reconcile(&self.state.installed_plugins, now);
+    }
+
+    pub(crate) fn reconcile_plugin_services_now(&mut self) {
+        self.plugin_services
+            .reconcile_now(&self.state.installed_plugins);
+    }
+
+    pub(crate) fn suspend_plugin_services(&mut self) {
+        self.plugin_services.suspend();
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn resume_plugin_services(&mut self) {
+        self.plugin_services.resume();
+        self.reconcile_plugin_services(Instant::now());
+    }
+
     pub(crate) fn reap_finished_custom_commands(&mut self) {
         self.detached_custom_command_children
             .retain_mut(|child| retain_custom_command_after_wait(child.id(), child.try_wait()));
@@ -223,6 +243,7 @@ impl App {
         let mut resized = false;
 
         self.sync_animation_timer(now);
+        self.reconcile_plugin_services(now);
 
         if now >= self.next_resize_poll {
             resized = self.handle_resize_poll();
@@ -367,6 +388,7 @@ impl App {
             self.emit_pane_state_update(&update);
         }
         let (panes, workspaces) = self.state.expire_metadata_tokens(now);
+        self.state.close_missing_diagnostic_card();
         for (ws_idx, pane_id) in panes {
             self.emit_pane_updated(ws_idx, pane_id);
         }
@@ -601,6 +623,7 @@ impl App {
             self.next_auto_update_check,
             self.next_agent_manifest_update_check,
             self.agent_metadata_deadline,
+            self.plugin_services.next_deadline(),
             self.pending_agent_resume_deadline,
             self.session_save_deadline,
             self.selection_autoscroll_deadline,

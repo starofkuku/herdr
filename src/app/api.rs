@@ -1049,6 +1049,12 @@ impl App {
             Method::PaneReportMetadata(params) => {
                 return self.handle_pane_report_metadata(request.id, params);
             }
+            Method::PaneReportDiagnostic(params) => {
+                return self.handle_pane_report_diagnostic(request.id, params);
+            }
+            Method::PaneClearDiagnostic(params) => {
+                return self.handle_pane_clear_diagnostic(request.id, params);
+            }
             Method::PaneClearAgentAuthority(params) => {
                 return self.handle_pane_clear_agent_authority(request.id, params);
             }

@@ -1,7 +1,7 @@
 use crate::api::schema::{
     InstalledPluginInfo, PluginManifestAction, PluginManifestBuild, PluginManifestEventHook,
-    PluginManifestLinkHandler, PluginManifestPane, PluginPanePlacement, PluginPlatform,
-    PluginSourceInfo, PluginSourceKind,
+    PluginManifestLinkHandler, PluginManifestPane, PluginManifestService, PluginPanePlacement,
+    PluginPlatform, PluginServiceRestart, PluginSourceInfo, PluginSourceKind,
 };
 
 const PLUGIN_ID_MAX_CHARS: usize = 120;
@@ -26,6 +26,8 @@ struct RawPluginManifest {
     events: Vec<RawPluginManifestEventHook>,
     #[serde(default)]
     panes: Vec<RawPluginManifestPane>,
+    #[serde(default)]
+    services: Vec<RawPluginManifestService>,
     #[serde(default)]
     link_handlers: Vec<RawPluginManifestLinkHandler>,
 }
@@ -68,6 +70,16 @@ struct RawPluginManifestPane {
     platforms: Option<Vec<RawPlatform>>,
     #[serde(default)]
     placement: PluginPanePlacement,
+    command: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct RawPluginManifestService {
+    id: String,
+    #[serde(default)]
+    platforms: Option<Vec<RawPlatform>>,
+    #[serde(default)]
+    restart: PluginServiceRestart,
     command: Vec<String>,
 }
 
@@ -166,6 +178,13 @@ pub(crate) fn load_plugin_manifest(
         .collect::<Result<Vec<_>, _>>()?;
     reject_duplicate_pane_ids(&panes)?;
     panes.sort_by(|a, b| a.id.cmp(&b.id));
+    let mut services = raw
+        .services
+        .into_iter()
+        .map(normalize_manifest_service)
+        .collect::<Result<Vec<_>, _>>()?;
+    reject_duplicate_service_ids(&services)?;
+    services.sort_by(|a, b| a.id.cmp(&b.id));
     let link_handlers = raw
         .link_handlers
         .into_iter()
@@ -193,6 +212,7 @@ pub(crate) fn load_plugin_manifest(
         actions,
         events,
         panes,
+        services,
         link_handlers,
         source: Default::default(),
         warnings,
@@ -317,6 +337,21 @@ fn reject_duplicate_pane_ids(panes: &[PluginManifestPane]) -> Result<(), (&'stat
     Ok(())
 }
 
+fn reject_duplicate_service_ids(
+    services: &[PluginManifestService],
+) -> Result<(), (&'static str, String)> {
+    let mut seen = std::collections::HashSet::new();
+    for service in services {
+        if !seen.insert(service.id.as_str()) {
+            return Err((
+                "duplicate_plugin_service_id",
+                format!("duplicate service id '{}'", service.id),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn reject_duplicate_link_handler_ids(
     handlers: &[PluginManifestLinkHandler],
 ) -> Result<(), (&'static str, String)> {
@@ -398,6 +433,25 @@ fn normalize_manifest_pane(
         description,
         platforms,
         placement: pane.placement,
+        command,
+    })
+}
+
+fn normalize_manifest_service(
+    service: RawPluginManifestService,
+) -> Result<PluginManifestService, (&'static str, String)> {
+    let id = normalize_action_id(&service.id).ok_or_else(|| {
+        (
+            "invalid_plugin_service_id",
+            "invalid service id".to_string(),
+        )
+    })?;
+    let platforms = normalize_platforms(service.platforms)?;
+    let command = normalize_command(service.command)?;
+    Ok(PluginManifestService {
+        id,
+        platforms,
+        restart: service.restart,
         command,
     })
 }
@@ -571,4 +625,36 @@ fn normalize_local_identifier(value: &str, max_chars: usize) -> Option<String> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b':' | b'_' | b'-')))
     .then(|| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn manifest_parses_managed_service() {
+        let root = std::env::temp_dir().join(format!(
+            "herdr-plugin-service-manifest-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("herdr-plugin.toml"),
+            format!(
+                "id='test.service'\nname='Service'\nversion='0.1.0'\nmin_herdr_version='{}'\nplatforms=['linux','macos']\n[[services]]\nid='monitor'\ncommand=['python3','monitor.py']\nrestart='always'\n",
+                crate::build_info::BASE_VERSION
+            ),
+        )
+        .unwrap();
+
+        let plugin = load_plugin_manifest(&root.display().to_string(), true).unwrap();
+        assert_eq!(plugin.services.len(), 1);
+        assert_eq!(plugin.services[0].id, "monitor");
+        assert_eq!(plugin.services[0].restart, PluginServiceRestart::Always);
+        let _ = std::fs::remove_dir_all(root);
+    }
 }

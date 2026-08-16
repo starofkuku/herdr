@@ -263,6 +263,25 @@ impl App {
             }
         }
 
+        if self.state.mode == Mode::Terminal
+            && point_in_rect(
+                self.state.view.diagnostic_card_hit_area,
+                mouse.column,
+                mouse.row,
+            )
+        {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+                && point_in_rect(
+                    self.state.view.diagnostic_card_close_hit_area,
+                    mouse.column,
+                    mouse.row,
+                )
+            {
+                self.state.diagnostic_card = None;
+            }
+            return;
+        }
+
         if self.handle_modified_url_click(mouse) {
             return;
         }
@@ -505,6 +524,14 @@ impl App {
         }
         copied
     }
+}
+
+fn point_in_rect(rect: ratatui::layout::Rect, column: u16, row: u16) -> bool {
+    !rect.is_empty()
+        && column >= rect.x
+        && column < rect.x.saturating_add(rect.width)
+        && row >= rect.y
+        && row < rect.y.saturating_add(rect.height)
 }
 
 pub(crate) fn is_modal_paste_shortcut(key: &KeyEvent) -> bool {
@@ -800,5 +827,42 @@ mod tests {
 
         state.mode = Mode::ConfirmClose;
         assert!(!modal_paste_target_active(&state));
+    }
+
+    #[test]
+    fn diagnostic_card_consumes_clicks_and_only_close_affordance_dismisses_it() {
+        let mut app = app_for_mouse_test();
+        app.state.diagnostic_card = Some(crate::app::state::DiagnosticCardState {
+            terminal_id: crate::terminal::TerminalId::alloc(),
+            source: "test.monitor".into(),
+            diagnostic_id: "activity".into(),
+        });
+        app.state.view.diagnostic_card_hit_area = ratatui::layout::Rect::new(60, 0, 20, 8);
+        app.state.view.diagnostic_card_close_hit_area = ratatui::layout::Rect::new(75, 1, 3, 1);
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 61, 2));
+        assert!(app.state.diagnostic_card.is_some());
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 76, 1));
+        assert!(app.state.diagnostic_card.is_none());
+    }
+
+    #[test]
+    fn diagnostic_card_consumes_modified_clicks_before_terminal_url_handling() {
+        let mut app = app_for_mouse_test();
+        app.state.diagnostic_card = Some(crate::app::state::DiagnosticCardState {
+            terminal_id: crate::terminal::TerminalId::alloc(),
+            source: "test.monitor".into(),
+            diagnostic_id: "activity".into(),
+        });
+        app.state.view.diagnostic_card_hit_area = ratatui::layout::Rect::new(60, 0, 20, 8);
+        app.state.view.diagnostic_card_close_hit_area = ratatui::layout::Rect::new(75, 1, 3, 1);
+
+        let mut click = mouse(MouseEventKind::Down(MouseButton::Left), 61, 2);
+        click.modifiers = modified_url_click_modifier();
+        app.handle_mouse(click);
+
+        assert!(app.state.diagnostic_card.is_some());
+        assert!(app.last_pane_click.is_none());
     }
 }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+- Added a first-party Codex rollout monitor on Linux and macOS. `herdr integration install codex` now installs a server-side plugin that reads the matching Codex rollout JSONL, reports suspected stalled tools without changing Agent lifecycle state or sending input, and exposes a closable activity card from the Agent pane context menu.
+- Plugins can now declare managed `[[services]]` that run once for each enabled plugin on the Herdr server, restart with bounded backoff, and stop when the plugin is disabled, unlinked, or the server shuts down.
+
 ## [0.7.13] - 2026-08-12
 
 ### Removed

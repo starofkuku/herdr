@@ -55,6 +55,8 @@ pub struct InstalledPluginInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub panes: Vec<PluginManifestPane>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub services: Vec<PluginManifestService>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub link_handlers: Vec<PluginManifestLinkHandler>,
     #[serde(default)]
     pub source: PluginSourceInfo,
@@ -262,6 +264,26 @@ pub struct PluginManifestPane {
     #[serde(default)]
     pub placement: PluginPanePlacement,
     pub command: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PluginManifestService {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platforms: Option<Vec<PluginPlatform>>,
+    #[serde(default)]
+    pub restart: PluginServiceRestart,
+    pub command: Vec<String>,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginServiceRestart {
+    Never,
+    #[default]
+    Always,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

@@ -297,6 +297,7 @@ mod tests {
                 }],
                 events: Vec::new(),
                 panes: Vec::new(),
+                services: Vec::new(),
                 link_handlers: vec![crate::api::schema::PluginManifestLinkHandler {
                     id: "github-issue".into(),
                     title: "Open GitHub issue".into(),

@@ -1092,6 +1092,7 @@ impl AppState {
                         .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
                         .and_then(|terminal| terminal.manual_label.as_ref())
                         .is_some();
+                    let has_diagnostics = self.has_active_diagnostics_for_pane(ws_idx, info.id);
                     let plugin_actions = self.plugin_actions_for_agent_pane(ws_idx, info.id);
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Pane {
@@ -1100,6 +1101,7 @@ impl AppState {
                             pane_id: info.id,
                             source_pane_id,
                             has_manual_label,
+                            has_diagnostics,
                         },
                         x: mouse.column,
                         y: mouse.row,
@@ -2856,6 +2858,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                has_diagnostics: false,
             },
             x: 2,
             y: 2,

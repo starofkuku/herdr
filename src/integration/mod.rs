@@ -18,6 +18,7 @@ pub(crate) use registry::{
     installed_integration_statuses, integration_recommendations, integration_target_label,
     print_outdated_update_notice,
 };
+pub(crate) use targets::{codex_monitor_plugin_root, codex_monitor_supported};
 pub(crate) use types::{IntegrationRecommendation, IntegrationStatus, IntegrationStatusKind};
 
 const PI_EXTENSION_INSTALL_NAME: &str = "herdr-agent-state.ts";
@@ -47,7 +48,16 @@ const CODEX_HOOK_ASSET: &str = if cfg!(windows) {
 } else {
     include_str!("assets/codex/herdr-agent-state.sh")
 };
-const CODEX_INTEGRATION_VERSION: u32 = 6;
+const CODEX_MONITOR_MANIFEST_ASSET: &str =
+    include_str!("../../plugins/codex-rollout-monitor/herdr-plugin.toml");
+const CODEX_MONITOR_SCRIPT_ASSET: &str =
+    include_str!("../../plugins/codex-rollout-monitor/monitor.py");
+const CODEX_MONITOR_README_ASSET: &str =
+    include_str!("../../plugins/codex-rollout-monitor/README.md");
+const CODEX_MONITOR_CONFIG_ASSET: &str =
+    include_str!("../../plugins/codex-rollout-monitor/config.toml");
+pub(crate) const CODEX_MONITOR_PLUGIN_ID: &str = "herdr.codex-rollout-monitor";
+const CODEX_INTEGRATION_VERSION: u32 = 7;
 const KIMI_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
     "herdr-agent-state.ps1"
 } else {

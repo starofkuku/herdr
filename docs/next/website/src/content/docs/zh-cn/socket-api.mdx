@@ -98,7 +98,7 @@ herdr pane read w1:p2 --source recent --lines 50
 | 工作区 | `workspace.create`、`workspace.list`、`workspace.get`、`workspace.focus`、`workspace.rename`、`workspace.report_metadata`、`workspace.close` |
 | Worktree | `worktree.list`、`worktree.create`、`worktree.open`、`worktree.remove` |
 | 标签页 | `tab.create`、`tab.list`、`tab.get`、`tab.focus`、`tab.rename`、`tab.close` |
-| 窗格 | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
+| 窗格 | `pane.split`、`pane.swap`、`pane.move`、`pane.zoom`、`pane.layout`、`pane.process_info`、`pane.neighbor`、`pane.edges`、`pane.focus_direction`、`pane.resize`、`pane.list`、`pane.current`、`pane.get`、`pane.rename`、`pane.send_text`、`pane.send_keys`、`pane.send_input`、`pane.read`、`pane.report_agent`、`pane.report_agent_session`、`pane.report_metadata`、`pane.report_diagnostic`、`pane.clear_diagnostic`、`pane.clear_agent_authority`、`pane.release_agent`、`pane.close`、`pane.wait_for_output` |
 | 布局 | `layout.export`、`layout.apply` |
 | 智能体 | `agent.list`、`agent.get`、`agent.read`、`agent.explain`、`agent.send`、`agent.rename`、`agent.focus`、`agent.start`、`agent.restart` |
 | 事件 | `events.subscribe`、`events.wait` |
@@ -501,6 +501,19 @@ workspace 的 get/list 响应会公开生成的 `tokens` 映射,空间侧边栏�
 短期元数据用 `ttl_ms`。取值必须在 `1` 到 `86400000` 毫秒之间。想让元数据保留到被替换、清除或窗格或工作区关闭时,省略 `ttl_ms`。展示字段继续按来源过期;该次调用更新的每个令牌都有独立期限。令牌元数据不会在服务器重启后恢复。
 
 钩子可能乱序发送更新时,使用 `seq`。对同一 `source`,序号小于等于最后接受序号的上报会被 API 接受,但被窗格状态忽略。每个窗格或工作区在其生命周期内最多接受来自 32 个不同来源的带序号令牌上报;清除或过期不会释放这些来源名额。
+
+`pane.report_diagnostic` 用于不接管智能体生命周期状态的结构化短期诊断。
+`pane.get`、`pane.list`、`agent.get` 和 `agent.list` 会在 `diagnostics`
+数组中返回有效诊断。诊断只保存在服务器运行时,冷重启后不会恢复。
+
+```json
+{"id":"req_diagnostic","method":"pane.report_diagnostic","params":{"pane_id":"w1:p1","source":"example.monitor","diagnostic_id":"activity","severity":"warning","state":"suspected_stalled","title":"Agent activity","summary":"The active tool has not produced a new event","fields":[{"key":"tool","label":"Tool","value":"exec_command"}],"seq":42,"ttl_ms":5000,"updated_unix_ms":1770000000000}}
+```
+
+一个窗格最多保留八条诊断,每条最多 12 个字段。`ttl_ms` 可省略,范围与
+元数据相同,为 1 到 86400000 毫秒。使用 `seq` 后,同一 source 和
+diagnostic id 的后续上报及 `pane.clear_diagnostic` 必须使用严格递增的
+序号;不带序号的上报不能替换已有的带序号记录。
 
 ## 事件订阅
 

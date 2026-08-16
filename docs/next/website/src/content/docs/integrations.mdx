@@ -62,7 +62,7 @@ Custom socket integrations can also report state when they define state that is 
 
 Some integrations report native agent session references. Herdr uses official session references to resume Claude Code, Codex, Devin CLI, Droid, Kimi Code CLI, Qoder CLI, Cursor Agent CLI, GitHub Copilot CLI, Pi, OMP, Hermes Agent, OpenCode, Kilo Code CLI, MastraCode, and Grok Build panes after a Herdr server restart unless `[session] resume_agents_on_restore = false` disables it.
 
-Native session restore requires current Herdr integrations: Pi integration version `2`, OMP version `3`, Claude Code version `6`, Codex version `5`, GitHub Copilot CLI version `2`, Devin CLI version `2`, Droid version `2`, Kimi Code CLI version `3`, Qoder CLI version `2`, Cursor Agent CLI version `1`, OpenCode version `5`, Kilo Code CLI version `1`, Hermes Agent version `2`, MastraCode version `1`, or Grok Build version `2`. Check installed versions with `herdr integration status`.
+Native session restore requires current Herdr integrations: Pi integration version `2`, OMP version `3`, Claude Code version `6`, Codex version `7`, GitHub Copilot CLI version `2`, Devin CLI version `2`, Droid version `2`, Kimi Code CLI version `3`, Qoder CLI version `2`, Cursor Agent CLI version `1`, OpenCode version `5`, Kilo Code CLI version `1`, Hermes Agent version `2`, MastraCode version `1`, or Grok Build version `2`. Check installed versions with `herdr integration status`.
 
 ## Grok Build
 
@@ -138,6 +138,46 @@ herdr integration install codex
 The Codex hook reports session identity through the same local socket API used by other integrations. Codex state comes from Herdr's screen manifest detection.
 
 Herdr uses `~/.codex` by default, or `CODEX_HOME` when set. The Codex config directory must already exist. Install writes `herdr-agent-state.sh`, updates `hooks.json`, and ensures `[features] hooks = true` in `config.toml`. It also removes the deprecated top-level `codex_hooks` flag when present. Uninstall removes Herdr entries from `hooks.json` and deletes the hook script, but leaves `config.toml` unchanged.
+
+On Linux and macOS, the same install also enables the first-party Codex rollout
+monitor on the Herdr server host. It reads the rollout JSONL associated with the
+official Codex session id and reports structured activity diagnostics. It never
+sends `continue`, presses Escape, interrupts a command, changes models, or
+alters Herdr's `working`, `idle`, or `blocked` Agent status. Right-click an
+Agent pane with an active diagnostic and choose **Inspect activity** to open a
+closable card in the upper-right corner.
+
+The monitor configuration is on the server host. Run the following there to
+print its directory:
+
+```bash
+herdr plugin config-dir herdr.codex-rollout-monitor
+```
+
+Its `config.toml` defaults to:
+
+```toml
+[monitor]
+enabled = true
+silent_after_seconds = 60
+suspected_stalled_after_seconds = 180
+startup_grace_seconds = 30
+poll_interval_ms = 1000
+
+[notification]
+enabled = true
+
+[diagnostic]
+include_command = true
+```
+
+`suspected_stalled_after_seconds` controls the warning threshold for an active
+tool with no new rollout event. `silent_after_seconds` only changes the
+intermediate command-running state. `notification.enabled` shows at most one
+Herdr notification per stall episode; later rollout progress closes that
+episode. `monitor.enabled` pauses monitoring without disabling the whole
+plugin service. The monitor reloads this file while it runs. Native Windows
+still installs the Codex hook but does not run this rollout-monitor service.
 
 ## GitHub Copilot CLI
 

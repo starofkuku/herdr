@@ -887,6 +887,76 @@ fn activity_summary_for_panes<'a>(
 // ---------------------------------------------------------------------------
 
 impl AppState {
+    pub(crate) fn has_active_diagnostics_for_pane(&self, ws_idx: usize, pane_id: PaneId) -> bool {
+        let Some(terminal) = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
+        else {
+            return false;
+        };
+        !terminal
+            .active_diagnostics(std::time::Instant::now())
+            .is_empty()
+    }
+
+    pub(crate) fn open_diagnostic_card(&mut self, ws_idx: usize, pane_id: PaneId) -> bool {
+        let Some((terminal_id, diagnostic)) = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .and_then(|pane| {
+                let terminal = self.terminals.get(&pane.attached_terminal_id)?;
+                let diagnostic = terminal
+                    .active_diagnostics(std::time::Instant::now())
+                    .into_iter()
+                    .next()?;
+                Some((pane.attached_terminal_id.clone(), diagnostic))
+            })
+        else {
+            return false;
+        };
+        self.diagnostic_card = Some(crate::app::state::DiagnosticCardState {
+            terminal_id,
+            source: diagnostic.source,
+            diagnostic_id: diagnostic.diagnostic_id,
+        });
+        true
+    }
+
+    pub(crate) fn current_diagnostic_card(
+        &self,
+    ) -> Option<&crate::api::schema::PaneDiagnosticInfo> {
+        let card = self.diagnostic_card.as_ref()?;
+        self.terminals.get(&card.terminal_id)?.diagnostic(
+            &card.source,
+            &card.diagnostic_id,
+            std::time::Instant::now(),
+        )
+    }
+
+    pub(crate) fn close_diagnostic_card_for(
+        &mut self,
+        terminal_id: &crate::terminal::TerminalId,
+        source: &str,
+        diagnostic_id: &str,
+    ) {
+        if self.diagnostic_card.as_ref().is_some_and(|card| {
+            &card.terminal_id == terminal_id
+                && card.source == source
+                && card.diagnostic_id == diagnostic_id
+        }) {
+            self.diagnostic_card = None;
+        }
+    }
+
+    pub(crate) fn close_missing_diagnostic_card(&mut self) {
+        if self.diagnostic_card.is_some() && self.current_diagnostic_card().is_none() {
+            self.diagnostic_card = None;
+        }
+    }
+
     pub(crate) fn next_agent_metadata_expiry(&self) -> Option<std::time::Instant> {
         self.terminals
             .values()
@@ -895,6 +965,11 @@ impl AppState {
                 self.terminals
                     .values()
                     .filter_map(|terminal| terminal.metadata_tokens.next_expiry()),
+            )
+            .chain(
+                self.terminals
+                    .values()
+                    .filter_map(|terminal| terminal.next_diagnostic_expiry()),
             )
             .chain(
                 self.workspaces
@@ -979,7 +1054,9 @@ impl AppState {
             .into_iter()
             .filter_map(|(ws_idx, pane_id, terminal_id)| {
                 let terminal = self.terminals.get_mut(&terminal_id)?;
-                terminal.metadata_tokens.expire_at(now).then(|| {
+                let metadata_changed = terminal.metadata_tokens.expire_at(now);
+                let diagnostic_changed = terminal.expire_diagnostics_at(now);
+                (metadata_changed || diagnostic_changed).then(|| {
                     terminal.revision = terminal.revision.saturating_add(1);
                     (ws_idx, pane_id)
                 })
@@ -1466,11 +1543,17 @@ impl AppState {
                         .any(|pane| pane.attached_terminal_id == terminal_id)
                 })
             });
-            if !still_attached
-                && self.terminals.remove(&terminal_id).is_some()
-                && !self.terminal_runtime_shutdowns.contains(&terminal_id)
-            {
-                self.terminal_runtime_shutdowns.push(terminal_id);
+            if !still_attached && self.terminals.remove(&terminal_id).is_some() {
+                if self
+                    .diagnostic_card
+                    .as_ref()
+                    .is_some_and(|card| card.terminal_id == terminal_id)
+                {
+                    self.diagnostic_card = None;
+                }
+                if !self.terminal_runtime_shutdowns.contains(&terminal_id) {
+                    self.terminal_runtime_shutdowns.push(terminal_id);
+                }
             }
         }
     }
@@ -3118,6 +3201,58 @@ mod tests {
             state.mode = Mode::Terminal;
         }
         state
+    }
+
+    fn diagnostic(label: &str, updated_unix_ms: u64) -> crate::api::schema::PaneDiagnosticInfo {
+        crate::api::schema::PaneDiagnosticInfo {
+            source: "test.monitor".into(),
+            diagnostic_id: "activity".into(),
+            severity: crate::api::schema::PaneDiagnosticSeverity::Info,
+            state: label.into(),
+            title: "Agent activity".into(),
+            summary: label.into(),
+            fields: Vec::new(),
+            session_id: None,
+            episode_id: None,
+            last_activity_unix_ms: None,
+            updated_unix_ms,
+        }
+    }
+
+    #[test]
+    fn diagnostic_card_binds_to_requested_non_focused_pane() {
+        let mut state = AppState::test_new();
+        let mut workspace = Workspace::test_new("diagnostics");
+        let focused = workspace.tabs[0].root_pane;
+        let other = workspace.test_split(Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(focused);
+        state.workspaces = vec![workspace];
+        state.ensure_test_terminals();
+        state.active = Some(0);
+
+        let other_terminal_id = state.workspaces[0]
+            .pane_state(other)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        state
+            .terminals
+            .get_mut(&other_terminal_id)
+            .unwrap()
+            .report_diagnostic(
+                diagnostic("other pane", 2),
+                Some(1),
+                None,
+                std::time::Instant::now(),
+            )
+            .unwrap();
+
+        assert!(state.open_diagnostic_card(0, other));
+        assert_eq!(
+            state.diagnostic_card.as_ref().unwrap().terminal_id,
+            other_terminal_id
+        );
+        assert_eq!(state.current_diagnostic_card().unwrap().state, "other pane");
     }
 
     fn mark_linked_worktree(state: &mut AppState, ws_idx: usize) {

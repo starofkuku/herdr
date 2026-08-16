@@ -711,6 +711,96 @@
           ],
           "type": "string"
         },
+        "PaneDiagnosticField": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "label",
+            "value"
+          ],
+          "type": "object"
+        },
+        "PaneDiagnosticInfo": {
+          "properties": {
+            "diagnostic_id": {
+              "type": "string"
+            },
+            "episode_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fields": {
+              "items": {
+                "$ref": "#/schemas/event/$defs/PaneDiagnosticField"
+              },
+              "type": "array"
+            },
+            "last_activity_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "session_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "severity": {
+              "$ref": "#/schemas/event/$defs/PaneDiagnosticSeverity"
+            },
+            "source": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updated_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "diagnostic_id",
+            "severity",
+            "state",
+            "title",
+            "summary",
+            "updated_unix_ms"
+          ],
+          "type": "object"
+        },
+        "PaneDiagnosticSeverity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "type": "string"
+        },
         "PaneInfo": {
           "properties": {
             "agent": {
@@ -737,6 +827,12 @@
                 "string",
                 "null"
               ]
+            },
+            "diagnostics": {
+              "items": {
+                "$ref": "#/schemas/event/$defs/PaneDiagnosticInfo"
+              },
+              "type": "array"
             },
             "display_agent": {
               "type": [
@@ -2039,6 +2135,33 @@
           ],
           "type": "object"
         },
+        "PaneClearDiagnosticParams": {
+          "properties": {
+            "diagnostic_id": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "source",
+            "diagnostic_id"
+          ],
+          "type": "object"
+        },
         "PaneCurrentParams": {
           "properties": {
             "caller_pane_id": {
@@ -2049,6 +2172,33 @@
             }
           },
           "type": "object"
+        },
+        "PaneDiagnosticField": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "label",
+            "value"
+          ],
+          "type": "object"
+        },
+        "PaneDiagnosticSeverity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "type": "string"
         },
         "PaneDirection": {
           "enum": [
@@ -2407,6 +2557,90 @@
             "pane_id",
             "source",
             "agent"
+          ],
+          "type": "object"
+        },
+        "PaneReportDiagnosticParams": {
+          "properties": {
+            "diagnostic_id": {
+              "type": "string"
+            },
+            "episode_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fields": {
+              "items": {
+                "$ref": "#/schemas/request/$defs/PaneDiagnosticField"
+              },
+              "type": "array"
+            },
+            "last_activity_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "session_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "severity": {
+              "$ref": "#/schemas/request/$defs/PaneDiagnosticSeverity"
+            },
+            "source": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "ttl_ms": {
+              "format": "uint64",
+              "maximum": 86400000,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "updated_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pane_id",
+            "source",
+            "diagnostic_id",
+            "severity",
+            "state",
+            "title",
+            "summary",
+            "updated_unix_ms"
           ],
           "type": "object"
         },
@@ -4876,6 +5110,38 @@
         {
           "properties": {
             "method": {
+              "const": "pane.report_diagnostic",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneReportDiagnosticParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.clear_diagnostic",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneClearDiagnosticParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "pane.clear_agent_authority",
               "type": "string"
             },
@@ -5430,6 +5696,12 @@
                 "string",
                 "null"
               ]
+            },
+            "diagnostics": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneDiagnosticInfo"
+              },
+              "type": "array"
             },
             "display_agent": {
               "type": [
@@ -6348,6 +6620,12 @@
             "plugin_root": {
               "type": "string"
             },
+            "services": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PluginManifestService"
+              },
+              "type": "array"
+            },
             "source": {
               "$ref": "#/schemas/success_response/$defs/PluginSourceInfo",
               "default": {
@@ -6538,6 +6816,96 @@
           ],
           "type": "string"
         },
+        "PaneDiagnosticField": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "label",
+            "value"
+          ],
+          "type": "object"
+        },
+        "PaneDiagnosticInfo": {
+          "properties": {
+            "diagnostic_id": {
+              "type": "string"
+            },
+            "episode_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fields": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneDiagnosticField"
+              },
+              "type": "array"
+            },
+            "last_activity_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "session_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "severity": {
+              "$ref": "#/schemas/success_response/$defs/PaneDiagnosticSeverity"
+            },
+            "source": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "updated_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "diagnostic_id",
+            "severity",
+            "state",
+            "title",
+            "summary",
+            "updated_unix_ms"
+          ],
+          "type": "object"
+        },
+        "PaneDiagnosticSeverity": {
+          "enum": [
+            "info",
+            "warning",
+            "error"
+          ],
+          "type": "string"
+        },
         "PaneDirection": {
           "enum": [
             "left",
@@ -6645,6 +7013,12 @@
                 "string",
                 "null"
               ]
+            },
+            "diagnostics": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneDiagnosticInfo"
+              },
+              "type": "array"
             },
             "display_agent": {
               "type": [
@@ -7678,6 +8052,37 @@
           ],
           "type": "object"
         },
+        "PluginManifestService": {
+          "properties": {
+            "command": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "id": {
+              "type": "string"
+            },
+            "platforms": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PluginPlatform"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "restart": {
+              "$ref": "#/schemas/success_response/$defs/PluginServiceRestart",
+              "default": "always"
+            }
+          },
+          "required": [
+            "id",
+            "command"
+          ],
+          "type": "object"
+        },
         "PluginPaneInfo": {
           "properties": {
             "entrypoint": {
@@ -7711,6 +8116,13 @@
             "linux",
             "macos",
             "windows"
+          ],
+          "type": "string"
+        },
+        "PluginServiceRestart": {
+          "enum": [
+            "never",
+            "always"
           ],
           "type": "string"
         },

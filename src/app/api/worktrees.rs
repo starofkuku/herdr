@@ -835,6 +835,7 @@ mod tests {
                     command: vec!["sh".into(), "-c".into(), "true".into()],
                 }],
                 panes: Vec::new(),
+                services: Vec::new(),
                 link_handlers: Vec::new(),
                 source: crate::api::schema::PluginSourceInfo::default(),
                 warnings: Vec::new(),

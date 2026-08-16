@@ -1182,7 +1182,7 @@ fn codex_v2_integration_status_is_outdated() {
 
     assert_eq!(codex.path, hook_path);
     assert_eq!(codex.installed_version, Some(2));
-    assert_eq!(codex.expected_version, 6);
+    assert_eq!(codex.expected_version, 7);
     assert_eq!(codex.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -1208,7 +1208,26 @@ fn install_codex_writes_hook_and_updates_hooks_and_config() {
     assert_eq!(installed.hook_path, codex_dir.join(CODEX_HOOK_INSTALL_NAME));
     assert_eq!(installed.hooks_path, codex_dir.join("hooks.json"));
     assert_eq!(installed.config_path, codex_dir.join("config.toml"));
+    if codex_monitor_supported() {
+        assert_eq!(
+            installed.monitor_plugin_path,
+            Some(codex_monitor_plugin_root())
+        );
+    } else {
+        assert_eq!(installed.monitor_plugin_path, None);
+    }
     assert_eq!(hook_content, CODEX_HOOK_ASSET);
+    if let Some(monitor_plugin_path) = installed.monitor_plugin_path {
+        assert_eq!(
+            fs::read_to_string(monitor_plugin_path.join("monitor.py")).unwrap(),
+            CODEX_MONITOR_SCRIPT_ASSET
+        );
+        assert!(
+            crate::plugin_paths::plugin_config_dir(CODEX_MONITOR_PLUGIN_ID)
+                .join("config.toml")
+                .is_file()
+        );
+    }
     assert!(hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         .as_str()
         .unwrap()
@@ -1227,6 +1246,38 @@ fn install_codex_writes_hook_and_updates_hooks_and_config() {
 }
 
 #[test]
+fn install_codex_preserves_existing_rollout_monitor_config() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let codex_dir = home.join(".codex");
+    fs::create_dir_all(&codex_dir).unwrap();
+    fs::write(codex_dir.join("config.toml"), "model = \"gpt-5.4\"\n").unwrap();
+    std::env::set_var("HOME", &home);
+
+    if codex_monitor_supported() {
+        let config_path =
+            crate::plugin_paths::plugin_config_dir(CODEX_MONITOR_PLUGIN_ID).join("config.toml");
+        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        fs::write(
+            &config_path,
+            "[monitor]\nenabled = false\nsilent_after_seconds = 90\n",
+        )
+        .unwrap();
+
+        install_codex().unwrap();
+
+        assert_eq!(
+            fs::read_to_string(config_path).unwrap(),
+            "[monitor]\nenabled = false\nsilent_after_seconds = 90\n"
+        );
+    }
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
 fn install_codex_uses_codex_home_env() {
     let _lock = integration_env_lock();
     let base = unique_base();
@@ -1234,6 +1285,7 @@ fn install_codex_uses_codex_home_env() {
     fs::create_dir_all(&codex_dir).unwrap();
     fs::write(codex_dir.join("config.toml"), "model = \"gpt-5.4\"\n").unwrap();
     std::env::set_var(CODEX_HOME_ENV_VAR, &codex_dir);
+    std::env::set_var("XDG_CONFIG_HOME", base.join("xdg"));
 
     let installed = install_codex().unwrap();
 

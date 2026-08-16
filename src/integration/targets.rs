@@ -222,10 +222,17 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
         fs::write(&config_path, new_config)?;
     }
 
+    let monitor_plugin_path = if codex_monitor_supported() {
+        Some(install_codex_monitor_plugin_assets()?)
+    } else {
+        None
+    };
+
     Ok(CodexInstallPaths {
         hook_path,
         hooks_path,
         config_path,
+        monitor_plugin_path,
     })
 }
 
@@ -651,6 +658,13 @@ pub(crate) fn uninstall_codex() -> io::Result<CodexUninstallResult> {
 
     let removed_hook_file =
         remove_file_if_exists(&hook_path)? | remove_legacy_bash_hook_file(&hook_path)?;
+    let monitor_plugin_path = codex_monitor_plugin_root();
+    let removed_monitor_plugin = if monitor_plugin_path.exists() {
+        fs::remove_dir_all(&monitor_plugin_path)?;
+        true
+    } else {
+        false
+    };
 
     Ok(CodexUninstallResult {
         hook_path,
@@ -658,7 +672,43 @@ pub(crate) fn uninstall_codex() -> io::Result<CodexUninstallResult> {
         config_path,
         removed_hook_file,
         updated_hooks,
+        monitor_plugin_path,
+        removed_monitor_plugin,
     })
+}
+
+pub(crate) fn codex_monitor_plugin_root() -> PathBuf {
+    crate::config::config_dir()
+        .join("plugins")
+        .join("first-party")
+        .join(crate::api::schema::plugin_managed_path_component(
+            super::CODEX_MONITOR_PLUGIN_ID,
+        ))
+}
+
+pub(crate) const fn codex_monitor_supported() -> bool {
+    cfg!(any(target_os = "linux", target_os = "macos"))
+}
+
+fn install_codex_monitor_plugin_assets() -> io::Result<PathBuf> {
+    let root = codex_monitor_plugin_root();
+    fs::create_dir_all(&root)?;
+    fs::write(
+        root.join("herdr-plugin.toml"),
+        super::CODEX_MONITOR_MANIFEST_ASSET,
+    )?;
+    let script_path = root.join("monitor.py");
+    fs::write(&script_path, super::CODEX_MONITOR_SCRIPT_ASSET)?;
+    make_executable(&script_path)?;
+    fs::write(root.join("README.md"), super::CODEX_MONITOR_README_ASSET)?;
+
+    crate::plugin_paths::ensure_plugin_user_dirs(super::CODEX_MONITOR_PLUGIN_ID)?;
+    let config_path =
+        crate::plugin_paths::plugin_config_dir(super::CODEX_MONITOR_PLUGIN_ID).join("config.toml");
+    if !config_path.exists() {
+        fs::write(config_path, super::CODEX_MONITOR_CONFIG_ASSET)?;
+    }
+    Ok(root)
 }
 
 pub(crate) fn uninstall_kimi() -> io::Result<KimiUninstallResult> {
