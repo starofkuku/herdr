@@ -1,0 +1,19 @@
+id = "local.codex-prompt-history"
+name = "Codex Prompt History"
+version = "0.1.0"
+min_herdr_version = "0.7.11"
+description = "Search and insert submitted prompts from the current Codex session."
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "open"
+title = "Search Codex prompt history"
+description = "Search submitted prompts from this Codex session and insert one into its input."
+contexts = ["pane"]
+command = ["python3", "plugin.py", "open"]
+
+[[panes]]
+id = "picker"
+title = "Codex Prompt History"
+placement = "overlay"
+command = ["python3", "plugin.py", "menu"]

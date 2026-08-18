@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Added the optional `local.codex-prompt-history` plugin for fuzzy-searching submitted prompts from the current Codex session and inserting a selected prompt without submitting it.
+
 ## [0.7.14] - 2026-08-16
 
 ### Added
