@@ -39,6 +39,7 @@ pub(super) fn command() -> Command {
         .subcommand(wait_command())
         .subcommand(terminal_command())
         .subcommand(session_command())
+        .subcommand(web_command())
         .subcommand(integration_command())
         .subcommand(plugin_command());
     disable_auto_help(command)
@@ -575,6 +576,10 @@ fn terminal_command() -> Command {
                 )
                 .subcommand(Command::new("clear").about("Clear the outer terminal title")),
         )
+}
+
+fn web_command() -> Command {
+    Command::new("web").about("Serve the browser UI for Herdr sessions")
 }
 
 fn session_command() -> Command {

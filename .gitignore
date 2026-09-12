@@ -21,3 +21,6 @@ __pycache__/
 
 /.wrangler/
 **/.wrangler/
+
+/web/node_modules/
+/web/dist/

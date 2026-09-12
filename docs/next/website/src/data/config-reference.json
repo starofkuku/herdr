@@ -1038,6 +1038,36 @@
       ]
     },
     {
+      "id": "web",
+      "title": "Web",
+      "keys": [
+        {
+          "key": "web.bind",
+          "type": "string",
+          "default": "\"127.0.0.1\"",
+          "description": "Address the web gateway listens on. Prefer a private interface such as a WireGuard address over 0.0.0.0."
+        },
+        {
+          "key": "web.port",
+          "type": "integer",
+          "default": "8787",
+          "description": "TCP port for the web gateway."
+        },
+        {
+          "key": "web.static_dir",
+          "type": "string",
+          "default": "none",
+          "description": "Directory containing the built web UI. Served from disk at request time and never embedded in the binary; when unset only the WebSocket endpoint is served."
+        },
+        {
+          "key": "web.allowed_origins",
+          "type": "array of strings",
+          "default": "[]",
+          "description": "Optional WebSocket Origin allowlist. Empty disables the check; set it when the page is hosted somewhere other than this gateway."
+        }
+      ]
+    },
+    {
       "id": "advanced",
       "title": "Advanced",
       "keys": [

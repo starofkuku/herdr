@@ -215,12 +215,14 @@ just release 0.x.y
 
 Before stable release, run `/pre-release-audit`, finalize `docs/next`, copy approved docs into the stable docs/root files, and let `just release-docs-check` verify the sync. `just release` prepares the release commit, tags it, pushes the tag, and GitHub Actions builds binaries, creates the GitHub release, closes released issues, and updates `website/latest.json`.
 
-The release workflows must publish these four assets:
+The release workflows must publish these binary assets:
 
 - `herdr-linux-x86_64`
 - `herdr-linux-aarch64`
 - `herdr-macos-x86_64`
 - `herdr-macos-aarch64`
+
+The release and preview workflows also publish the browser UI as the separate `herdr-web-ui.html` asset. It is built from `web/` and must stay outside the binary so it can be updated independently of a herdr release. User-facing docs for it live in `docs/next/website/src/content/docs/web-ui.mdx`.
 
 `nix/package.nix` imports `Cargo.lock` directly with `cargoLock.lockFile`, so release version bumps do not require a separate Nix cargo hash update. If Cargo git dependencies are added later, add the required `cargoLock.outputHashes` entries as part of that dependency change.
 

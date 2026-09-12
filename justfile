@@ -43,6 +43,10 @@ install-hooks:
 build:
     cargo build --release --locked
 
+# Build the browser UI served by `herdr web`
+web-build:
+    cd web && bun install --frozen-lockfile && bun run build
+
 # Build the website and documentation
 website-build:
     cd website && bun install --frozen-lockfile && bun run build

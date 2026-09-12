@@ -305,6 +305,7 @@ pub struct Config {
     pub advanced: AdvancedConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
+    pub web: WebConfig,
 }
 
 #[derive(Debug)]
@@ -877,6 +878,48 @@ impl Default for RemoteConfig {
     fn default() -> Self {
         Self {
             manage_ssh_config: true,
+        }
+    }
+}
+
+/// Default loopback bind address for the web gateway.
+pub const DEFAULT_WEB_BIND: &str = "127.0.0.1";
+/// Default listen port for the web gateway.
+pub const DEFAULT_WEB_PORT: u16 = 8787;
+
+/// Web gateway settings.
+///
+/// The gateway is disabled unless a key is configured. See
+/// [`crate::web::WebKey`] for the key sources.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct WebConfig {
+    /// Address to bind. Default: "127.0.0.1".
+    ///
+    /// Prefer a private interface (for example a WireGuard address) over
+    /// `0.0.0.0` so the port is only reachable where you intend.
+    pub bind: String,
+    /// TCP port to listen on. Default: 8787.
+    pub port: u16,
+    /// Directory containing the built web UI (index.html and assets).
+    ///
+    /// The UI is served from disk at request time and is never embedded in
+    /// the binary. When unset, only the WebSocket endpoint is served.
+    pub static_dir: Option<String>,
+    /// Optional WebSocket Origin allowlist.
+    ///
+    /// Empty means no Origin check. Set this when the page is hosted
+    /// somewhere other than this gateway and you want to reject other sites.
+    pub allowed_origins: Vec<String>,
+}
+
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            bind: DEFAULT_WEB_BIND.to_string(),
+            port: DEFAULT_WEB_PORT,
+            static_dir: None,
+            allowed_origins: Vec::new(),
         }
     }
 }

@@ -96,6 +96,7 @@ mod terminal_notify;
 mod terminal_theme;
 mod ui;
 mod update;
+mod web;
 mod workspace;
 mod worktree;
 
@@ -372,6 +373,19 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Set false to run plain ssh against your ssh config unchanged — this does not
 # force keepalive or multiplexing off, it only stops herdr from adding its own.
 # manage_ssh_config = true
+
+[web]
+# Serve the browser UI through `herdr web`. Disabled unless HERDR_WEB_KEY is
+# set, so the gateway never listens without authentication.
+# Address to listen on. Prefer a private interface (for example a WireGuard
+# address) over 0.0.0.0 so the port is only reachable where you intend.
+# bind = "127.0.0.1"
+# port = 8787
+# Directory containing the built web UI. Served from disk and never embedded
+# in the binary; without it only the WebSocket endpoint is served.
+# static_dir = "/path/to/herdr/web/dist"
+# Optional WebSocket Origin allowlist. Empty disables the check.
+# allowed_origins = []
 
 [experimental]
 # Allow launching herdr from inside a herdr-managed pane.
