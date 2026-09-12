@@ -1,0 +1,104 @@
+---
+title: Web UI
+description: Serve the Herdr terminal UI to a browser with herdr web, including sessions, authentication, and mobile use.
+---
+
+`herdr web` serves the Herdr terminal UI to a browser and bridges browser input back to your sessions. It runs as its own process, separate from any session server, so it can list every session and let you pick one.
+
+This is for reaching your own machine over a private network such as WireGuard or an SSH tunnel. It is not a hosted service.
+
+## Why a separate process
+
+Each Herdr session has its own server, and a session server only knows its own session. Only a process outside them can enumerate every session and offer a chooser. `herdr web` is that process: one listener, one port, all sessions.
+
+The browser is just another client. It attaches the same way a terminal does, so a browser and a terminal can watch the same session and share one state.
+
+## Enable the gateway
+
+The gateway is disabled unless a key is configured. This is deliberate: an open gateway is remote shell access, so it never listens without authentication.
+
+```bash
+export HERDR_WEB_KEY="$(head -c 32 /dev/urandom | base64)"
+herdr web
+```
+
+Without a key it exits with a diagnostic instead of binding a port.
+
+The key must be at least 16 characters. It is compared in constant time, and it is never written to logs.
+
+## Configuration
+
+```toml
+[web]
+# Address to listen on. Default: 127.0.0.1
+bind = "127.0.0.1"
+# TCP port. Default: 8787
+port = 8787
+# Directory containing the built web UI. Optional.
+static_dir = "/home/you/herdr/web/dist"
+# Optional Origin allowlist. Empty disables the check.
+allowed_origins = []
+```
+
+Prefer binding a private interface over `0.0.0.0`, so the port is only reachable from the network you intend.
+
+Key sources, in order:
+
+- `HERDR_WEB_KEY`
+- `HERDR_WEB_KEY_FILE`, a file containing the key
+
+Keep the key out of `config.toml`. That file is often readable by other local users, while Herdr's own sockets are owner-only.
+
+## Serving the UI
+
+The gateway serves the UI from `static_dir` at request time; it is never embedded in the herdr binary, so you can update or replace it independently. When `static_dir` is unset, only the WebSocket endpoint is served.
+
+Build the bundled UI with:
+
+```bash
+cd web && bun install && bun run build
+```
+
+That produces a single self-contained `web/dist/index.html`. Point `static_dir` at the `dist` directory.
+
+Each release also publishes the same file as the `herdr-web-ui.html` asset, so you can use a released UI without building anything. Download it into a directory and point `static_dir` at that directory.
+
+Because the gateway serves the page itself, the page and the WebSocket share an origin, so no extra hosting or CORS setup is needed.
+
+## Connecting
+
+Open the gateway URL in a browser, enter the key, then pick a session or type a new name.
+
+- Opening a session that is not running starts its server.
+- Session names use letters, numbers, `.`, `_`, and `-`.
+- Several clients can attach to one session and share its state.
+- The terminal resizes to the browser viewport, so narrow phone screens use Herdr's mobile layout automatically.
+
+Notifications are not delivered to the browser. Agent state, terminal output, and input are.
+
+## Remote access
+
+WireGuard and SSH tunnels are the intended paths. The transport is plain `ws://` because the tunnel already provides encryption.
+
+Bind to your private address:
+
+```toml
+[web]
+bind = "10.0.0.5"
+```
+
+Or keep the default loopback bind and forward the port over SSH:
+
+```bash
+ssh -L 8787:127.0.0.1:8787 you@server
+```
+
+The forwarded port is reachable at `ws://127.0.0.1:8787`. Do not expose the gateway directly to the public internet: the key is a single static secret guarding shell access, and it is not a substitute for a tunnel.
+
+If you host the page somewhere other than the gateway, set `allowed_origins` so other sites cannot connect to your gateway from a browser. Note that some browsers also restrict a public HTTPS page from reaching private network addresses.
+
+## Detaching
+
+Leave a session with the back button; the session and its panes keep running. Closing the browser tab detaches cleanly and does not stop the server.
+
+To stop a session and its panes, use `herdr session stop <name>`.
