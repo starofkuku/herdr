@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.16] - 2026-09-13
+
 ### Added
 - Added `herdr web`, a browser UI for Herdr sessions. It runs as its own gateway process, lists every session so you can attach or create one, and shares state with terminal clients attached to the same session. It is disabled unless `HERDR_WEB_KEY` is set, supports an optional Origin allowlist, and serves the UI from `[web] static_dir` rather than embedding it in the binary. Configure it with `[web] bind`, `port`, `static_dir`, and `allowed_origins`.
 - Release and preview workflows now publish the browser UI as a separate `herdr-web-ui.html` asset.
