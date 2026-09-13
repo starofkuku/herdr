@@ -31,6 +31,14 @@ jobs:
             always-allow-substitutes = true
 
       - name: Run Nix flake check
+        # crates.io rejects requests that identify as curl, and nixpkgs'
+        # fetchurl hardcodes `--user-agent "curl/<ver> Nixpkgs/<ver>"`. Crates
+        # missing from cache.nixos.org therefore fail to download. fetchurl
+        # appends NIX_CURL_FLAGS after its own --user-agent, so a later
+        # --user-agent wins. The value must not contain spaces: the builder
+        # expands the variable unquoted and would split it into extra args.
+        env:
+          NIX_CURL_FLAGS: --user-agent herdr-ci
         run: |
           nix flake check --print-build-logs
           nix flake check --all-systems --no-build --print-build-logs
