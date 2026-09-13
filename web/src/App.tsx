@@ -10,7 +10,7 @@ import {
 } from "./gateway";
 import { ConnectForm } from "./ConnectForm";
 import { SessionPicker } from "./SessionPicker";
-import { loadSettings, saveSettings, type StoredSettings } from "./settings";
+import { loadSettings, restoreTarget, saveSettings, type StoredSettings } from "./settings";
 
 /** Narrowest viewport worth rendering; mirrors the gateway's floor. */
 const MIN_COLS = 20;
@@ -147,6 +147,19 @@ export default function App() {
   const phaseRef = useRef<Phase>("connect");
   phaseRef.current = phase;
 
+  // Session to reopen after the stored connection authenticates. Captured once
+  // because later settings updates must not restart the restore.
+  const restoreOnReadyRef = useRef<string | null>(null);
+  const initialisedRef = useRef(false);
+  if (!initialisedRef.current) {
+    initialisedRef.current = true;
+    const target = restoreTarget(settings);
+    if (target) {
+      restoreOnReadyRef.current = target;
+      setActiveSession(target);
+    }
+  }
+
   if (!clientRef.current) {
     clientRef.current = new GatewayClient({
       onState: (next, message) => {
@@ -164,6 +177,12 @@ export default function App() {
       onOpened: (name) => {
         setActiveSession(name);
         setPhase("terminal");
+        // Remember the choice so a refresh returns here, not to the picker.
+        setSettings((current) => {
+          const next = { ...current, session: name };
+          saveSettings(next);
+          return next;
+        });
       },
       onFrame: () => {
         // Rendering is owned by TerminalView via the frame listener.
@@ -181,9 +200,28 @@ export default function App() {
 
   const client = clientRef.current;
 
+  // Reconnect automatically once, when a session was restored from storage.
+  useEffect(() => {
+    if (!restoreOnReadyRef.current) {
+      return;
+    }
+    const key = settings.key ?? "";
+    setKeyDraft(key);
+    client.connect(settings.url, key);
+    // Intentionally keyed on the client only: the restore target is captured
+    // in a ref and must not re-run when settings change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client]);
+
   const connect = useCallback(
     (url: string, key: string, remember: boolean) => {
-      const next: StoredSettings = { url, remember, key: remember ? key : undefined };
+      const next: StoredSettings = {
+        url,
+        remember,
+        key: remember ? key : undefined,
+        // Connecting by hand starts at the picker, not a remembered session.
+        session: undefined,
+      };
       setSettings(next);
       setKeyDraft(key);
       saveSettings(next);
@@ -202,9 +240,18 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (state === "ready") {
-      client.listSessions();
+    if (state !== "ready") {
+      return;
     }
+    // On a restored load, reopen the remembered session. A failed open reports
+    // an error and leaves the picker visible.
+    const target = restoreOnReadyRef.current;
+    if (target) {
+      restoreOnReadyRef.current = null;
+      client.openSession(target, PROVISIONAL_COLS, PROVISIONAL_ROWS);
+      return;
+    }
+    client.listSessions();
   }, [state, client]);
 
   useEffect(() => () => clientRef.current?.close(), []);
@@ -250,6 +297,12 @@ export default function App() {
       onLeave={() => {
         client.closeSession();
         setActiveSession(null);
+        // Leaving on purpose should not be undone by a refresh.
+        setSettings((current) => {
+          const next = { ...current, session: undefined };
+          saveSettings(next);
+          return next;
+        });
         setPhase("pick");
       }}
     />

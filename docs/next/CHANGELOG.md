@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- The web UI remembers the session you last opened and returns to it after a page reload, when the key is stored. Leaving a session on purpose clears the memory so the picker stays put.
+
 ## [0.7.18] - 2026-09-13
 
 ### Fixed
