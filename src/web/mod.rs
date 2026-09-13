@@ -330,6 +330,14 @@ async fn run_session(
                             break Ok(());
                         }
                     }
+                    BridgeEvent::MouseCapture { enabled } => {
+                        if send_json_split(&mut sink, &ServerMessage::MouseMode { enabled })
+                            .await
+                            .is_err()
+                        {
+                            break Ok(());
+                        }
+                    }
                 }
             }
         }

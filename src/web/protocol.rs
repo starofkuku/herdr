@@ -76,6 +76,8 @@ pub(crate) enum ServerMessage {
     },
     /// The attachment ended.
     Closed { reason: Option<String> },
+    /// Host mouse reporting should be enabled or disabled.
+    MouseMode { enabled: bool },
     /// Request failed or the key was rejected.
     Error { message: String },
 }
@@ -110,5 +112,12 @@ mod tests {
         let message = ServerMessage::Closed { reason: None };
         let json = serde_json::to_string(&message).unwrap();
         assert_eq!(json, r#"{"type":"closed","reason":null}"#);
+    }
+
+    #[test]
+    fn mouse_mode_serializes_with_type_tag() {
+        let message = ServerMessage::MouseMode { enabled: true };
+        let json = serde_json::to_string(&message).unwrap();
+        assert_eq!(json, r#"{"type":"mouse_mode","enabled":true}"#);
     }
 }

@@ -17,6 +17,7 @@ export type ServerMessage =
   | { type: "opened"; name: string }
   | { type: "frame"; seq: number; cols: number; rows: number; full: boolean; data: string }
   | { type: "closed"; reason: string | null }
+  | { type: "mouse_mode"; enabled: boolean }
   | { type: "error"; message: string };
 
 export type ConnectionState = "connecting" | "authenticating" | "ready" | "closed" | "error";
@@ -36,6 +37,8 @@ export interface GatewayHandlers {
   onOpened: (name: string) => void;
   onFrame: (frame: FramePayload) => void;
   onClosed: (reason: string | null) => void;
+  /** The server wants host mouse reporting enabled or disabled. */
+  onMouseMode: (enabled: boolean) => void;
 }
 
 function base64ToBytes(input: string): Uint8Array {
@@ -66,6 +69,8 @@ export class GatewayClient {
   private socket: WebSocket | null = null;
   private handlers: GatewayHandlers;
   private frameListener: ((frame: FramePayload) => void) | null = null;
+  private mouseListener: ((enabled: boolean) => void) | null = null;
+  private mouseEnabled = false;
 
   constructor(handlers: GatewayHandlers) {
     this.handlers = handlers;
@@ -79,6 +84,25 @@ export class GatewayClient {
    */
   setFrameListener(listener: ((frame: FramePayload) => void) | null): void {
     this.frameListener = listener;
+  }
+
+  /**
+   * Replaces the host mouse-reporting sink.
+   *
+   * The current mode is replayed immediately: the server only announces
+   * changes, and a full-redraw frame resets the terminal (which clears mouse
+   * tracking), so a late listener must be able to resync.
+   */
+  setMouseListener(listener: ((enabled: boolean) => void) | null): void {
+    this.mouseListener = listener;
+    if (listener) {
+      listener(this.mouseEnabled);
+    }
+  }
+
+  /** Current host mouse-reporting mode. */
+  get mouseReporting(): boolean {
+    return this.mouseEnabled;
   }
 
   connect(url: string, key: string): void {
@@ -150,6 +174,11 @@ export class GatewayClient {
       }
       case "closed":
         this.handlers.onClosed(message.reason);
+        break;
+      case "mouse_mode":
+        this.mouseEnabled = message.enabled;
+        this.mouseListener?.(message.enabled);
+        this.handlers.onMouseMode(message.enabled);
         break;
       case "error":
         this.handlers.onState("error", message.message);

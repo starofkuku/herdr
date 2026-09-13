@@ -16,6 +16,14 @@ import { loadSettings, saveSettings, type StoredSettings } from "./settings";
 const MIN_COLS = 20;
 const MIN_ROWS = 5;
 
+/**
+ * Mouse reporting modes the Herdr TUI relies on, matching what
+ * crossterm's EnableMouseCapture sends to a real terminal:
+ * 1000 normal tracking, 1002 button-motion tracking, 1006 SGR coordinates.
+ */
+const MOUSE_REPORTING_ON = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+const MOUSE_REPORTING_OFF = "\x1b[?1006l\x1b[?1002l\x1b[?1000l";
+
 /** Provisional size used only until the terminal reports its real geometry. */
 const PROVISIONAL_COLS = 80;
 const PROVISIONAL_ROWS = 24;
@@ -47,12 +55,26 @@ function TerminalView({ client, session, onLeave }: TerminalViewProps) {
     term.loadAddon(fit);
     term.open(host);
 
+    let mouseOn = false;
+
     // Route frames into this terminal only while it is mounted.
     client.setFrameListener((frame: FramePayload) => {
       if (frame.full) {
         term.reset();
+        // reset() clears DEC private modes, including mouse reporting, so
+        // restore it or the terminal silently stops sending clicks.
+        if (mouseOn) {
+          term.write(MOUSE_REPORTING_ON);
+        }
       }
       term.write(frame.bytes);
+    });
+
+    // Herdr's TUI is mouse-first, so the server asks the host to report mouse
+    // events. Without this the terminal only ever sees keys.
+    client.setMouseListener((enabled: boolean) => {
+      mouseOn = enabled;
+      term.write(enabled ? MOUSE_REPORTING_ON : MOUSE_REPORTING_OFF);
     });
 
     const sync = () => {
@@ -68,6 +90,17 @@ function TerminalView({ client, session, onLeave }: TerminalViewProps) {
       client.input(new TextEncoder().encode(data));
     });
 
+    // xterm reports some mouse events (large coordinates and non-UTF-8
+    // reports) through onBinary instead of onData, so both must be wired or
+    // those events are dropped.
+    const binarySub = term.onBinary((data) => {
+      const bytes = new Uint8Array(data.length);
+      for (let i = 0; i < data.length; i += 1) {
+        bytes[i] = data.charCodeAt(i) & 0xff;
+      }
+      client.input(bytes);
+    });
+
     // Fit once laid out so the server renders the real geometry, then track
     // viewport changes (including mobile keyboard and orientation).
     requestAnimationFrame(sync);
@@ -78,7 +111,9 @@ function TerminalView({ client, session, onLeave }: TerminalViewProps) {
 
     return () => {
       client.setFrameListener(null);
+      client.setMouseListener(null);
       dataSub.dispose();
+      binarySub.dispose();
       observer.disconnect();
       window.removeEventListener("orientationchange", onOrientation);
       term.dispose();
@@ -132,6 +167,9 @@ export default function App() {
       },
       onFrame: () => {
         // Rendering is owned by TerminalView via the frame listener.
+      },
+      onMouseMode: () => {
+        // Applied by TerminalView via the mouse listener.
       },
       onClosed: (reason) => {
         setActiveSession(null);

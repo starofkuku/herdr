@@ -30,6 +30,12 @@ pub(crate) enum BridgeEvent {
     },
     /// The attachment ended. The browser should stop writing frames.
     Closed { reason: Option<String> },
+    /// The server wants host mouse reporting turned on or off.
+    ///
+    /// Herdr's TUI is mouse-first: clicking tabs, panes, and menus arrives as
+    /// terminal mouse reports. The ANSI frames do not carry the DECSET
+    /// sequences, so the browser terminal must enable reporting from here.
+    MouseCapture { enabled: bool },
 }
 
 /// A command heading to the server.
@@ -120,6 +126,11 @@ pub(crate) fn attach(
                 Ok(ServerMessage::ServerShutdown { reason }) => {
                     let _ = events.send(BridgeEvent::Closed { reason });
                     return;
+                }
+                Ok(ServerMessage::MouseCapture { enabled }) => {
+                    if events.send(BridgeEvent::MouseCapture { enabled }).is_err() {
+                        return;
+                    }
                 }
                 // Notification, clipboard, title, and graphics messages are
                 // client-local presentation concerns that the browser client
