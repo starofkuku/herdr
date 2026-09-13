@@ -46,19 +46,21 @@ jobs:
       - name: Install Nix
         uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31.10.6
         with:
+          # crates.io rejects requests whose user agent identifies as curl, and
+          # nixpkgs' fetchurl hardcodes `--user-agent "curl/<ver> Nixpkgs/<ver>"`,
+          # so crates missing from cache.nixos.org cannot be downloaded and the
+          # flake check never finishes. Under the multi-user daemon a plain step
+          # env var does not reach the builder, so the override goes through
+          # impure-env, which is trusted-user scoped (install-nix-action sets
+          # set_as_trusted_user). `-A<ua>` has no spaces because impure-env is
+          # a whitespace-separated list.
           extra_nix_config: |
             experimental-features = nix-command flakes
             always-allow-substitutes = true
+            extra-experimental-features = configurable-impure-env
+            impure-env = NIX_CURL_FLAGS=-Aherdr-ci
 
       - name: Run Nix flake check
-        # crates.io rejects requests that identify as curl, and nixpkgs'
-        # fetchurl hardcodes `--user-agent "curl/<ver> Nixpkgs/<ver>"`. Crates
-        # missing from cache.nixos.org therefore fail to download. fetchurl
-        # appends NIX_CURL_FLAGS after its own --user-agent, so a later
-        # --user-agent wins. The value must not contain spaces: the builder
-        # expands the variable unquoted and would split it into extra args.
-        env:
-          NIX_CURL_FLAGS: --user-agent herdr-ci
         run: |
           nix flake check --print-build-logs
           nix flake check --all-systems --no-build --print-build-logs
