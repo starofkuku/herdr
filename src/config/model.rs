@@ -911,6 +911,13 @@ pub struct WebConfig {
     /// Empty means no Origin check. Set this when the page is hosted
     /// somewhere other than this gateway and you want to reject other sites.
     pub allowed_origins: Vec<String>,
+    /// Gateway key, stored directly in the config file.
+    ///
+    /// Keeping the key here survives restarts without exporting an
+    /// environment variable. Herdr refuses to start when this file is
+    /// readable by other users, so set `chmod 600` on it. The environment
+    /// variables `HERDR_WEB_KEY` and `HERDR_WEB_KEY_FILE` take precedence.
+    pub key: Option<String>,
 }
 
 impl Default for WebConfig {
@@ -920,6 +927,7 @@ impl Default for WebConfig {
             port: DEFAULT_WEB_PORT,
             static_dir: None,
             allowed_origins: Vec::new(),
+            key: None,
         }
     }
 }

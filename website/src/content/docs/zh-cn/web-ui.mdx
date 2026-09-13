@@ -17,12 +17,27 @@ description: 使用 herdr web 将 Herdr 终端 UI 提供给浏览器，包括会
 
 除非配置了密钥，否则网关处于禁用状态。这是有意为之：开放的网关等同于远程 shell 访问，因此它绝不会在没有认证的情况下监听。
 
+把密钥放进 `config.toml`，这样重启后依然有效：
+
 ```bash
-export HERDR_WEB_KEY="$(head -c 32 /dev/urandom | base64)"
+key=$(head -c 32 /dev/urandom | base64)
+```
+
+```toml
+[web]
+key = "你生成的密钥"
+```
+
+```bash
+chmod 600 ~/.config/herdr/config.toml
 herdr web
 ```
 
 没有密钥时，它会打印诊断信息并退出，而不是绑定端口。
+
+密钥至少需要 16 个字符。它使用常量时间比较，并且永远不会写入日志。
+
+由于 `config.toml` 中的密钥只和该文件一样私密，当文件可被其他用户读取时 Herdr 会拒绝启动，并提示执行 `chmod 600`。临时运行请改用 `HERDR_WEB_KEY`。
 
 密钥至少需要 16 个字符。它使用常量时间比较，并且永远不会写入日志。
 
@@ -38,14 +53,21 @@ port = 8787
 static_dir = "/home/you/herdr/web/dist"
 # Optional Origin allowlist. Empty disables the check.
 allowed_origins = []
+# Gateway key. Keep this file at chmod 600.
+key = "..."
 ```
 
 建议绑定私有接口而不是 `0.0.0.0`，这样端口只能从你预期的网络访问。
 
 密钥来源按以下顺序读取：
 
+密钥来源按优先级顺序：
+
 - `HERDR_WEB_KEY`
 - `HERDR_WEB_KEY_FILE`，一个包含密钥的文件
+- `config.toml` 中的 `[web] key`
+
+基于文件的密钥不得被其他用户读取，Herdr 对 `config.toml` 和 `HERDR_WEB_KEY_FILE` 都会强制这一点。
 
 不要把密钥放进 `config.toml`。该文件通常对同机其他用户可读，而 Herdr 自己的 socket 仅限所有者访问。
 

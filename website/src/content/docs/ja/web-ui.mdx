@@ -17,14 +17,27 @@ description: herdr web で Herdr のターミナル UI をブラウザに配信�
 
 キーが設定されていない限り、ゲートウェイは無効です。これは意図的な動作です。開かれたゲートウェイはリモートシェルアクセスそのものなので、認証なしでリッスンすることはありません。
 
+再起動後も有効になるよう、キーは `config.toml` に置きます:
+
 ```bash
-export HERDR_WEB_KEY="$(head -c 32 /dev/urandom | base64)"
+key=$(head -c 32 /dev/urandom | base64)
+```
+
+```toml
+[web]
+key = "生成したキー"
+```
+
+```bash
+chmod 600 ~/.config/herdr/config.toml
 herdr web
 ```
 
 キーがない場合は、ポートを bind せずに診断メッセージを出して終了します。
 
 キーは 16 文字以上が必要です。比較は定数時間で行われ、ログに書かれることはありません。
+
+`config.toml` のキーはファイル自体と同じ強度しかないため、Herdr は他のユーザーから読めるファイルでは起動を拒否し、`chmod 600` を案内します。一時的な実行には `HERDR_WEB_KEY` を使ってください。
 
 ## 設定
 
@@ -38,16 +51,19 @@ port = 8787
 static_dir = "/home/you/herdr/web/dist"
 # Optional Origin allowlist. Empty disables the check.
 allowed_origins = []
+# Gateway key. Keep this file at chmod 600.
+key = "..."
 ```
 
 `0.0.0.0` よりもプライベートインターフェースに bind することを推奨します。意図したネットワークからのみポートに到達できます。
 
-キーの取得元は次の順序です:
+キーの取得元は優先順に次のとおりです:
 
 - `HERDR_WEB_KEY`
 - `HERDR_WEB_KEY_FILE`、キーを含むファイル
+- `config.toml` の `[web] key`
 
-キーは `config.toml` に置かないでください。このファイルは他のローカルユーザーから読めることが多い一方、Herdr 自身のソケットは所有者のみに制限されています。
+ファイル経由のキーは他のユーザーから読めてはならず、Herdr は `config.toml` と `HERDR_WEB_KEY_FILE` の両方でそれを強制します。
 
 ## UI の配信
 

@@ -1064,6 +1064,12 @@
           "type": "array of strings",
           "default": "[]",
           "description": "Optional WebSocket Origin allowlist. Empty disables the check; set it when the page is hosted somewhere other than this gateway."
+        },
+        {
+          "key": "web.key",
+          "type": "string",
+          "default": "none",
+          "description": "Gateway key. Keeping it here survives restarts; the file must not be readable by other users, so run chmod 600 on config.toml. HERDR_WEB_KEY and HERDR_WEB_KEY_FILE take precedence. Without any key the gateway does not listen."
         }
       ]
     },

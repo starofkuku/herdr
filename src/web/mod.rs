@@ -83,8 +83,9 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
             }
         }
 
-        info!(%addr, static_dir = ?static_dir, "web gateway listening");
+        info!(%addr, static_dir = ?static_dir, key_source = %options.key.source(), "web gateway listening");
         println!("herdr web listening on http://{addr}");
+        println!("web key source: {}", options.key.source());
 
         let shared = std::sync::Arc::new(SharedState {
             key: options.key,
@@ -609,7 +610,8 @@ async fn send_json_split(
 
 /// Resolves gateway options from config, failing when no key is configured.
 pub(crate) fn options_from_config(config: &crate::config::Config) -> Result<WebOptions, KeyError> {
-    let key = WebKey::load()?;
+    let config_path = crate::config::config_path();
+    let key = WebKey::load(config.web.key.as_deref(), Some(&config_path))?;
     Ok(WebOptions {
         bind: config.web.bind.clone(),
         port: config.web.port,

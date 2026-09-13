@@ -34,11 +34,20 @@ fn run() -> io::Result<Option<i32>> {
             eprintln!("error: {err}");
             eprintln!();
             eprintln!("The web gateway is disabled until a key is configured.");
+            eprintln!();
+            eprintln!("Recommended: put it in config.toml so it survives restarts.");
+            eprintln!("  key=$(head -c 32 /dev/urandom | base64)   # generate one",);
+            eprintln!("  add to ~/.config/herdr/config.toml:");
+            eprintln!();
+            eprintln!("    [web]");
+            eprintln!("    key = \"$key\"");
+            eprintln!();
+            eprintln!("  then: chmod 600 ~/.config/herdr/config.toml");
+            eprintln!();
             eprintln!(
-                "  export {}=\"$(head -c 32 /dev/urandom | base64)\"",
+                "Or set {} for a single run.",
                 crate::web::auth::WEB_KEY_ENV_VAR
             );
-            eprintln!("  herdr web");
             return Ok(Some(1));
         }
     };
@@ -52,11 +61,10 @@ fn print_web_help() {
     println!();
     println!("usage: herdr web");
     println!();
-    println!("The gateway is disabled unless a key is configured:");
-    println!(
-        "  {}   gateway key (preferred)",
-        crate::web::auth::WEB_KEY_ENV_VAR
-    );
+    println!("The gateway is disabled unless a key is configured.");
+    println!("Key sources, in order of precedence:");
+    println!("  [web] key in config.toml   survives restarts; requires `chmod 600`");
+    println!("  {}   gateway key", crate::web::auth::WEB_KEY_ENV_VAR);
     println!(
         "  {}  file containing the gateway key",
         crate::web::auth::WEB_KEY_FILE_ENV_VAR
@@ -66,5 +74,6 @@ fn print_web_help() {
     println!("  bind            address to listen on (default 127.0.0.1)");
     println!("  port            TCP port (default 8787)");
     println!("  static_dir      directory containing the built web UI");
+    println!("  key             gateway key (keep this file chmod 600)");
     println!("  allowed_origins optional Origin allowlist; empty disables the check");
 }

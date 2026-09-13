@@ -17,14 +17,27 @@ The browser is just another client. It attaches the same way a terminal does, so
 
 The gateway is disabled unless a key is configured. This is deliberate: an open gateway is remote shell access, so it never listens without authentication.
 
+Put the key in `config.toml` so it survives restarts:
+
 ```bash
-export HERDR_WEB_KEY="$(head -c 32 /dev/urandom | base64)"
+key=$(head -c 32 /dev/urandom | base64)
+```
+
+```toml
+[web]
+key = "the key you generated"
+```
+
+```bash
+chmod 600 ~/.config/herdr/config.toml
 herdr web
 ```
 
 Without a key it exits with a diagnostic instead of binding a port.
 
 The key must be at least 16 characters. It is compared in constant time, and it is never written to logs.
+
+Because a key in `config.toml` is only as private as that file, Herdr refuses to start when the file is readable by other users and tells you to run `chmod 600`. Use `HERDR_WEB_KEY` for a one-off run instead.
 
 ## Configuration
 
@@ -38,16 +51,19 @@ port = 8787
 static_dir = "/home/you/herdr/web/dist"
 # Optional Origin allowlist. Empty disables the check.
 allowed_origins = []
+# Gateway key. Keep this file at chmod 600.
+key = "..."
 ```
 
 Prefer binding a private interface over `0.0.0.0`, so the port is only reachable from the network you intend.
 
-Key sources, in order:
+Key sources, in order of precedence:
 
 - `HERDR_WEB_KEY`
 - `HERDR_WEB_KEY_FILE`, a file containing the key
+- `[web] key` in `config.toml`
 
-Keep the key out of `config.toml`. That file is often readable by other local users, while Herdr's own sockets are owner-only.
+A file-based source must not be readable by other users, and Herdr enforces that for `config.toml` and for `HERDR_WEB_KEY_FILE`.
 
 ## Serving the UI
 
