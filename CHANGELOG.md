@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.21] - 2026-09-13
+
 ### Added
 - `pane.read` accepts an `offset` to page backwards through pane history, exposed as `herdr pane read --offset N`. The per-call cap is now 2000 rows. The web UI uses it to load earlier output when you scroll to the top of an agent transcript.
 
