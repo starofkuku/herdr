@@ -375,15 +375,21 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # manage_ssh_config = true
 
 [web]
-# Serve the browser UI through `herdr web`. Disabled unless HERDR_WEB_KEY is
-# set, so the gateway never listens without authentication.
+# Serve the browser UI through `herdr web`. The gateway never listens
+# unless a key is configured.
+#
+# Gateway key. Storing it here survives restarts; the file must not be
+# readable by other users, so run `chmod 600` on this file. `HERDR_WEB_KEY`
+# and `HERDR_WEB_KEY_FILE` take precedence over this value.
+# key = ""
 # Address to listen on. Prefer a private interface (for example a WireGuard
 # address) over 0.0.0.0 so the port is only reachable where you intend.
 # bind = "127.0.0.1"
 # port = 8787
-# Directory containing the built web UI. Served from disk and never embedded
-# in the binary; without it only the WebSocket endpoint is served.
-# static_dir = "/path/to/herdr/web/dist"
+# Directory containing the built web UI (index.html and assets). Served from
+# disk and never embedded in the binary; without it only the WebSocket
+# endpoint is served.
+# static_dir = "/path/to/herdr-web"
 # Optional WebSocket Origin allowlist. Empty disables the check.
 # allowed_origins = []
 

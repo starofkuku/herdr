@@ -15,6 +15,7 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "theme",
     "ui",
     "update",
+    "web",
     "worktrees",
 ];
 
@@ -323,6 +324,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.remote = section,
+    );
+    load_live_section(
+        table,
+        "web",
+        "web config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.web = section,
     );
 
     Ok(LoadedConfig {
@@ -704,6 +713,61 @@ resume_agents_on_restore = true
         assert!(loaded.config.session.resume_agents_on_restore);
         assert!(loaded.diagnostics.is_empty());
         assert!(loaded.invalid_sections.is_empty());
+    }
+
+    #[test]
+    fn load_live_config_parses_web_section() {
+        let loaded = load_live_config_from_str(
+            r#"
+[web]
+bind = "10.0.0.5"
+port = 9000
+static_dir = "/srv/herdr-web"
+key = "0123456789abcdef"
+allowed_origins = ["http://allowed.example"]
+"#,
+        )
+        .unwrap();
+
+        // Regression: [web] was missing from the known-section list and the
+        // live-section loader, so `config check` called it unknown and reload
+        // dropped it.
+        assert!(
+            !loaded
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("unknown config section [web]")),
+            "[web] must be a known section: {:?}",
+            loaded.diagnostics
+        );
+        assert!(loaded.invalid_sections.is_empty());
+        assert_eq!(
+            loaded.config.web.allowed_origins,
+            vec!["http://allowed.example".to_string()]
+        );
+    }
+
+    #[test]
+    fn load_live_config_parses_web_section_fields() {
+        let loaded = load_live_config_from_str(
+            r#"
+[web]
+bind = "10.0.0.5"
+port = 9000
+static_dir = "/srv/herdr-web"
+key = "0123456789abcdef"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(loaded.config.web.bind, "10.0.0.5");
+        assert_eq!(loaded.config.web.port, 9000);
+        assert_eq!(
+            loaded.config.web.static_dir.as_deref(),
+            Some("/srv/herdr-web")
+        );
+        assert_eq!(loaded.config.web.key.as_deref(), Some("0123456789abcdef"));
+        assert!(loaded.diagnostics.is_empty());
     }
 
     #[test]
