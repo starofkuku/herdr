@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.17] - 2026-09-13
+
 ### Added
 - `[web] key` now accepts the web gateway key directly in `config.toml`, so it survives restarts without exporting `HERDR_WEB_KEY`. Herdr refuses to start when that file is readable by other users and tells you to run `chmod 600`. `HERDR_WEB_KEY` and `HERDR_WEB_KEY_FILE` still take precedence.
 
