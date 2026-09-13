@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- `[web]` is now recognized by config validation and `reload config`. Previously `herdr config check` reported it as an unknown section and reload ignored it, so a key set under `[web]` looked accepted while reload dropped it.
+
 ## [0.7.17] - 2026-09-13
 
 ### Added
