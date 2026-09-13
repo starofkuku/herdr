@@ -1,14 +1,24 @@
 {
-  "version": "0.7.17",
+  "version": "0.7.18",
   "protocol": 19,
-  "notes": "### Added\n- `[web] key` now accepts the web gateway key directly in `config.toml`, so it survives restarts without exporting `HERDR_WEB_KEY`. Herdr refuses to start when that file is readable by other users and tells you to run `chmod 600`. `HERDR_WEB_KEY` and `HERDR_WEB_KEY_FILE` still take precedence.",
+  "notes": "### Fixed\n- The web UI now forwards mouse input, so clicking tabs, panes, and menus works. The gateway dropped the server's mouse-capture signal, and a full redraw reset the terminal's mouse mode without restoring it. Hold Shift (Option on macOS) while dragging to select text locally instead.\n- `[web]` is now recognized by config validation and `reload config`. Previously `herdr config check` reported it as an unknown section and reload ignored it, so a key set under `[web]` looked accepted while reload dropped it.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.18": {
+      "notes": "### Fixed\n- The web UI now forwards mouse input, so clicking tabs, panes, and menus works. The gateway dropped the server's mouse-capture signal, and a full redraw reset the terminal's mouse mode without restoring it. Hold Shift (Option on macOS) while dragging to select text locally instead.\n- `[web]` is now recognized by config validation and `reload config`. Previously `herdr config check` reported it as an unknown section and reload ignored it, so a key set under `[web]` looked accepted while reload dropped it.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-macos-aarch64"
+      }
+    },
     "0.7.17": {
       "notes": "### Added\n- `[web] key` now accepts the web gateway key directly in `config.toml`, so it survives restarts without exporting `HERDR_WEB_KEY`. Herdr refuses to start when that file is readable by other users and tells you to run `chmod 600`. `HERDR_WEB_KEY` and `HERDR_WEB_KEY_FILE` still take precedence.",
       "protocol": 19,
