@@ -1,14 +1,24 @@
 {
-  "version": "0.7.19",
+  "version": "0.7.20",
   "protocol": 19,
-  "notes": "### Added\n- The web UI remembers the session you last opened and returns to it after a page reload, when the key is stored. Leaving a session on purpose clears the memory so the picker stays put.",
+  "notes": "### Changed\n- The web UI is now a native page instead of a terminal mirror. `herdr web` proxies the public JSON API rather than attaching a terminal client, so it no longer affects pane layout or size. The page lists agents with their state, shows output as selectable plain text, and adds a message composer. The browser protocol version is now 2, so reload the page after upgrading.\n- The browser UI is also published to a rolling `web-ui` release tag that always holds the newest build, so the page can be updated without tracking herdr versions.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.20": {
+      "notes": "### Changed\n- The web UI is now a native page instead of a terminal mirror. `herdr web` proxies the public JSON API rather than attaching a terminal client, so it no longer affects pane layout or size. The page lists agents with their state, shows output as selectable plain text, and adds a message composer. The browser protocol version is now 2, so reload the page after upgrading.\n- The browser UI is also published to a rolling `web-ui` release tag that always holds the newest build, so the page can be updated without tracking herdr versions.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.20/herdr-macos-aarch64"
+      }
+    },
     "0.7.19": {
       "notes": "### Added\n- The web UI remembers the session you last opened and returns to it after a page reload, when the key is stored. Leaving a session on purpose clears the memory so the picker stays put.",
       "protocol": 19,
