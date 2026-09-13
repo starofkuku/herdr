@@ -251,6 +251,12 @@ pub struct PaneReadParams {
     pub source: ReadSource,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lines: Option<u32>,
+    /// Rows to skip counting back from the newest row, for paging history.
+    ///
+    /// 0 or omitted returns the newest page. `lines + offset` rows must fit in
+    /// the retained scrollback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<u32>,
     #[serde(default)]
     pub format: ReadFormat,
     #[serde(default = "super::default_true")]

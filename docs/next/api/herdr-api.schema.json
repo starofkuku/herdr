@@ -2405,6 +2405,15 @@
                 "null"
               ]
             },
+            "offset": {
+              "description": "Rows to skip counting back from the newest row, for paging history.\n\n0 or omitted returns the newest page. `lines + offset` rows must fit in\nthe retained scrollback.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "pane_id": {
               "type": "string"
             },

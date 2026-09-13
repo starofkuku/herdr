@@ -28,6 +28,14 @@ use super::super::api_helpers::{
 use super::super::api_helpers::{METADATA_SOURCE_MAX_CHARS, METADATA_TTL_MAX_MS};
 use super::responses::{encode_error, encode_success};
 
+/// Largest number of history rows one `pane.read` call returns.
+///
+/// Paging beyond this uses `offset`. The cap keeps a single response small
+/// enough to stay responsive on a phone connection.
+const fn api_read_line_limit() -> u32 {
+    2000
+}
+
 impl App {
     pub(super) fn handle_pane_split(&mut self, id: String, params: PaneSplitParams) -> String {
         let target = if let Some(target_pane_id) = params.target_pane_id.as_deref() {
@@ -1180,17 +1188,28 @@ impl App {
         else {
             return pane_not_found(id, &params.pane_id);
         };
-        let requested_lines = params.lines.unwrap_or(80).min(1000) as usize;
+        let requested_lines = params.lines.unwrap_or(80).min(api_read_line_limit()) as usize;
+        // Offset only applies to the history sources; Visible and Detection
+        // always describe the current screen.
+        let offset = params.offset.unwrap_or(0) as usize;
         let text = match params.format {
             ReadFormat::Text => match params.source {
                 ReadSource::Visible => pane.visible_text(),
+                ReadSource::Recent if offset > 0 => pane.recent_text_at(requested_lines, offset),
                 ReadSource::Recent => pane.recent_text(requested_lines),
+                ReadSource::RecentUnwrapped if offset > 0 => {
+                    pane.recent_unwrapped_text_at(requested_lines, offset)
+                }
                 ReadSource::RecentUnwrapped => pane.recent_unwrapped_text(requested_lines),
                 ReadSource::Detection => pane.detection_text(),
             },
             ReadFormat::Ansi => match params.source {
                 ReadSource::Visible => pane.visible_ansi(),
+                ReadSource::Recent if offset > 0 => pane.recent_ansi_at(requested_lines, offset),
                 ReadSource::Recent => pane.recent_ansi(requested_lines),
+                ReadSource::RecentUnwrapped if offset > 0 => {
+                    pane.recent_unwrapped_ansi_at(requested_lines, offset)
+                }
                 ReadSource::RecentUnwrapped => pane.recent_unwrapped_ansi(requested_lines),
                 ReadSource::Detection => pane.detection_text(),
             },
@@ -1207,7 +1226,12 @@ impl App {
                     format: params.format,
                     text,
                     revision: 0,
-                    truncated: false,
+                    // A paged read is truncated when older rows remain beyond
+                    // the page, so clients know they can ask for more.
+                    truncated: matches!(
+                        params.source,
+                        ReadSource::Recent | ReadSource::RecentUnwrapped
+                    ) && offset > 0,
                 },
             },
         )

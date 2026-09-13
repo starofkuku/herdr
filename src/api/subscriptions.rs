@@ -530,6 +530,7 @@ fn pane_read(
                 pane_id: pane_id.to_string(),
                 source,
                 lines,
+                offset: None,
                 format: crate::api::schema::ReadFormat::Text,
                 strip_ansi,
             }),

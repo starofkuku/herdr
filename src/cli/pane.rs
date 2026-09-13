@@ -441,13 +441,14 @@ fn pane_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn pane_read(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
-        eprintln!("usage: herdr pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+        eprintln!("usage: herdr pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--offset N] [--format text|ansi] [--ansi]");
         return Ok(2);
     };
 
     let pane_id = super::normalize_pane_id(raw_pane_id);
     let mut source = ReadSource::Recent;
     let mut lines = None;
+    let mut offset = None;
     let mut format = ReadFormat::Text;
     let mut strip_ansi = true;
 
@@ -468,6 +469,14 @@ fn pane_read(args: &[String]) -> std::io::Result<i32> {
                     return Ok(2);
                 };
                 lines = Some(super::parse_u32_flag("--lines", value)?);
+                index += 2;
+            }
+            "--offset" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --offset");
+                    return Ok(2);
+                };
+                offset = Some(super::parse_u32_flag("--offset", value)?);
                 index += 2;
             }
             "--format" => {
@@ -500,6 +509,7 @@ fn pane_read(args: &[String]) -> std::io::Result<i32> {
             pane_id,
             source,
             lines,
+            offset,
             format,
             strip_ansi,
         }),
@@ -1418,7 +1428,7 @@ fn print_pane_help() {
     );
     eprintln!("  herdr pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]");
     eprintln!("  herdr pane rename <pane_id> <label>|--clear");
-    eprintln!("  herdr pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]");
+    eprintln!("  herdr pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--offset N] [--format text|ansi] [--ansi]");
     eprintln!(
         "  herdr pane split [<pane_id>|--pane ID|--current] --direction right|down [--ratio FLOAT] [--cwd PATH] [--env KEY=VALUE] [--focus] [--no-focus]"
     );

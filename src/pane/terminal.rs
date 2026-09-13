@@ -397,6 +397,26 @@ impl PaneTerminal {
         self.ghostty.recent_unwrapped_text(lines)
     }
 
+    /// Reads a page of history: `lines` rows starting `offset` rows back.
+    pub fn recent_unwrapped_text_at(&self, lines: usize, offset: usize) -> String {
+        self.ghostty.recent_unwrapped_text_at(lines, offset)
+    }
+
+    /// Reads a plain-text page of history.
+    pub fn recent_text_at(&self, lines: usize, offset: usize) -> String {
+        self.ghostty.recent_text_at(lines, offset)
+    }
+
+    /// Reads an ANSI page of history.
+    pub fn recent_ansi_at(&self, lines: usize, offset: usize) -> String {
+        self.ghostty.recent_ansi_at(lines, offset)
+    }
+
+    /// Reads an ANSI page of unwrapped history.
+    pub fn recent_unwrapped_ansi_at(&self, lines: usize, offset: usize) -> String {
+        self.ghostty.recent_unwrapped_ansi_at(lines, offset)
+    }
+
     pub fn recent_unwrapped_ansi(&self, lines: usize) -> String {
         self.ghostty.recent_unwrapped_ansi(lines)
     }
@@ -1697,6 +1717,42 @@ impl GhosttyPaneTerminal {
             .unwrap_or_default()
     }
 
+    /// Reads `lines` rows starting `offset` rows back from the newest row.
+    pub fn recent_unwrapped_text_at(&self, lines: usize, offset: usize) -> String {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| ghostty_text_unwrapped_window(&core.terminal, lines, offset).ok())
+            .unwrap_or_default()
+    }
+
+    /// Reads a plain-text page of wrapped history.
+    pub fn recent_text_at(&self, lines: usize, offset: usize) -> String {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| ghostty_recent_text_window(&core.terminal, lines, offset).ok())
+            .unwrap_or_default()
+    }
+
+    /// Reads an ANSI page of wrapped history.
+    pub fn recent_ansi_at(&self, lines: usize, offset: usize) -> String {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| ghostty_ansi_window(&core.terminal, lines, offset, false).ok())
+            .unwrap_or_default()
+    }
+
+    /// Reads an ANSI page of unwrapped history.
+    pub fn recent_unwrapped_ansi_at(&self, lines: usize, offset: usize) -> String {
+        self.core
+            .lock()
+            .ok()
+            .and_then(|core| ghostty_ansi_window(&core.terminal, lines, offset, true).ok())
+            .unwrap_or_default()
+    }
+
     pub fn recent_unwrapped_ansi(&self, lines: usize) -> String {
         self.core
             .lock()
@@ -2322,7 +2378,42 @@ fn ghostty_recent_text_unwrapped_for_terminal(
     terminal: &crate::ghostty::Terminal,
     lines: usize,
 ) -> Result<String, crate::ghostty::Error> {
-    let Some((start, end, cols)) = ghostty_recent_read_range(terminal, lines)? else {
+    ghostty_text_unwrapped_window(terminal, lines, 0)
+}
+
+/// Reads a plain-text window of recent rows, skipping `offset` rows back.
+///
+/// Mirrors [`ghostty_recent_text_for_terminal`] so a paged read formats rows
+/// identically to an unpaged one.
+fn ghostty_recent_text_window(
+    terminal: &crate::ghostty::Terminal,
+    lines: usize,
+    offset: usize,
+) -> Result<String, crate::ghostty::Error> {
+    let Some((start, end, cols)) = ghostty_recent_read_range_with_offset(terminal, lines, offset)?
+    else {
+        return Ok(String::new());
+    };
+    let mut rows = Vec::with_capacity(end.saturating_sub(start).saturating_add(1));
+    for y in start..=end {
+        rows.push(ghostty_screen_row(terminal, cols, y as u32)?);
+    }
+    trim_trailing_blank_rows(&mut rows);
+    Ok(recent_text_from_rows(&rows, lines))
+}
+
+/// Reads a window of recent rows, skipping `offset` rows counting back from the
+/// newest line.
+///
+/// An offset of 0 is the newest page; larger offsets page further into the
+/// scrollback. Used by the socket API so clients can paginate history.
+fn ghostty_text_unwrapped_window(
+    terminal: &crate::ghostty::Terminal,
+    lines: usize,
+    offset: usize,
+) -> Result<String, crate::ghostty::Error> {
+    let Some((start, end, cols)) = ghostty_recent_read_range_with_offset(terminal, lines, offset)?
+    else {
         return Ok(String::new());
     };
     terminal.read_text_screen(
@@ -2337,7 +2428,18 @@ fn ghostty_recent_ansi_for_terminal(
     lines: usize,
     unwrap: bool,
 ) -> Result<String, crate::ghostty::Error> {
-    let Some((start, end, cols)) = ghostty_recent_read_range(terminal, lines)? else {
+    ghostty_ansi_window(terminal, lines, 0, unwrap)
+}
+
+/// Reads an ANSI window of recent rows, skipping `offset` rows from the newest.
+fn ghostty_ansi_window(
+    terminal: &crate::ghostty::Terminal,
+    lines: usize,
+    offset: usize,
+    unwrap: bool,
+) -> Result<String, crate::ghostty::Error> {
+    let Some((start, end, cols)) = ghostty_recent_read_range_with_offset(terminal, lines, offset)?
+    else {
         return Ok(String::new());
     };
     terminal.read_ansi_screen(
@@ -2352,12 +2454,30 @@ fn ghostty_recent_read_range(
     terminal: &crate::ghostty::Terminal,
     lines: usize,
 ) -> Result<Option<(usize, usize, u16)>, crate::ghostty::Error> {
+    ghostty_recent_read_range_with_offset(terminal, lines, 0)
+}
+
+/// Resolves the row window for a page of history.
+///
+/// `offset` counts rows back from the newest row, so 0 returns the newest
+/// `lines` rows and `lines` returns the page before it. Returns `None` once the
+/// window starts past the oldest retained row.
+fn ghostty_recent_read_range_with_offset(
+    terminal: &crate::ghostty::Terminal,
+    lines: usize,
+    offset: usize,
+) -> Result<Option<(usize, usize, u16)>, crate::ghostty::Error> {
     let total_rows = terminal.total_rows()?;
     let cols = terminal.cols()?;
     if total_rows == 0 || cols == 0 || lines == 0 {
         return Ok(None);
     }
-    let end = total_rows.saturating_sub(1);
+    let newest = total_rows.saturating_sub(1);
+    // The window ends `offset` rows above the newest row.
+    let end = match newest.checked_sub(offset) {
+        Some(end) => end,
+        None => return Ok(None),
+    };
     let start = end.saturating_add(1).saturating_sub(lines);
     Ok(Some((start, end, cols)))
 }
@@ -4135,6 +4255,70 @@ mod tests {
             .extract_selection(&selection)
             .expect("selection should extract text");
         assert_eq!(text, "000003\n000004\n000005");
+    }
+
+    #[test]
+    fn recent_text_at_pages_back_through_history() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(20, 3, 100).unwrap();
+        // Six rows of history: 000001 .. 000006.
+        for n in 1..=6 {
+            terminal.write(format!("00000{n}\r\n").as_bytes());
+        }
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        // Newest page first, then earlier pages by increasing offset.
+        let newest = pane.recent_text_at(3, 0);
+        let older = pane.recent_text_at(3, 3);
+        assert!(newest.contains("000006"), "{newest:?}");
+        assert!(older.contains("000003"), "{older:?}");
+        assert!(
+            !older.contains("000006"),
+            "a page must not repeat the newer rows: {older:?}"
+        );
+        assert_ne!(newest, older, "offset must change the returned rows");
+    }
+
+    #[test]
+    fn recent_text_at_returns_nothing_past_the_oldest_row() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(20, 3, 100).unwrap();
+        terminal.write(b"only-one-row\r\n");
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        // Paging past the retained history must be empty, not an error or a
+        // repeat of the newest page.
+        assert_eq!(pane.recent_text_at(3, 500), "");
+    }
+
+    #[test]
+    fn recent_unwrapped_text_at_pages_back_through_history() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(20, 3, 100).unwrap();
+        for n in 1..=6 {
+            terminal.write(format!("00000{n}\r\n").as_bytes());
+        }
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        let newest = pane.recent_unwrapped_text_at(2, 0);
+        let older = pane.recent_unwrapped_text_at(2, 2);
+        assert!(newest.contains("000006"), "{newest:?}");
+        assert!(older.contains("000004"), "{older:?}");
+        assert_ne!(newest, older);
+    }
+
+    #[test]
+    fn offset_zero_matches_the_unpaged_read() {
+        let (tx, _rx) = mpsc::channel(4);
+        let mut terminal = crate::ghostty::Terminal::new(20, 4, 100).unwrap();
+        for n in 1..=5 {
+            terminal.write(format!("row{n}\r\n").as_bytes());
+        }
+        let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
+
+        // An omitted offset must behave exactly like offset 0 so existing
+        // callers are unaffected.
+        assert_eq!(pane.recent_text(3), pane.recent_text_at(3, 0));
     }
 
     #[test]

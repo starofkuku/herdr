@@ -60,6 +60,7 @@ pub(super) fn wait_for_output(
                 pane_id: params.pane_id.clone(),
                 source: output_match_read_source(&params.source),
                 lines: params.lines,
+                offset: None,
                 format: crate::api::schema::ReadFormat::Text,
                 strip_ansi: params.strip_ansi,
             }),
