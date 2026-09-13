@@ -2,8 +2,6 @@
 
 ## Unreleased
 
-## [0.7.18] - 2026-09-13
-
 ### Fixed
 - The web UI now forwards mouse input, so clicking tabs, panes, and menus works. The gateway dropped the server's mouse-capture signal, and a full redraw reset the terminal's mouse mode without restoring it. Hold Shift (Option on macOS) while dragging to select text locally instead.
 - `[web]` is now recognized by config validation and `reload config`. Previously `herdr config check` reported it as an unknown section and reload ignored it, so a key set under `[web]` looked accepted while reload dropped it.
