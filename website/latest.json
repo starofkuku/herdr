@@ -1,14 +1,24 @@
 {
-  "version": "0.7.18",
+  "version": "0.7.19",
   "protocol": 19,
-  "notes": "### Fixed\n- The web UI now forwards mouse input, so clicking tabs, panes, and menus works. The gateway dropped the server's mouse-capture signal, and a full redraw reset the terminal's mouse mode without restoring it. Hold Shift (Option on macOS) while dragging to select text locally instead.\n- `[web]` is now recognized by config validation and `reload config`. Previously `herdr config check` reported it as an unknown section and reload ignored it, so a key set under `[web]` looked accepted while reload dropped it.",
+  "notes": "### Added\n- The web UI remembers the session you last opened and returns to it after a page reload, when the key is stored. Leaving a session on purpose clears the memory so the picker stays put.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.18/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.19": {
+      "notes": "### Added\n- The web UI remembers the session you last opened and returns to it after a page reload, when the key is stored. Leaving a session on purpose clears the memory so the picker stays put.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.19/herdr-macos-aarch64"
+      }
+    },
     "0.7.18": {
       "notes": "### Fixed\n- The web UI now forwards mouse input, so clicking tabs, panes, and menus works. The gateway dropped the server's mouse-capture signal, and a full redraw reset the terminal's mouse mode without restoring it. Hold Shift (Option on macOS) while dragging to select text locally instead.\n- `[web]` is now recognized by config validation and `reload config`. Previously `herdr config check` reported it as an unknown section and reload ignored it, so a key set under `[web]` looked accepted while reload dropped it.",
       "protocol": 19,
