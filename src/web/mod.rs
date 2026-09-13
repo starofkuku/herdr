@@ -1,41 +1,31 @@
-//! Web gateway: serves the browser UI and bridges browser attachments to
-//! Herdr server sessions.
+//! Web gateway: serves the browser UI and proxies the Herdr JSON API.
 //!
 //! This is a separate process (the `herdr web` subcommand), not part of any
 //! session's server. That matters: a session server only knows about its own
 //! session, so only a process outside them can list every session and let the
 //! user pick one.
+//!
+//! The gateway is a thin proxy over the public JSON API. The browser sends the
+//! same requests the CLI sends, so the UI depends only on documented API
+//! methods and never on the private client/server terminal wire format.
 
+pub(crate) mod api;
 pub(crate) mod auth;
-pub(crate) mod bridge;
 pub(crate) mod http;
 pub(crate) mod protocol;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::sync::Arc;
 
-use base64::Engine as _;
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::{self, Message};
 use tracing::{debug, error, info, warn};
 
 use auth::{KeyError, WebKey};
-use bridge::{Bridge, BridgeEvent, BridgeInput};
-use protocol::{ClientMessage, ServerMessage, SessionSummary};
-
-/// Default terminal size used when a browser does not report one yet.
-const DEFAULT_COLS: u16 = 80;
-const DEFAULT_ROWS: u16 = 24;
-
-/// Narrowest viewport we will forward. Below this the TUI cannot render.
-const MIN_COLS: u16 = 20;
-const MIN_ROWS: u16 = 5;
-
-/// Largest viewport we accept, so a hostile client cannot force giant renders.
-const MAX_COLS: u16 = 500;
-const MAX_ROWS: u16 = 300;
+use protocol::{ClientMessage, ServerMessage};
 
 /// Runtime settings for one gateway process.
 pub(crate) struct WebOptions {
@@ -83,11 +73,16 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
             }
         }
 
-        info!(%addr, static_dir = ?static_dir, key_source = %options.key.source(), "web gateway listening");
+        info!(
+            %addr,
+            static_dir = ?static_dir,
+            key_source = %options.key.source(),
+            "web gateway listening"
+        );
         println!("herdr web listening on http://{addr}");
         println!("web key source: {}", options.key.source());
 
-        let shared = std::sync::Arc::new(SharedState {
+        let shared = Arc::new(SharedState {
             key: options.key,
             static_dir,
             allowed_origins: options.allowed_origins,
@@ -133,7 +128,7 @@ fn expand_tilde(path: &Path) -> PathBuf {
 async fn handle_connection(
     mut stream: TcpStream,
     peer: SocketAddr,
-    shared: std::sync::Arc<SharedState>,
+    shared: Arc<SharedState>,
 ) -> std::io::Result<()> {
     let (request, rest) = http::read_request(&mut stream).await?;
 
@@ -147,10 +142,9 @@ async fn handle_connection(
 async fn handle_static(
     mut stream: TcpStream,
     request: &http::Request,
-    shared: std::sync::Arc<SharedState>,
+    shared: Arc<SharedState>,
 ) -> std::io::Result<()> {
     if request.method != "GET" && request.method != "HEAD" {
-        // A non-upgrade POST to the gateway has no meaning.
         return http::write_simple(&mut stream, 405, "text/plain", "method not allowed").await;
     }
 
@@ -199,7 +193,7 @@ async fn handle_static(
 async fn handle_websocket(
     mut stream: TcpStream,
     peer: SocketAddr,
-    shared: std::sync::Arc<SharedState>,
+    shared: Arc<SharedState>,
     request: &http::Request,
     rest: Vec<u8>,
 ) -> std::io::Result<()> {
@@ -242,21 +236,20 @@ async fn handle_websocket(
     .await;
 
     info!(%peer, "web client connected");
-
-    let session = run_session(ws, shared, peer).await;
+    let result = run_client(ws, shared, peer).await;
     info!(%peer, "web client disconnected");
-    session
+    result
 }
 
-/// Per-connection state machine.
-async fn run_session(
+/// Per-connection state machine for one browser client.
+async fn run_client(
     ws: tokio_tungstenite::WebSocketStream<TcpStream>,
-    shared: std::sync::Arc<SharedState>,
+    shared: Arc<SharedState>,
     peer: SocketAddr,
 ) -> std::io::Result<()> {
     let (mut sink, mut source) = ws.split();
 
-    send_json_split(
+    send(
         &mut sink,
         &ServerMessage::Hello {
             protocol: protocol::PROTOCOL_VERSION,
@@ -265,12 +258,15 @@ async fn run_session(
     )
     .await?;
 
-    // Auth must be the first message. Anything else closes the connection.
+    // Authentication is required before anything else.
     let mut authenticated = false;
-    let mut bridge: Option<(String, Bridge)> = None;
-
-    // Frames produced by the current attachment.
-    let (events_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel::<BridgeEvent>();
+    // Session this connection is bound to, resolved on first `use_session`.
+    let mut api_socket: Option<PathBuf> = None;
+    // Live subscription tasks, keyed by the browser's id.
+    let mut subscriptions: std::collections::HashMap<String, tokio::task::JoinHandle<()>> =
+        std::collections::HashMap::new();
+    // Events produced by subscription tasks.
+    let (events_tx, mut events_rx) = mpsc::unbounded_channel::<ServerMessage>();
 
     let result: std::io::Result<()> = loop {
         tokio::select! {
@@ -280,11 +276,12 @@ async fn run_session(
                     Ok(Message::Text(text)) => {
                         match serde_json::from_str::<ClientMessage>(&text) {
                             Ok(message) => {
-                                if let Err(err) = handle_client_message(
+                                if let Err(err) = handle_message(
                                     message,
                                     &shared,
                                     &mut authenticated,
-                                    &mut bridge,
+                                    &mut api_socket,
+                                    &mut subscriptions,
                                     &events_tx,
                                     &mut sink,
                                     peer,
@@ -294,13 +291,13 @@ async fn run_session(
                             }
                             Err(err) => {
                                 debug!(%peer, err = %err, "invalid web message");
-                                send_json_split(&mut sink, &ServerMessage::Error {
+                                send(&mut sink, &ServerMessage::Error {
                                     message: "invalid message".to_string(),
                                 }).await?;
                             }
                         }
                     }
-                    Ok(Message::Binary(_)) => {}
+                    Ok(Message::Binary(_)) | Ok(Message::Ping(_)) | Ok(Message::Pong(_)) => {}
                     Ok(Message::Close(_)) => break Ok(()),
                     Ok(_) => {}
                     Err(err) => {
@@ -310,51 +307,29 @@ async fn run_session(
                 }
             }
             event = events_rx.recv() => {
-                let Some(event) = event else { continue };
-                match event {
-                    BridgeEvent::Frame { seq, width, height, full, bytes } => {
-                        let message = ServerMessage::Frame {
-                            seq,
-                            cols: width,
-                            rows: height,
-                            full,
-                            data: base64::engine::general_purpose::STANDARD.encode(&bytes),
-                        };
-                        if send_json_split(&mut sink, &message).await.is_err() {
-                            break Ok(());
-                        }
-                    }
-                    BridgeEvent::Closed { reason } => {
-                        bridge = None;
-                        if send_json_split(&mut sink, &ServerMessage::Closed { reason }).await.is_err() {
-                            break Ok(());
-                        }
-                    }
-                    BridgeEvent::MouseCapture { enabled } => {
-                        if send_json_split(&mut sink, &ServerMessage::MouseMode { enabled })
-                            .await
-                            .is_err()
-                        {
-                            break Ok(());
-                        }
-                    }
+                let Some(message) = event else { continue };
+                if send(&mut sink, &message).await.is_err() {
+                    break Ok(());
                 }
             }
         }
     };
 
-    // Dropping the bridge closes the server-side attachment.
-    drop(bridge);
+    for (_, handle) in subscriptions {
+        handle.abort();
+    }
     let _ = sink.close().await;
     result
 }
 
-async fn handle_client_message(
+#[allow(clippy::too_many_arguments)]
+async fn handle_message(
     message: ClientMessage,
     shared: &SharedState,
     authenticated: &mut bool,
-    bridge: &mut Option<(String, Bridge)>,
-    events_tx: &tokio::sync::mpsc::UnboundedSender<BridgeEvent>,
+    api_socket: &mut Option<PathBuf>,
+    subscriptions: &mut std::collections::HashMap<String, tokio::task::JoinHandle<()>>,
+    events_tx: &mpsc::UnboundedSender<ServerMessage>,
     sink: &mut futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<TcpStream>,
         Message,
@@ -365,11 +340,11 @@ async fn handle_client_message(
         ClientMessage::Auth { key, protocol } => {
             if let Some(version) = protocol {
                 if version != protocol::PROTOCOL_VERSION {
-                    send_json_split(
+                    send(
                         sink,
                         &ServerMessage::Error {
                             message: format!(
-                                "protocol mismatch: gateway speaks {}, client sent {version}",
+                                "protocol mismatch: gateway speaks {}, client sent {version}; reload the page",
                                 protocol::PROTOCOL_VERSION
                             ),
                         },
@@ -381,7 +356,7 @@ async fn handle_client_message(
 
             if shared.key.verify(&key) {
                 *authenticated = true;
-                send_json_split(
+                send(
                     sink,
                     &ServerMessage::Hello {
                         protocol: protocol::PROTOCOL_VERSION,
@@ -391,7 +366,7 @@ async fn handle_client_message(
                 .await?;
             } else {
                 warn!(%peer, "web authentication failed");
-                send_json_split(
+                send(
                     sink,
                     &ServerMessage::Error {
                         message: "authentication failed".to_string(),
@@ -406,36 +381,40 @@ async fn handle_client_message(
             if !*authenticated {
                 return send_unauthorized(sink).await;
             }
-            let items = list_sessions();
-            send_json_split(sink, &ServerMessage::Sessions { items }).await
+            send(
+                sink,
+                &ServerMessage::Sessions {
+                    items: api::list_sessions(),
+                },
+            )
+            .await
         }
 
-        ClientMessage::SessionOpen { name, cols, rows } => {
+        ClientMessage::UseSession { name } => {
             if !*authenticated {
                 return send_unauthorized(sink).await;
             }
-            if let Err(reason) = crate::session::validate_name(&name) {
-                return send_json_split(sink, &ServerMessage::Error { message: reason }).await;
+            if !name.trim().is_empty() && name != crate::session::DEFAULT_SESSION_NAME {
+                if let Err(reason) = crate::session::validate_name(&name) {
+                    return send(sink, &ServerMessage::Error { message: reason }).await;
+                }
             }
 
-            let cols = cols.unwrap_or(DEFAULT_COLS).clamp(MIN_COLS, MAX_COLS);
-            let rows = rows.unwrap_or(DEFAULT_ROWS).clamp(MIN_ROWS, MAX_ROWS);
+            let normalized = api::normalize_session(&name).map(str::to_string);
+            let name_for_log = name.clone();
+            let resolved = tokio::task::spawn_blocking(move || {
+                api::ensure_session_server(normalized.as_deref())
+            })
+            .await
+            .map_err(std::io::Error::other)?;
 
-            // Detach any existing attachment first. Replacing the handle drops
-            // the old input sender, but the old reader thread would otherwise
-            // keep forwarding frames into the same channel and interleave two
-            // sessions' output.
-            if let Some((_, previous)) = bridge.take() {
-                previous.send(BridgeInput::Detach);
-            }
-
-            match attach_to_session(&name, cols, rows, events_tx.clone()).await {
-                Ok(attached) => {
-                    *bridge = Some((name.clone(), attached));
-                    send_json_split(sink, &ServerMessage::Opened { name }).await
+            match resolved {
+                Ok(socket) => {
+                    *api_socket = Some(socket);
+                    send(sink, &ServerMessage::SessionReady { name: name_for_log }).await
                 }
                 Err(err) => {
-                    send_json_split(
+                    send(
                         sink,
                         &ServerMessage::Error {
                             message: err.to_string(),
@@ -446,39 +425,108 @@ async fn handle_client_message(
             }
         }
 
-        ClientMessage::Input { data } => {
+        ClientMessage::Api { id, method, params } => {
             if !*authenticated {
                 return send_unauthorized(sink).await;
             }
-            let Some((_, bridge)) = bridge.as_ref() else {
-                return Ok(());
+            let Some(socket) = api_socket.clone() else {
+                return send(
+                    sink,
+                    &ServerMessage::Error {
+                        message: "no session selected".to_string(),
+                    },
+                )
+                .await;
             };
-            let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data.as_bytes())
-            else {
-                return Ok(());
+
+            let line = serde_json::to_string(&serde_json::json!({
+                "id": id,
+                "method": method,
+                "params": params,
+            }))
+            .map_err(std::io::Error::other)?;
+
+            let response = tokio::task::spawn_blocking(move || api::request(&socket, &line))
+                .await
+                .map_err(std::io::Error::other)?;
+
+            let payload = match response {
+                Ok(raw) => serde_json::from_str::<serde_json::Value>(raw.trim())
+                    .unwrap_or_else(|_| serde_json::json!({"raw": raw})),
+                Err(err) => serde_json::json!({
+                    "error": {"code": "gateway_error", "message": err.to_string()}
+                }),
             };
-            bridge.send(BridgeInput::Data(bytes));
-            Ok(())
+
+            send(
+                sink,
+                &ServerMessage::ApiResult {
+                    id,
+                    result: payload,
+                },
+            )
+            .await
         }
 
-        ClientMessage::Resize { cols, rows } => {
+        ClientMessage::Subscribe {
+            id,
+            subscriptions: subs,
+        } => {
             if !*authenticated {
                 return send_unauthorized(sink).await;
             }
-            let Some((_, bridge)) = bridge.as_ref() else {
-                return Ok(());
+            let Some(socket) = api_socket.clone() else {
+                return send(
+                    sink,
+                    &ServerMessage::Error {
+                        message: "no session selected".to_string(),
+                    },
+                )
+                .await;
             };
-            let cols = cols.clamp(MIN_COLS, MAX_COLS);
-            let rows = rows.clamp(MIN_ROWS, MAX_ROWS);
-            bridge.send(BridgeInput::Resize { cols, rows });
+
+            // Replace an existing subscription with the same id.
+            if let Some(previous) = subscriptions.remove(&id) {
+                previous.abort();
+            }
+
+            let line = serde_json::to_string(&serde_json::json!({
+                "id": id,
+                "method": "events.subscribe",
+                "params": { "subscriptions": subs },
+            }))
+            .map_err(std::io::Error::other)?;
+
+            let tx = events_tx.clone();
+            let sub_id = id.clone();
+            let handle = tokio::task::spawn_blocking(move || {
+                let result = api::subscribe(&socket, &line, |line| {
+                    let payload = match serde_json::from_str::<serde_json::Value>(line) {
+                        Ok(value) => value,
+                        Err(_) => return true,
+                    };
+                    tx.send(ServerMessage::Event {
+                        id: sub_id.clone(),
+                        payload,
+                    })
+                    .is_ok()
+                });
+                if let Err(err) = result {
+                    let _ = tx.send(ServerMessage::EventClosed {
+                        id: sub_id,
+                        reason: err.to_string(),
+                    });
+                }
+            });
+            subscriptions.insert(id, handle);
             Ok(())
         }
 
-        ClientMessage::SessionClose => {
-            if let Some((_, bridge)) = bridge.take() {
-                bridge.send(BridgeInput::Detach);
+        ClientMessage::Unsubscribe { id } => {
+            if let Some(handle) = subscriptions.remove(&id) {
+                handle.abort();
             }
-            send_json_split(sink, &ServerMessage::Closed { reason: None }).await
+            Ok(())
         }
     }
 }
@@ -489,7 +537,7 @@ async fn send_unauthorized(
         Message,
     >,
 ) -> std::io::Result<()> {
-    send_json_split(
+    send(
         sink,
         &ServerMessage::Error {
             message: "not authenticated".to_string(),
@@ -498,112 +546,7 @@ async fn send_unauthorized(
     .await
 }
 
-/// Reads the session list from the same source `herdr session list` uses.
-fn list_sessions() -> Vec<SessionSummary> {
-    match crate::session::list_sessions() {
-        Ok(sessions) => sessions
-            .into_iter()
-            .map(|session| SessionSummary {
-                name: session.name,
-                default: session.default,
-                running: session.running,
-            })
-            .collect(),
-        Err(err) => {
-            warn!(err = %err, "failed to list sessions");
-            Vec::new()
-        }
-    }
-}
-
-/// Ensures the target session's server is running, then attaches to it.
-async fn attach_to_session(
-    name: &str,
-    cols: u16,
-    rows: u16,
-    events: tokio::sync::mpsc::UnboundedSender<BridgeEvent>,
-) -> std::io::Result<Bridge> {
-    let normalized = if name == crate::session::DEFAULT_SESSION_NAME {
-        None
-    } else {
-        Some(name)
-    };
-
-    let api_socket = crate::session::api_socket_path_for(normalized);
-    let client_socket = crate::session::client_socket_path_for(normalized);
-
-    if !is_socket_listening(&client_socket) {
-        spawn_session_server(normalized, &api_socket, &client_socket)?;
-    }
-
-    let socket = client_socket.clone();
-    tokio::task::spawn_blocking(move || bridge::attach(socket, cols, rows, events))
-        .await
-        .map_err(std::io::Error::other)?
-}
-
-fn is_socket_listening(path: &Path) -> bool {
-    if !path.exists() {
-        return false;
-    }
-    crate::ipc::connect_local_stream(path).is_ok()
-}
-
-/// Starts `herdr server` for a specific session as a detached daemon.
-fn spawn_session_server(
-    name: Option<&str>,
-    api_socket: &Path,
-    client_socket: &Path,
-) -> std::io::Result<()> {
-    let exe = std::env::current_exe()?;
-
-    let mut command = std::process::Command::new(exe);
-    command
-        .arg("server")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-
-    match name {
-        Some(name) => {
-            // The named session is selected through the session env var, which
-            // is what `herdr --session <name>` uses internally.
-            command
-                .env(crate::session::SESSION_ENV_VAR, name)
-                .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
-                .env_remove("HERDR_CLIENT_SOCKET_PATH");
-        }
-        None => {
-            command
-                .env_remove(crate::session::SESSION_ENV_VAR)
-                .env_remove(crate::api::SOCKET_PATH_ENV_VAR)
-                .env_remove("HERDR_CLIENT_SOCKET_PATH");
-        }
-    }
-
-    crate::platform::detach_server_daemon_command(&mut command);
-    let _ = api_socket;
-
-    command.spawn().map_err(|err| {
-        std::io::Error::new(err.kind(), format!("failed to start session server: {err}"))
-    })?;
-
-    // Wait for the client socket to accept connections before attaching.
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while std::time::Instant::now() < deadline {
-        if is_socket_listening(client_socket) {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-
-    Err(std::io::Error::new(
-        std::io::ErrorKind::TimedOut,
-        "timed out waiting for session server to start",
-    ))
-}
-
-async fn send_json_split(
+async fn send(
     sink: &mut futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<TcpStream>,
         Message,

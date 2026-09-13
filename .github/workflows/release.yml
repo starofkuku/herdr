@@ -235,8 +235,42 @@ jobs:
             herdr-web-ui/herdr-web-ui.html
           body_path: RELEASE_NOTES.md
 
+  publish-web-ui:
+    needs: [release, build-web-ui]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download web UI artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: herdr-web-ui
+
+      # The browser UI is served from disk and can change independently of a
+      # herdr release, so it also gets one rolling tag. Users can always
+      # download `web-ui` and get the newest UI without tracking versions.
+      - name: Publish to the rolling web-ui tag
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3
+        with:
+          tag_name: web-ui
+          name: herdr web UI (rolling)
+          body: |
+            Rolling release for the herdr browser UI.
+
+            This tag always points at the newest UI build. It is published
+            alongside every release, but it is not versioned: the UI is served
+            from disk and can be updated without a new herdr binary.
+
+            Download `herdr-web-ui.html`, rename it to `index.html`, and point
+            `[web] static_dir` at its directory.
+          files: herdr-web-ui.html
+          prerelease: false
+          make_latest: false
+          overwrite_files: true
+
   close-released-issues:
-    needs: release
+    needs: [release, publish-web-ui]
     runs-on: ubuntu-latest
     continue-on-error: true
     permissions:

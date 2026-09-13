@@ -11,7 +11,7 @@ description: 使用 herdr web 将 Herdr 终端 UI 提供给浏览器，包括会
 
 每个 Herdr 会话都有自己的服务器，而会话服务器只知道自己那一个会话。只有位于它们之外的进程才能枚举全部会话并提供选择。`herdr web` 就是那个进程：一个监听器、一个端口、所有会话。
 
-浏览器只是另一个客户端。它和终端以相同方式连接，因此浏览器和终端可以同时查看同一个会话并共享同一份状态。
+网关代理的是 CLI 使用的同一套 JSON API。浏览器不会以终端客户端身份接入，因此打开 Web UI 不会影响你终端窗格的布局或尺寸。
 
 ## 启用网关
 
@@ -83,7 +83,17 @@ cd web && bun install && bun run build
 
 这会生成单个自包含的 `web/dist/index.html`。把 `static_dir` 指向该 `dist` 目录。
 
-每个版本也会把同一个文件作为 `herdr-web-ui.html` 资产发布,因此你可以直接使用已发布的 UI,无需自行构建。下载到一个目录,并把 `static_dir` 指向该目录。
+每个版本也会把同一个文件作为 `herdr-web-ui.html` 资产发布，因此你可以直接使用已发布的 UI，无需自行构建。
+
+UI 独立于 herdr 二进制更新，因此还有一个始终保存最新构建的 `web-ui` 滚动发布：
+
+```bash
+mkdir -p ~/herdr-web
+curl -fsSL -o ~/herdr-web/index.html \
+  https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html
+```
+
+把 `static_dir` 指向该目录。版本化发布的资产同名，步骤相同。
 
 由于网关自己提供页面，页面与 WebSocket 同源，因此不需要额外的托管或 CORS 配置。
 
@@ -98,7 +108,9 @@ cd web && bun install && bun run build
 
 如果你保存了密钥,UI 还会记住你最后打开的会话,刷新页面后会直接回到该会话。用返回按钮主动离开会话会清除这一记忆,因此刷新后仍停留在选择页。
 
-鼠标输入也可用：可以直接点击标签页、窗格和菜单。由于 TUI 会捕获鼠标,拖拽选择会交给应用处理;如需在本地选择和复制文本,请按住 **Shift** 拖拽。macOS 上请按住 **Option**。
+UI 是原生页面，而不是终端镜像：先列出会话，再按项目分组显示 Agent 及其当前状态；打开某个 Agent 会以纯文本显示最近输出，并带一个消息输入框。输出使用浏览器原生滚动和文本选择。
+
+通知不会投递到浏览器。
 
 通知不会投递到浏览器。Agent 状态、终端输出和输入会。
 

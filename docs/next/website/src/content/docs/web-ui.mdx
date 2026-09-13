@@ -11,7 +11,8 @@ This is for reaching your own machine over a private network such as WireGuard o
 
 Each Herdr session has its own server, and a session server only knows its own session. Only a process outside them can enumerate every session and offer a chooser. `herdr web` is that process: one listener, one port, all sessions.
 
-The browser is just another client. It attaches the same way a terminal does, so a browser and a terminal can watch the same session and share one state.
+The gateway proxies the same JSON API the CLI uses. The browser never attaches as a terminal client, so opening the web UI does not affect the layout or size of your terminal panes.
+
 
 ## Enable the gateway
 
@@ -77,7 +78,17 @@ cd web && bun install && bun run build
 
 That produces a single self-contained `web/dist/index.html`. Point `static_dir` at the `dist` directory.
 
-Each release also publishes the same file as the `herdr-web-ui.html` asset, so you can use a released UI without building anything. Download it into a directory and point `static_dir` at that directory.
+Each release also publishes the same file as the `herdr-web-ui.html` asset, so you can use a released UI without building anything.
+
+The UI changes independently of the herdr binary, so it also has a rolling `web-ui` release that always holds the newest build:
+
+```bash
+mkdir -p ~/herdr-web
+curl -fsSL -o ~/herdr-web/index.html \
+  https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html
+```
+
+Point `static_dir` at that directory. Downloading a versioned release asset works the same way; the asset name is identical.
 
 Because the gateway serves the page itself, the page and the WebSocket share an origin, so no extra hosting or CORS setup is needed.
 
@@ -92,9 +103,9 @@ Open the gateway URL in a browser, enter the key, then pick a session or type a 
 
 When you store the key, the UI also remembers the session you opened and returns to it after a page reload. Leaving a session with the back button clears that memory, so a reload keeps you on the picker.
 
-Mouse input works: click tabs, panes, and menus directly. Because the TUI captures the mouse, drag-selection is reserved for the application; hold **Shift** while dragging to select and copy text locally instead. On macOS, hold **Option**.
+The UI is a native page rather than a terminal mirror: sessions are listed first, then agents grouped by project with their current state, and opening an agent shows its recent output as plain text with a message composer. Output uses normal browser scrolling and text selection.
 
-Notifications are not delivered to the browser. Agent state, terminal output, and input are.
+Notifications are not delivered to the browser.
 
 ## Remote access
 

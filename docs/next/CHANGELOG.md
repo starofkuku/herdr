@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+- The web UI is now a native page instead of a terminal mirror. `herdr web` proxies the public JSON API rather than attaching a terminal client, so it no longer affects pane layout or size. The page lists agents with their state, shows output as selectable plain text, and adds a message composer. The browser protocol version is now 2, so reload the page after upgrading.
+- The browser UI is also published to a rolling `web-ui` release tag that always holds the newest build, so the page can be updated without tracking herdr versions.
+
 ## [0.7.19] - 2026-09-13
 
 ### Added
