@@ -184,10 +184,13 @@ herdr pane close <pane_id>
 出力を読む:
 
 ```bash
-herdr pane read <pane_id> [--source visible|recent|recent-unwrapped|detection] [--lines N]
+herdr pane read <pane_id> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--offset N]
 herdr pane read <pane_id> --source visible --ansi
 herdr pane read <pane_id> --source recent-unwrapped --lines 120
+herdr pane read <pane_id> --source recent-unwrapped --lines 120 --offset 120
 ```
+
+`--lines` の既定値は 80 で、1 回の呼び出しで最大 2000 行です。`--offset` は最新行から数えてその行数分だけ遡るため、繰り返し呼ぶことで保持されている履歴を 1 ページずつ辿れます。保持されている最古の行より前を指定すると空の出力になります。
 
 入力を送る:
 

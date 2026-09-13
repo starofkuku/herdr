@@ -94,8 +94,18 @@ export default function App() {
       setPhase("agents");
 
       subscriptionRef.current?.close();
+      // `pane.agent_status_changed` requires a pane_id and `pane.output_changed`
+      // is not a subscribable kind, so watch the kinds that are: agent
+      // detection and pane lifecycle. `pane.updated` covers state changes
+      // reported through other paths.
       subscriptionRef.current = client.subscribe(
-        ["pane.agent_status_changed", "pane.agent_detected", "pane.closed", "pane.created"],
+        [
+          "pane.updated",
+          "pane.agent_detected",
+          "pane.created",
+          "pane.closed",
+          "workspace.updated",
+        ],
         () => scheduleRefresh(),
       );
     },

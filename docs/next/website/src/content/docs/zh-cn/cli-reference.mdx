@@ -184,10 +184,13 @@ herdr pane close <pane_id>
 读取输出:
 
 ```bash
-herdr pane read <pane_id> [--source visible|recent|recent-unwrapped|detection] [--lines N]
+herdr pane read <pane_id> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--offset N]
 herdr pane read <pane_id> --source visible --ansi
 herdr pane read <pane_id> --source recent-unwrapped --lines 120
+herdr pane read <pane_id> --source recent-unwrapped --lines 120 --offset 120
 ```
+
+`--lines` 默认 80，单次调用上限 2000 行。`--offset` 从最新行往前跳过指定行数，因此重复调用可以逐页回溯保留的历史。偏移超过最旧的保留行时返回空输出。
 
 发送输入:
 

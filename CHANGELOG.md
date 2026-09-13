@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- `pane.read` accepts an `offset` to page backwards through pane history, exposed as `herdr pane read --offset N`. The per-call cap is now 2000 rows. The web UI uses it to load earlier output when you scroll to the top of an agent transcript.
+
+### Fixed
+- The web UI now updates an agent's transcript while output is still being produced. It subscribed to `pane.output_changed`, which is not a subscribable event, so the detail view never refreshed.
+- Paged transcripts no longer duplicate or merge rows: the UI advances by the rows each page actually returned instead of the requested page size, and it separates pages that do not end with a newline.
+
 ## [0.7.20] - 2026-09-13
 
 ### Changed

@@ -424,6 +424,13 @@ textarea {
   padding: 0.9rem;
 }
 
+.transcript .pager {
+  margin: 0 0 0.75rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
 .transcript pre {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;

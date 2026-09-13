@@ -144,10 +144,26 @@ export function compareAgents(a: AgentView, b: AgentView): number {
   return a.label.localeCompare(b.label);
 }
 
+/**
+ * Rows requested per history page.
+ *
+ * The API caps a single read, so the detail view pages backwards through the
+ * transcript instead of asking for everything at once.
+ */
+export const HISTORY_PAGE_LINES = 120;
+
 /** Extracts the text of a `pane.read` response. */
 export function paneText(envelope: Record<string, unknown>): string {
   const read = envelope.read as { text?: unknown } | undefined;
   return typeof read?.text === "string" ? read.text : "";
+}
+
+/** How many rows of history currently exist behind the newest row. */
+export function scrollbackRows(envelope: Record<string, unknown>): number {
+  const pane = (envelope.data as { pane?: { scroll?: { max_offset_from_bottom?: unknown } } })
+    ?.pane;
+  const value = pane?.scroll?.max_offset_from_bottom;
+  return typeof value === "number" && value > 0 ? value : 0;
 }
 
 /** Formats a directory for display, shortening the home prefix. */
