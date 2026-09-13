@@ -1,14 +1,24 @@
 {
-  "version": "0.7.16",
+  "version": "0.7.17",
   "protocol": 19,
-  "notes": "### Added\n- Added `herdr web`, a browser UI for Herdr sessions. It runs as its own gateway process, lists every session so you can attach or create one, and shares state with terminal clients attached to the same session. It is disabled unless `HERDR_WEB_KEY` is set, supports an optional Origin allowlist, and serves the UI from `[web] static_dir` rather than embedding it in the binary. Configure it with `[web] bind`, `port`, `static_dir`, and `allowed_origins`.\n- Release and preview workflows now publish the browser UI as a separate `herdr-web-ui.html` asset.",
+  "notes": "### Added\n- `[web] key` now accepts the web gateway key directly in `config.toml`, so it survives restarts without exporting `HERDR_WEB_KEY`. Herdr refuses to start when that file is readable by other users and tells you to run `chmod 600`. `HERDR_WEB_KEY` and `HERDR_WEB_KEY_FILE` still take precedence.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.16/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.16/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.16/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.16/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.17": {
+      "notes": "### Added\n- `[web] key` now accepts the web gateway key directly in `config.toml`, so it survives restarts without exporting `HERDR_WEB_KEY`. Herdr refuses to start when that file is readable by other users and tells you to run `chmod 600`. `HERDR_WEB_KEY` and `HERDR_WEB_KEY_FILE` still take precedence.",
+      "protocol": 19,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.17/herdr-macos-aarch64"
+      }
+    },
     "0.7.16": {
       "notes": "### Added\n- Added `herdr web`, a browser UI for Herdr sessions. It runs as its own gateway process, lists every session so you can attach or create one, and shares state with terminal clients attached to the same session. It is disabled unless `HERDR_WEB_KEY` is set, supports an optional Origin allowlist, and serves the UI from `[web] static_dir` rather than embedding it in the binary. Configure it with `[web] bind`, `port`, `static_dir`, and `allowed_origins`.\n- Release and preview workflows now publish the browser UI as a separate `herdr-web-ui.html` asset.",
       "protocol": 19,
