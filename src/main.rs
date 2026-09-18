@@ -510,17 +510,32 @@ fn main() -> io::Result<()> {
     }
 
     if args.get(1).map(|s| s.as_str()) == Some("update") {
-        let options = match update::parse_self_update_args(&args[2..]) {
-            Ok(options) => options,
+        let target = match update::parse_update_args(&args[2..]) {
+            Ok(target) => target,
             Err(err) if err.starts_with("usage:") => {
                 eprintln!("{err}");
                 std::process::exit(0);
             }
             Err(err) => {
                 eprintln!("{err}");
-                eprintln!("usage: herdr update [--handoff]");
+                eprintln!("{}", update::SELF_UPDATE_USAGE);
                 std::process::exit(2);
             }
+        };
+
+        // The web UI is published separately, so it is updated on its own.
+        if let update::UpdateTarget::Web { check_only } = target {
+            return match update::run_web_update(check_only) {
+                Ok(()) => Ok(()),
+                Err(err) => {
+                    eprintln!("update failed: {err}");
+                    std::process::exit(1);
+                }
+            };
+        }
+
+        let update::UpdateTarget::Binary(options) = target else {
+            unreachable!("web target handled above");
         };
         match update::self_update(options) {
             Ok(_) => return Ok(()),

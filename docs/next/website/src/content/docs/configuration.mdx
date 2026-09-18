@@ -403,6 +403,21 @@ resume_agents_on_restore = true
 
 Only panes with a valid native session reference from an official integration can resume; other panes restore as normal shells. See [Session state and restore](/docs/session-state/) for supported Agents and persistence behavior.
 
+## codex-trace links
+
+If you run [codex-trace](https://github.com/xianchoujiduluo/codex-trace) to read Agent conversations as turns and tool calls, Herdr can build a deep link to the conversation in a pane:
+
+```toml
+[codex_trace]
+url = "http://127.0.0.1:1422"
+```
+
+With this set, right-clicking an Agent pane adds **Copy session link**, which puts a URL like `http://127.0.0.1:1422/pi/01a0acf2-81bb-76f7-9e48-763112a909d3` on your clipboard. Paste it into a browser to open that conversation.
+
+The action only appears when the pane has an Agent that reports a transcript path whose filename carries a recognizable session id. That covers pi, Claude Code, and Codex; other Agents and plain shells have no conversation to link to. Leaving `url` unset hides the action entirely.
+
+Copying uses the same route as a mouse selection: OSC 52 when the terminal supports it, otherwise the platform clipboard tool. This is what lets the link reach your own clipboard when Herdr runs over SSH or in WSL.
+
 ## IME cursor tracking
 
 On macOS, AI Agent TUIs that hide the hardware cursor can prevent native input-method candidate windows from following the focused pane. Reveal a cursor anchor for those panes with:

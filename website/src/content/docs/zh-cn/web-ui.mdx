@@ -53,13 +53,13 @@ port = 8787
 static_dir = "/home/you/herdr/web/dist"
 # Optional Origin allowlist. Empty disables the check.
 allowed_origins = []
+# URL `herdr update web` downloads the page from. Optional.
+update_url = "https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html"
 # Gateway key. Keep this file at chmod 600.
 key = "..."
 ```
 
 建议绑定私有接口而不是 `0.0.0.0`，这样端口只能从你预期的网络访问。
-
-密钥来源按以下顺序读取：
 
 密钥来源按优先级顺序：
 
@@ -69,7 +69,6 @@ key = "..."
 
 基于文件的密钥不得被其他用户读取，Herdr 对 `config.toml` 和 `HERDR_WEB_KEY_FILE` 都会强制这一点。
 
-不要把密钥放进 `config.toml`。该文件通常对同机其他用户可读，而 Herdr 自己的 socket 仅限所有者访问。
 
 ## 提供 UI
 
@@ -97,6 +96,35 @@ curl -fsSL -o ~/herdr-web/index.html \
 
 由于网关自己提供页面，页面与 WebSocket 同源，因此不需要额外的托管或 CORS 配置。
 
+### 更新页面
+
+页面是文件而不是二进制的一部分，因此单独更新：
+
+```bash
+herdr update web            # 下载并安装最新页面
+herdr update web --check    # 只报告可用版本，不写入任何内容
+```
+
+这需要 `static_dir`（要有目录可写）和 `update_url`：
+
+```toml
+[web]
+static_dir = "/home/you/herdr-web"
+update_url = "https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html"
+```
+
+下载内容会先写入临时文件，然后重命名覆盖 `index.html`，因此下载失败或中断不会让网关提供半个页面。看起来不像 herdr web UI 构建的文件（代理错误页、被截断的传输）会被拒绝而不是安装。
+
+每个构建都在注释里带有版本号，`--check` 比较的就是它：
+
+```html
+<!-- herdr-web-ui version: 0.7.21 -->
+```
+
+当已安装页面和下载页面都带版本号时，版本相同即表示无需操作。更新后请在浏览器中刷新页面；网关每次请求都从磁盘读取该文件，因此无需重启。
+
+不带子命令的 `herdr update` 更新的是二进制，不是页面。两者分别发布，互不更新。
+
 ## 连接
 
 在浏览器中打开网关地址，输入密钥，然后选择会话或输入新名称。
@@ -104,15 +132,61 @@ curl -fsSL -o ~/herdr-web/index.html \
 - 打开未运行的会话会启动它的服务器。
 - 会话名可使用字母、数字、`.`、`_` 和 `-`。
 - 多个客户端可以连接同一个会话并共享状态。
-- 终端会随浏览器视口调整大小，因此窄屏手机自动使用 Herdr 的移动端布局。
 
 如果你保存了密钥,UI 还会记住你最后打开的会话,刷新页面后会直接回到该会话。用返回按钮主动离开会话会清除这一记忆,因此刷新后仍停留在选择页。
 
-UI 是原生页面，而不是终端镜像：先列出会话，再按项目分组显示 Agent 及其当前状态；打开某个 Agent 会以纯文本显示输出，并带一个消息输入框。输出会随 Agent 工作实时更新，向上滚动到顶部时逐页加载更早的输出。输出使用浏览器原生滚动和文本选择。
+## 界面
+
+UI 是原生页面，而不是终端镜像。这里不渲染任何 ANSI；每个界面都由 JSON API 的数据构建。
+
+**会话。** Herdr 已知的全部会话及其运行状态，另有一个输入框用于打开已有会话或启动新会话。
+
+**Agent。** 所选会话中的 Agent，按工作区分组并显示各自当前状态。点击某个 Agent 即可打开。
+
+**Agent 详情。** 单个 Agent 的最近输出、消息输入框，以及当 Agent 等待输入时出现的按键条（见下文）。
+
+## Agent 控制台
+
+输出是取自窗格的纯文本，因此在所有平台上都使用浏览器原生的滚动、选择和复制。
+
+Agent 工作时，新输出会随产生而出现。滚动到顶部会逐页加载更早的输出，因此长对话可以回看而不必一次全部载入。没有更早内容时会显示 `start of history` 标记。
+
+输入框用于向 Agent 发送消息。`Enter` 发送，`Shift+Enter` 换行。
+
+发送消息后，只要 Agent 仍在处理该轮，发送按钮就会变成 **停止** 按钮。停止发送的是 Agent 自己声明用于中断的按键（通常是 `esc`），效果与自己按下该键相同。
+
+本地 UI 状态（即你所在的界面和滚动位置）不与终端共享。只有 Agent 自身的输出和状态是共享的。
+
+## 回答提示
+
+当 Agent 阻塞等待输入时，输入框上方会出现 **waiting for you** 面板。它以文本显示窗格末尾内容，并提供 Agent 提示通常接受的按键：方向键、`Enter`、`Esc`、数字键以及 `y` / `n`。
+
+该面板刻意不解析提示内容。它无法判断哪个选项对应哪一项，因此不去尝试；你阅读文本并按下按键，与在终端里完全一致。
+
+这样做有两个原因：
+
+- 它不会选错选项，因为它从不猜测选项的含义。
+- 当 Agent 改变措辞时它依然可用，因为不对文本做任何匹配。
+
+按键作为原始终端输入发送到窗格，因此行为与在终端中输入相同。在多数 Agent 中 `Esc` 是中止而非作答，因此它的样式与用于作答的按键区分开。
+
+## 阅读对话
+
+上报了原生会话文件的 Agent —— 即安装了 Herdr 集成的 pi、Claude Code 和 Codex —— 可以按结构化对话展示，而不是终端画面：每轮一次交互，工具调用可展开，并显示该会话的 token 数。
+
+转录由服务端从 Agent 自己的会话日志解析，因此反映的是 Agent 记录的内容，而非其 TUI 恰好绘制的内容。窗格右键菜单可以复制指向该对话的深链接；参见 [codex-trace 链接](/docs/configuration/#codex-trace-links)。
+
+只上报会话 ID 的 Agent 和普通 shell 会回退为显示窗格画面。
+
+## 主题
+
+每个界面右上角都有主题切换。它在深色和浅色调色板之间切换，选择会记录在浏览器中。没有记录时，UI 跟随操作系统的 `prefers-color-scheme` 设置。
+
+## 手机使用
+
+布局是为窄屏设计的：Agent 卡片纵向堆叠，输入框停在键盘上方，提示按键按触摸尺寸设置。页面不是终端，因此没有视口尺寸需要协商，也不需要触发移动端布局模式 —— 它会像普通网页一样重排。
 
 通知不会投递到浏览器。
-
-通知不会投递到浏览器。Agent 状态、终端输出和输入会。
 
 ## 远程访问
 

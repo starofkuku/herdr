@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+- `herdr update web` downloads and installs the newest web UI page, and `herdr update web --check` reports the available version without writing anything. Set `[web] update_url` to the page to install and `[web] static_dir` to the directory the gateway serves. The download is validated and then renamed over `index.html`, so a failed or interrupted download cannot leave a partial page in place.
+- `pane.session` returns a pane's agent transcript as parsed turns instead of as a rendered screen. It reads the transcript path the agent's own integration reports, so it works for agents that publish one (pi, Claude Code, Codex) and reports `no_transcript` for agents that only report a session id.
+- An Agent pane's right-click menu offers **Copy session link** when `[codex_trace] url` is set, putting a codex-trace URL for that conversation on the clipboard. Copying uses the same OSC 52 path as a mouse selection, so it reaches your own clipboard over SSH and WSL.
+- Parsed transcripts are cached between requests, so paging a long conversation does not re-read the file. A cold read of an 18 MB transcript takes about 120 ms; later pages take single-digit milliseconds.
+
+### Changed
+- The web UI shows an agent's conversation when it publishes one, instead of the rendered terminal. Agents that only report a session id, and plain shells, still show the pane. The `terminal` / `conversation` tabs are gone: the conversation is the view, so there is nothing to switch between.
+- The web UI has a dark/light theme switch in each screen's header, remembered in the browser and defaulting to the operating system preference. State colors and the accent now follow the theme rather than using values tuned for the dark palette.
+- The web UI updates an agent's transcript while output is still being produced, loads earlier output a page at a time when you scroll to the top, and turns the send button into a stop button for the turn you started.
+- The wire protocol is now 20, because `pane.session` adds an API method.
+
 ## [0.7.21] - 2026-09-13
 
 ### Added

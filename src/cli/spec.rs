@@ -68,6 +68,11 @@ fn update_command() -> Command {
     Command::new("update")
         .about("Download and install the latest version")
         .arg(flag("handoff").help("Try live handoff after installing"))
+        .subcommand(
+            Command::new("web")
+                .about("Update the web UI page")
+                .arg(flag("check").help("Report what is available without installing")),
+        )
 }
 
 fn status_command() -> Command {

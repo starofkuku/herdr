@@ -1060,6 +1060,12 @@
           "description": "Directory containing the built web UI. Served from disk at request time and never embedded in the binary; when unset only the WebSocket endpoint is served."
         },
         {
+          "key": "web.update_url",
+          "type": "string",
+          "default": "unset",
+          "description": "URL the web UI is downloaded from by `herdr update web`. The page is published on its own release, so it can be updated without touching the binary. Requires `web.static_dir`."
+        },
+        {
           "key": "web.allowed_origins",
           "type": "array of strings",
           "default": "[]",
@@ -1070,6 +1076,12 @@
           "type": "string",
           "default": "none",
           "description": "Gateway key. Keeping it here survives restarts; the file must not be readable by other users, so run chmod 600 on config.toml. HERDR_WEB_KEY and HERDR_WEB_KEY_FILE take precedence. Without any key the gateway does not listen."
+        },
+        {
+          "key": "codex_trace.url",
+          "type": "string",
+          "default": "unset",
+          "description": "Base URL of a running codex-trace instance, for example http://127.0.0.1:1422. When set, the pane right-click menu offers \"Copy session link\" for agents whose transcript maps to a codex-trace conversation. Unset hides the action."
         }
       ]
     },

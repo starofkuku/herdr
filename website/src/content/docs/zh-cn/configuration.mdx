@@ -402,6 +402,21 @@ resume_agents_on_restore = true
 
 只有通过官方集成获得有效原生会话引用的窗格才能恢复；其他窗格会作为普通 shell 恢复。有关受支持的智能体和持久化行为，请参阅[会话状态与恢复](/docs/session-state/)。
 
+## codex-trace 链接
+
+如果你用 [codex-trace](https://github.com/xianchoujiduluo/codex-trace) 把 Agent 对话按轮次和工具调用阅读，Herdr 可以为窗格中的会话生成深链接：
+
+```toml
+[codex_trace]
+url = "http://127.0.0.1:1422"
+```
+
+设置后，右键 Agent 窗格会多出一项 **Copy session link**，它会把类似 `http://127.0.0.1:1422/pi/01a0acf2-81bb-76f7-9e48-763112a909d3` 的 URL 放进剪贴板。粘贴到浏览器即可打开该会话。
+
+只有当窗格所属的 Agent 上报了转录路径、且文件名中能识别出会话 ID 时，这一项才会出现。支持 pi、Claude Code 和 Codex；其他 Agent 和普通 shell 没有可链接的会话。不设置 `url` 则完全隐藏该项。
+
+复制走的是与鼠标选中相同的路径：终端支持时使用 OSC 52，否则调用平台剪贴板工具。正因如此，当 Herdr 运行在 SSH 或 WSL 上时，链接仍能到达你本机的剪贴板。
+
 ## IME 光标跟踪
 
 在 macOS 上，隐藏硬件光标的 AI 智能体 TUI 可能导致原生输入法候选窗口无法跟随聚焦窗格。使用以下设置可为这些窗格显示光标锚点：

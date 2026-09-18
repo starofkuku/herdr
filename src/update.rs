@@ -981,12 +981,99 @@ pub(crate) fn parse_self_update_args(args: &[String]) -> Result<SelfUpdateOption
         match arg.as_str() {
             "--handoff" => options.live_handoff = true,
             "--help" | "-h" => {
-                return Err("usage: herdr update [--handoff]".to_string());
+                return Err(SELF_UPDATE_USAGE.to_string());
             }
             _ => return Err(format!("unknown update option: {arg}")),
         }
     }
     Ok(options)
+}
+
+pub(crate) const SELF_UPDATE_USAGE: &str =
+    "usage: herdr update [--handoff]\n       herdr update web [--check]";
+
+/// What `herdr update` should update.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UpdateTarget {
+    /// The herdr binary itself.
+    Binary(SelfUpdateOptions),
+    /// The web UI page served by `herdr web`.
+    Web { check_only: bool },
+}
+
+/// Parses `herdr update [web] [flags]`.
+///
+/// The binary and the web UI are published separately, so they are separate
+/// targets rather than one command that does both.
+pub(crate) fn parse_update_args(args: &[String]) -> Result<UpdateTarget, String> {
+    match args.first().map(String::as_str) {
+        Some("web") => {
+            let mut check_only = false;
+            for arg in &args[1..] {
+                match arg.as_str() {
+                    "--check" => check_only = true,
+                    "--help" | "-h" => return Err(SELF_UPDATE_USAGE.to_string()),
+                    _ => return Err(format!("unknown update option: {arg}")),
+                }
+            }
+            Ok(UpdateTarget::Web { check_only })
+        }
+        _ => parse_self_update_args(args).map(UpdateTarget::Binary),
+    }
+}
+
+/// Runs `herdr update web`, printing the outcome.
+pub(crate) fn run_web_update(check_only: bool) -> Result<(), String> {
+    let loaded = crate::config::Config::load();
+    match crate::web::update::update_web_ui(&loaded.config.web, check_only) {
+        Ok(outcome) => {
+            use crate::web::update::WebUpdateOutcome;
+            match outcome {
+                WebUpdateOutcome::CheckOnly { current, available } => {
+                    println!(
+                        "installed: {}",
+                        current.as_deref().unwrap_or("unknown (no version marker)")
+                    );
+                    println!(
+                        "available: {}",
+                        available
+                            .as_deref()
+                            .unwrap_or("unknown (no version marker)")
+                    );
+                    let update_available = match (&current, &available) {
+                        (Some(current), Some(available)) => current != available,
+                        // Without both versions there is no way to compare, so
+                        // report that an update is possible rather than claim it
+                        // is not needed.
+                        _ => true,
+                    };
+                    println!(
+                        "{}",
+                        if update_available {
+                            "an update is available"
+                        } else {
+                            "already up to date"
+                        }
+                    );
+                }
+                WebUpdateOutcome::UpToDate { version } => {
+                    println!(
+                        "web UI is already up to date ({})",
+                        version.as_deref().unwrap_or("unknown")
+                    );
+                }
+                WebUpdateOutcome::Installed { version } => {
+                    println!(
+                        "web UI updated to {}",
+                        version.as_deref().unwrap_or("an unversioned build")
+                    );
+                    println!("reload the page in your browser to pick it up");
+                }
+            }
+            Ok(())
+        }
+        Err(err) => Err(err.to_string()),
+    }
 }
 
 #[cfg(not(windows))]
@@ -2660,6 +2747,33 @@ mod tests {
         assert_eq!(
             parse_self_update_args(&["--unknown".to_string()]).unwrap_err(),
             "unknown update option: --unknown"
+        );
+    }
+
+    #[test]
+    fn update_args_route_the_web_subcommand_separately() {
+        assert_eq!(
+            parse_update_args(&[]).unwrap(),
+            UpdateTarget::Binary(SelfUpdateOptions {
+                live_handoff: false
+            })
+        );
+        assert_eq!(
+            parse_update_args(&["--handoff".to_string()]).unwrap(),
+            UpdateTarget::Binary(SelfUpdateOptions { live_handoff: true })
+        );
+        assert_eq!(
+            parse_update_args(&["web".to_string()]).unwrap(),
+            UpdateTarget::Web { check_only: false }
+        );
+        assert_eq!(
+            parse_update_args(&["web".to_string(), "--check".to_string()]).unwrap(),
+            UpdateTarget::Web { check_only: true }
+        );
+        // `--handoff` belongs to the binary, not to the web page.
+        assert_eq!(
+            parse_update_args(&["web".to_string(), "--handoff".to_string()]).unwrap_err(),
+            "unknown update option: --handoff"
         );
     }
 

@@ -1,9 +1,9 @@
 ---
 title: Web UI
-description: Serve the Herdr terminal UI to a browser with herdr web, including sessions, authentication, and mobile use.
+description: Serve Herdr to a browser with herdr web — sessions, authentication, the agent console, themes, and mobile use.
 ---
 
-`herdr web` serves the Herdr terminal UI to a browser and bridges browser input back to your sessions. It runs as its own process, separate from any session server, so it can list every session and let you pick one.
+`herdr web` serves a browser interface to Herdr. It runs as its own process, separate from any session server, so it can list every session and let you pick one.
 
 This is for reaching your own machine over a private network such as WireGuard or an SSH tunnel. It is not a hosted service.
 
@@ -12,7 +12,6 @@ This is for reaching your own machine over a private network such as WireGuard o
 Each Herdr session has its own server, and a session server only knows its own session. Only a process outside them can enumerate every session and offer a chooser. `herdr web` is that process: one listener, one port, all sessions.
 
 The gateway proxies the same JSON API the CLI uses. The browser never attaches as a terminal client, so opening the web UI does not affect the layout or size of your terminal panes.
-
 
 ## Enable the gateway
 
@@ -52,6 +51,8 @@ port = 8787
 static_dir = "/home/you/herdr/web/dist"
 # Optional Origin allowlist. Empty disables the check.
 allowed_origins = []
+# URL `herdr update web` downloads the page from. Optional.
+update_url = "https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html"
 # Gateway key. Keep this file at chmod 600.
 key = "..."
 ```
@@ -78,9 +79,7 @@ cd web && bun install && bun run build
 
 That produces a single self-contained `web/dist/index.html`. Point `static_dir` at the `dist` directory.
 
-Each release also publishes the same file as the `herdr-web-ui.html` asset, so you can use a released UI without building anything.
-
-The UI changes independently of the herdr binary, so it also has a rolling `web-ui` release that always holds the newest build:
+Each release also publishes the same file as the `herdr-web-ui.html` asset, so you can use a released UI without building anything. The UI changes independently of the herdr binary, so there is also a rolling `web-ui` release that always holds the newest build:
 
 ```bash
 mkdir -p ~/herdr-web
@@ -92,6 +91,35 @@ Point `static_dir` at that directory. Downloading a versioned release asset work
 
 Because the gateway serves the page itself, the page and the WebSocket share an origin, so no extra hosting or CORS setup is needed.
 
+### Updating the page
+
+Because the page is a file rather than part of the binary, it is updated on its own:
+
+```bash
+herdr update web            # download and install the newest page
+herdr update web --check    # report what is available, writing nothing
+```
+
+This requires `static_dir` (there has to be a directory to write into) and `update_url`:
+
+```toml
+[web]
+static_dir = "/home/you/herdr-web"
+update_url = "https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html"
+```
+
+The download is written to a temporary file and then renamed over `index.html`, so a failed or interrupted download cannot leave the gateway serving a partial page. A file that does not look like a herdr web UI build — a proxy error page, a truncated transfer — is rejected rather than installed.
+
+Each build carries its version in a comment, which is what `--check` compares:
+
+```html
+<!-- herdr-web-ui version: 0.7.21 -->
+```
+
+When both the installed page and the downloaded one carry a version, an identical version means there is nothing to do. Reload the page in your browser after updating; the gateway serves the file from disk on each request, so no restart is needed.
+
+`herdr update` with no subcommand updates the binary, not the page. The two are released separately, so neither updates the other.
+
 ## Connecting
 
 Open the gateway URL in a browser, enter the key, then pick a session or type a new name.
@@ -99,11 +127,59 @@ Open the gateway URL in a browser, enter the key, then pick a session or type a 
 - Opening a session that is not running starts its server.
 - Session names use letters, numbers, `.`, `_`, and `-`.
 - Several clients can attach to one session and share its state.
-- The terminal resizes to the browser viewport, so narrow phone screens use Herdr's mobile layout automatically.
 
 When you store the key, the UI also remembers the session you opened and returns to it after a page reload. Leaving a session with the back button clears that memory, so a reload keeps you on the picker.
 
-The UI is a native page rather than a terminal mirror: sessions are listed first, then agents grouped by project with their current state, and opening an agent shows its output as plain text with a message composer. Output updates as the agent works, and scrolling to the top loads earlier output a page at a time. Output uses normal browser scrolling and text selection.
+## Screens
+
+The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every screen is built from the JSON API.
+
+**Sessions.** Every session Herdr knows about, with whether it is running, plus a field to open an existing session or start a new one.
+
+**Agents.** The agents in the selected session, grouped by workspace and showing each one's current state. Tap an agent to open it.
+
+**Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below.
+
+## The agent console
+
+Output is plain text taken from the pane, so it uses normal browser scrolling, text selection, and copy on every platform.
+
+While an agent is working, new output appears as it is produced. Scrolling to the top loads earlier output a page at a time, so a long conversation can be read back without loading it all at once. A `start of history` marker shows when there is nothing older to load.
+
+The composer sends a message to the agent. `Enter` sends and `Shift+Enter` inserts a newline.
+
+After you send a message, the send button becomes a **stop** button for as long as the agent is working on that turn. Stopping sends the same key the agent advertises for interruption (usually `esc`), so it behaves the same as pressing the key yourself.
+
+Local UI state, meaning which screen you are on and how far you have scrolled, is not shared with the terminal. Only the agent's own output and state are.
+
+## Answering a prompt
+
+When the agent is blocked waiting for input, a **waiting for you** panel appears above the composer. It shows the last part of the pane as text and offers the keys an agent prompt normally accepts: arrow keys, `Enter`, `Esc`, the number keys, and `y` / `n`.
+
+The panel deliberately does not parse the prompt. It cannot tell which option is which, so it does not try; you read the text and press the key, exactly as you would in the terminal.
+
+This matters for two reasons:
+
+- It cannot select the wrong option, because it never guesses what an option means.
+- It keeps working when an agent changes its wording, since nothing is matched against the text.
+
+The keys are sent to the pane as raw terminal input, so they behave the same as typing them into the terminal. `Esc` aborts rather than answers in most agents, so it is styled separately from the keys that resolve the prompt.
+
+## Reading the conversation
+
+Agents that publish their native session file — pi, Claude Code, and Codex, when their Herdr integration is installed — can be shown as a structured conversation instead of a terminal screen: one exchange per turn, with tool calls you can expand and the token count for the session.
+
+The transcript is parsed on the server from the agent's own session log, so it reflects what the agent recorded rather than what its TUI happens to be painting. Deep links into that conversation are available through the pane right-click menu; see [codex-trace links](/docs/configuration/#codex-trace-links).
+
+Agents that only report a session id, and plain shells, fall back to the rendered pane.
+
+## Theme
+
+A theme switch sits at the top right of every screen. It toggles between the dark and light palettes, and the choice is remembered in the browser. With no stored choice, the UI follows the operating system's `prefers-color-scheme` setting.
+
+## Mobile use
+
+The layout is built for narrow screens: agent cards stack, the composer stays above the keyboard, and the prompt keys are sized for touch. The page is not a terminal, so there is no viewport sizing to negotiate and no mobile layout mode to trigger — it reflows like any other web page.
 
 Notifications are not delivered to the browser.
 

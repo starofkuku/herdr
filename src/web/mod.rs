@@ -13,6 +13,7 @@ pub(crate) mod api;
 pub(crate) mod auth;
 pub(crate) mod http;
 pub(crate) mod protocol;
+pub(crate) mod update;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
