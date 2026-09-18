@@ -6,6 +6,7 @@ test:
     python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_config_reference_check scripts.test_docs_translation_parity scripts.test_preview scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
     just integration-assets-test
     just plugin-marketplace-test
+    just web-test
 
 # Run one nextest filter, e.g. `just test-one codex_stale_working`
 test-one filter:
@@ -42,6 +43,10 @@ install-hooks:
 # Build release binary
 build:
     cargo build --release --locked
+
+# Run the browser UI unit tests (pure logic, no browser needed)
+web-test:
+    cd web && bun test
 
 # Build the browser UI served by `herdr web`
 web-build:

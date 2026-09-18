@@ -195,6 +195,14 @@ Each turn shows the answer and any errors, with the agent's thinking and its too
 
 A working agent's transcript is polled while it runs. The server does not emit an event when a pane's output grows — only when a pane's title, metadata, or diagnostics change — so a view driven purely by events stops updating the moment the agent starts writing. Polling is what keeps the newest turn appearing as it is produced; it stops when the agent leaves the working state.
 
+### Jumping around a conversation
+
+A narrow rail beside the transcript holds one tick per message you sent, in order. The tick for the turn you are reading is highlighted, so the rail doubles as a position indicator as you scroll.
+
+Hovering a tick shows what that message said, and clicking it scrolls that turn to the top. The ticks stay a compact centred block rather than spreading over the full height, and a session with more messages than fit samples them evenly — the tick you are at is always kept.
+
+On a touch screen the labels are not rendered at all and the ticks grow to a comfortable tap size. There is no hover on a touch device, so a label revealed only by hovering could never appear; tapping the tick jumps instead.
+
 Agents that only report a session id, and plain shells, fall back to the rendered pane.
 
 ## Theme

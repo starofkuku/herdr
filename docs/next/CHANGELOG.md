@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- The web UI conversation view has a navigation rail beside the transcript: one tick per message you sent, with the turn you are reading highlighted. Hovering a tick shows that message and clicking it jumps there. On a touch screen the ticks grow to a tap target and jump on tap, since a hover-only label could never appear there.
+
 ### Fixed
 - A finished agent turn now reaches `pane.updated` subscribers instead of only `pane.agent_status_changed`. The web UI's stop button is driven by the agent's reported state, so an agent that finished its turn could leave the button in place and block the composer until something else refreshed the view. The UI also subscribes to the pane-scoped status event directly, for every listed pane and for the one on screen, so a page can be newer than the server it talks to and still keep both the agent list and the stop button correct.
 

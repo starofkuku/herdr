@@ -4,6 +4,12 @@ import remarkGfm from "remark-gfm";
 import type { DetailClient } from "./AgentDetail";
 import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
 import {
+  POINTER_PITCH,
+  TOUCH_PITCH,
+  navigatorLayout,
+} from "./navigator";
+import { useActiveTurn } from "./useActiveTurn";
+import {
   loadConversation,
   ConversationError,
   PAGE_BYTES,
@@ -57,6 +63,124 @@ function toolSummary(name: string | undefined, args: unknown): string {
     if (typeof subject === "string") return `${label}(${subject.slice(0, 68)})`;
   }
   return label;
+}
+
+/**
+ * True when the primary input cannot hover.
+ *
+ * Drives both the rail's tick size and whether a tick reveals its label on
+ * hover: a touch device has no hover state, so a hover-only label is
+ * unreachable there and the tick must be big enough to tap instead.
+ */
+function useCoarsePointer(): boolean {
+  const [coarse, setCoarse] = useState(
+    () => window.matchMedia?.("(hover: none), (pointer: coarse)").matches ?? false,
+  );
+  useEffect(() => {
+    const query = window.matchMedia?.("(hover: none), (pointer: coarse)");
+    if (!query) return;
+    const update = () => setCoarse(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return coarse;
+}
+
+/**
+ * The quick-jump rail beside the transcript.
+ *
+ * One tick per user message, in order. Hovering (or focusing) a tick shows what
+ * was asked; clicking scrolls that turn to the top of the transcript. The tick
+ * for the turn the reader is currently at is highlighted, so the rail doubles as
+ * a position indicator.
+ *
+ * On a coarse pointer the labels are dropped rather than made hover-only — there
+ * is no hover to reveal them — and the ticks grow to a tappable size.
+ */
+function TurnNavigator({
+  turns,
+  activeTurn,
+  onJump,
+}: {
+  turns: ConversationTurn[];
+  activeTurn: number | null;
+  onJump: (index: number) => void;
+}) {
+  const railRef = useRef<HTMLElement | null>(null);
+  const [railHeight, setRailHeight] = useState(0);
+  const coarse = useCoarsePointer();
+
+  // The rail's own height sets how many ticks fit, so it is measured rather than
+  // assumed: the same component sits in a short phone viewport and a tall desktop
+  // panel.
+  useEffect(() => {
+    const element = railRef.current;
+    if (!element) return;
+    const measure = () => setRailHeight(element.clientHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // Only turns with a user message are worth navigating to; an agent-only turn
+  // (a continuation) has nothing to identify it by.
+  const anchors = turns
+    .map((turn, index) => ({ turn, index }))
+    .filter(({ turn }) => (turn.user_message ?? "").trim().length > 0);
+  if (anchors.length === 0) return null;
+
+  // The reader is inside the answer to some question, so the tick to mark is the
+  // last question at or before the active turn.
+  const anchorIndex = (() => {
+    if (activeTurn === null) return anchors[0].index;
+    let found = anchors[0].index;
+    for (const { index } of anchors) {
+      if (index <= activeTurn) found = index;
+      else break;
+    }
+    return found;
+  })();
+
+  const position = anchors.findIndex(({ index }) => index === anchorIndex);
+  const layout = navigatorLayout(
+    anchors.length,
+    railHeight || undefined,
+    position >= 0 ? position : undefined,
+    coarse ? TOUCH_PITCH : POINTER_PITCH,
+  );
+
+  return (
+    <nav
+      ref={railRef}
+      className={`turn-nav${coarse ? " turn-nav--coarse" : ""}`}
+      aria-label="Jump to a message"
+      style={{ "--tick-pitch": `${layout.pitch}px` } as React.CSSProperties}
+    >
+      <div className="turn-nav__list">
+        {layout.indices.map((position) => {
+          const { turn, index } = anchors[position];
+          const label = (turn.user_message ?? "").trim();
+          return (
+            <button
+              key={turn.turn_id ?? index}
+              type="button"
+              className={`turn-nav__tick${index === anchorIndex ? " turn-nav__tick--active" : ""}`}
+              aria-label={`Jump to: ${label.slice(0, 80)}`}
+              aria-current={index === anchorIndex ? "true" : undefined}
+              onClick={() => onJump(index)}
+            >
+              <span className="turn-nav__bar" />
+              {/* Not rendered on touch: a hover-only label can never appear
+                  there, and showing it persistently would cover the text. */}
+              {coarse ? null : <span className="turn-nav__label">{label}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
 }
 
 function Markdown({ text }: { text: string }) {
@@ -132,7 +256,7 @@ function ToolCall({
   );
 }
 
-function Turn({ turn }: { turn: ConversationTurn }) {
+function Turn({ turn, index }: { turn: ConversationTurn; index?: number }) {
   const [showActivity, setShowActivity] = useState(false);
   // Reasoning is thinking out loud, not the answer. It is the bulk of a turn's
   // text for an agent that explains itself, so it starts collapsed; the answer
@@ -150,7 +274,7 @@ function Turn({ turn }: { turn: ConversationTurn }) {
   );
 
   return (
-    <div className="turn">
+    <div className="turn" data-turn-index={index}>
       {turn.user_message ? (
         <div className="bubble user">
           <Markdown text={turn.user_message} />
@@ -507,51 +631,77 @@ export function ConversationView({
   const pending = sentMessage != null && sentMessage.length > 0 && !echoed;
   const shownTurns = turns.length + (pending ? 1 : 0);
 
+  const activeTurn = useActiveTurn(scrollRef, turns.length);
+
+  /**
+   * Brings a turn to the top of the transcript.
+   *
+   * The rail is only useful if the reader can land on the turn they picked, so
+   * this scrolls the container directly rather than using `scrollIntoView`: that
+   * would scroll the whole page on a small screen, moving the header and
+   * composer out of the way. The turn's offset is measured against the container
+   * so it parks just below the top edge, respecting `scroll-margin-top`.
+   */
+  const jumpToTurn = useCallback((index: number) => {
+    const container = scrollRef.current;
+    const element = container?.querySelector<HTMLElement>(`[data-turn-index="${index}"]`);
+    if (!container || !element) return;
+    const margin = Number.parseFloat(getComputedStyle(element).scrollMarginTop) || 0;
+    const top =
+      element.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
+    container.scrollTo({ top: Math.max(0, top - margin), behavior: "smooth" });
+  }, []);
+
   return (
-    <div className="conversation" ref={scrollRef} onScroll={onScroll}>
-      <div className="conversation-bar">
-        <span className="conversation-title">{label}</span>
-        {conversation?.provider ? (
-          <span className="conversation-provider">{conversation.provider}</span>
-        ) : null}
-        <span className="conversation-meta">
-          {shownTurns}
-          {conversation?.pagination?.total_turns
-            ? `/${conversation.pagination.total_turns}`
-            : ""}{" "}
-          turns
-          {tokens(totalTokens) ? ` · ${tokens(totalTokens)}` : ""}
-        </span>
-      </div>
-
-      {conversation?.cwd ? <p className="conversation-cwd">{shorten(conversation.cwd)}</p> : null}
-
-      {loadingOlder ? <p className="pager">loading earlier turns…</p> : null}
-      {!hasMore && turns.length > 1 && !loading ? (
-        <p className="pager">start of conversation</p>
-      ) : null}
-
-      {loading ? <p className="pager">loading conversation…</p> : null}
-
-      {error ? (
-        <div className="conversation-error">
-          <p className="error">{error}</p>
-          <p className="hint">
-            The transcript is read from the agent's own session log, so it is only available when the
-            agent reports a path. Agents that report a session id instead have none to show.
-          </p>
+    <div className="conversation-wrap">
+      {/* The rail is a sibling of the scroll container rather than a child, so it
+          stays put while the transcript moves under it. */}
+      <TurnNavigator turns={turns} activeTurn={activeTurn} onJump={jumpToTurn} />
+      <div className="conversation" ref={scrollRef} onScroll={onScroll}>
+        <div className="conversation-bar">
+          <span className="conversation-title">{label}</span>
+          {conversation?.provider ? (
+            <span className="conversation-provider">{conversation.provider}</span>
+          ) : null}
+          <span className="conversation-meta">
+            {shownTurns}
+            {conversation?.pagination?.total_turns
+              ? `/${conversation.pagination.total_turns}`
+              : ""}{" "}
+            turns
+            {tokens(totalTokens) ? ` · ${tokens(totalTokens)}` : ""}
+          </span>
         </div>
-      ) : null}
 
-      {!loading && !error && turns.length === 0 ? (
-        <p className="pager">no turns recorded yet</p>
-      ) : null}
+        {conversation?.cwd ? <p className="conversation-cwd">{shorten(conversation.cwd)}</p> : null}
 
-      <div className="turns">
-        {turns.map((turn, index) => (
-          <Turn key={turn.turn_id ?? index} turn={turn} />
-        ))}
-        {pending ? <PendingTurn message={sentMessage ?? ""} /> : null}
+        {loadingOlder ? <p className="pager">loading earlier turns…</p> : null}
+        {!hasMore && turns.length > 1 && !loading ? (
+          <p className="pager">start of conversation</p>
+        ) : null}
+
+        {loading ? <p className="pager">loading conversation…</p> : null}
+
+        {error ? (
+          <div className="conversation-error">
+            <p className="error">{error}</p>
+            <p className="hint">
+              The transcript is read from the agent's own session log, so it is only available when the
+              agent reports a path. Agents that report a session id instead have none to show.
+            </p>
+          </div>
+        ) : null}
+
+        {!loading && !error && turns.length === 0 ? (
+          <p className="pager">no turns recorded yet</p>
+        ) : null}
+
+        <div className="turns">
+          {turns.map((turn, index) => (
+            <Turn key={turn.turn_id ?? index} turn={turn} index={index} />
+          ))}
+          {pending ? <PendingTurn message={sentMessage ?? ""} /> : null}
+        </div>
       </div>
     </div>
   );

@@ -496,12 +496,140 @@ textarea {
 /* ---- conversation view ---- */
 
 /* Structured rendering of the agent's own transcript. */
+/*
+ * The conversation is a row: a fixed navigation rail beside the scrolling
+ * transcript. The rail is a sibling of the scroller so it stays put while the
+ * turns move under it.
+ */
+.conversation-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: stretch;
+}
+
 .conversation {
   flex: 1;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   padding: 0.75rem;
+}
+
+/* Turns carry a scroll margin so a jump parks them just below the top edge
+   instead of flush against it. The reader keeps a little context above. */
+.conversation .turn {
+  scroll-margin-top: 0.75rem;
+}
+
+/* ---- turn navigator ---- */
+
+/*
+ * One tick per user message, centred vertically as a compact block rather than
+ * spread over the full height. `--tick-pitch` comes from `navigatorLayout()`,
+ * which also decides how many ticks fit and samples when they do not.
+ */
+.turn-nav {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.75rem 0;
+  /* Wide enough for a finger to land on a tick without clipping the rail. */
+  width: 1.75rem;
+}
+
+.turn-nav--coarse {
+  width: 2.25rem;
+}
+
+/* Centred with `margin: auto 0` rather than `justify-content: center`, because
+   auto margins degrade to 0 once the block overflows; with `justify-content:
+   center` the topmost ticks would be unreachable. */
+.turn-nav__list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Full width so a tick's hit area spans the rail. Without this the list
+     shrinks to the bar's width and the touch target is only a few pixels
+     wide, however tall the pitch makes it. */
+  width: 100%;
+  margin: auto 0;
+}
+
+.turn-nav__tick {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: var(--tick-pitch, 12px);
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.turn-nav__bar {
+  display: block;
+  width: 0.7rem;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+  /* `transform` rather than width/height so the settle never reflows the rail:
+     the ticks are laid out purely by `--tick-pitch`, and a box-growing hover
+     would nudge the neighbours it is measured against. */
+  transition: background 0.12s, transform 0.12s;
+}
+
+.turn-nav__tick:hover .turn-nav__bar,
+.turn-nav__tick:focus-visible .turn-nav__bar {
+  background: var(--muted);
+  transform: scale(1.35, 2);
+}
+
+/* The turn being read. Needs to win over hover, so it is declared after. */
+.turn-nav__tick--active .turn-nav__bar,
+.turn-nav__tick--active:hover .turn-nav__bar {
+  background: var(--accent);
+}
+
+/*
+ * The label is hover-revealed on a precise pointer only. On touch it is not
+ * rendered at all: there is no hover to show it, and pinning it open would cover
+ * the transcript it points at.
+ */
+.turn-nav__label {
+  display: none;
+  position: absolute;
+  left: calc(100% + 0.25rem);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  width: max-content;
+  /* Wide enough to read a question, capped so a long one cannot cover the
+     transcript, and clamped so it never leaves the viewport on a narrow one. */
+  max-width: min(20rem, 60vw);
+  max-height: 5.4em;
+  overflow: hidden;
+  padding: 0.5rem 0.65rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  word-break: break-word;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  pointer-events: none;
+}
+
+.turn-nav__tick:hover .turn-nav__label,
+.turn-nav__tick:focus-visible .turn-nav__label {
+  display: block;
 }
 
 .conversation-bar {
