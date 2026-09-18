@@ -7,6 +7,7 @@ import {
   POINTER_PITCH,
   TOUCH_PITCH,
   navigatorLayout,
+  tickPositionAt,
 } from "./navigator";
 
 describe("navigatorLayout", () => {
@@ -90,5 +91,35 @@ describe("navigatorLayout", () => {
     const layout = navigatorLayout(10, 0);
     expect(layout.pitch).toBeGreaterThan(0);
     expect(layout.indices.length).toBeGreaterThan(0);
+  });
+});
+
+describe("tickPositionAt", () => {
+  const pitch = 24;
+  const count = 10;
+
+  test("maps the centre of each tick to its own position", () => {
+    for (let i = 0; i < count; i += 1) {
+      expect(tickPositionAt(i * pitch + pitch / 2, pitch, count)).toBe(i);
+    }
+  });
+
+  test("maps a boundary to the tick it belongs to", () => {
+    // Exactly on a boundary belongs to the tick that starts there.
+    expect(tickPositionAt(pitch, pitch, count)).toBe(1);
+    expect(tickPositionAt(pitch - 1, pitch, count)).toBe(0);
+  });
+
+  test("clamps above the first tick instead of selecting nothing", () => {
+    expect(tickPositionAt(-40, pitch, count)).toBe(0);
+  });
+
+  test("clamps below the last tick so a drag past the end keeps a target", () => {
+    expect(tickPositionAt(count * pitch + 200, pitch, count)).toBe(count - 1);
+  });
+
+  test("returns nothing for an empty or degenerate rail", () => {
+    expect(tickPositionAt(10, pitch, 0)).toBeUndefined();
+    expect(tickPositionAt(10, 0, count)).toBeUndefined();
   });
 });

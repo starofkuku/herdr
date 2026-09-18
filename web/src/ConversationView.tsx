@@ -7,6 +7,7 @@ import {
   POINTER_PITCH,
   TOUCH_PITCH,
   navigatorLayout,
+  tickPositionAt,
 } from "./navigator";
 import { useActiveTurn } from "./useActiveTurn";
 import {
@@ -97,6 +98,12 @@ function useCoarsePointer(): boolean {
  *
  * On a coarse pointer the labels are dropped rather than made hover-only — there
  * is no hover to reveal them — and the ticks grow to a tappable size.
+ *
+ * A finger also gets a scrub gesture: pressing and sliding along the rail
+ * previews the messages it passes and jumps on release. A single tick is a small
+ * target on a phone, and once a long session is sampled one tick stands for
+ * several messages, so tapping precisely is not realistic. Sliding makes the
+ * whole rail one control.
  */
 function TurnNavigator({
   turns,
@@ -108,13 +115,39 @@ function TurnNavigator({
   onJump: (index: number) => void;
 }) {
   const railRef = useRef<HTMLElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const [railHeight, setRailHeight] = useState(0);
   const coarse = useCoarsePointer();
+  /** The tick the finger is over while scrubbing, if any. */
+  const [scrubPosition, setScrubPosition] = useState<number | null>(null);
+  /**
+   * Removes the in-flight scrub listeners.
+   *
+   * They live on the window so a slide that leaves the narrow rail keeps
+   * tracking. That also means they outlive the element, so they are torn down on
+   * unmount as well as on release: leaving the view with a finger down would
+   * otherwise leave a listener attached to the window for the rest of the
+   * session.
+   */
+  const scrubCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => scrubCleanup.current?.(), []);
+  /**
+   * Whether there is anything to navigate.
+   *
+   * The rail renders nothing without anchors, so the measuring effect below has
+   * to depend on this: on the first pass (turns not loaded yet) there is no
+   * element to measure, and with an empty dependency list the observer would
+   * never attach once the rail did appear. The rail would then keep the fallback
+   * height, which decides a different tick count and silently samples turns
+   * away.
+   */
+  const hasAnchors = turns.some((turn) => (turn.user_message ?? "").trim().length > 0);
 
   // The rail's own height sets how many ticks fit, so it is measured rather than
   // assumed: the same component sits in a short phone viewport and a tall desktop
   // panel.
   useEffect(() => {
+    if (!hasAnchors) return;
     const element = railRef.current;
     if (!element) return;
     const measure = () => setRailHeight(element.clientHeight);
@@ -122,18 +155,19 @@ function TurnNavigator({
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [hasAnchors]);
 
   // Only turns with a user message are worth navigating to; an agent-only turn
   // (a continuation) has nothing to identify it by.
   const anchors = turns
     .map((turn, index) => ({ turn, index }))
     .filter(({ turn }) => (turn.user_message ?? "").trim().length > 0);
-  if (anchors.length === 0) return null;
 
   // The reader is inside the answer to some question, so the tick to mark is the
-  // last question at or before the active turn.
+  // last question at or before the active turn. Declared before the early return
+  // below so the hook set stays unconditional.
   const anchorIndex = (() => {
+    if (anchors.length === 0) return 0;
     if (activeTurn === null) return anchors[0].index;
     let found = anchors[0].index;
     for (const { index } of anchors) {
@@ -151,22 +185,99 @@ function TurnNavigator({
     coarse ? TOUCH_PITCH : POINTER_PITCH,
   );
 
+  /**
+   * Maps a client Y coordinate to a rendered tick position.
+   *
+   * Measured against the tick block rather than the rail, because the block is
+   * centred and the rail carries padding on both sides.
+   */
+  const positionAtClientY = (clientY: number): number | undefined => {
+    const block = listRef.current;
+    if (!block) return undefined;
+    return tickPositionAt(clientY - block.getBoundingClientRect().top, layout.pitch, layout.indices.length);
+  };
+
+  /**
+   * Starts a scrub and keeps it running until the finger lifts.
+   *
+   * The move and end listeners are on the window rather than the rail so sliding
+   * past the edge — which is easy to do on a narrow phone rail — keeps tracking
+   * instead of stranding the gesture.
+   */
+  const onPointerDown = (event: React.PointerEvent) => {
+    if (event.pointerType === "mouse") return;
+    const position = positionAtClientY(event.clientY);
+    if (position === undefined) return;
+    // Keeps the browser from also panning the transcript under the finger, which
+    // would otherwise scroll while the reader is choosing a destination.
+    event.preventDefault();
+    setScrubPosition(position);
+
+    // A previous gesture that never saw its release must not stack listeners.
+    scrubCleanup.current?.();
+
+    const move = (moveEvent: PointerEvent) => {
+      const next = positionAtClientY(moveEvent.clientY);
+      if (next !== undefined) setScrubPosition(next);
+    };
+    const finish = (upEvent: PointerEvent) => {
+      scrubCleanup.current?.();
+      const target = positionAtClientY(upEvent.clientY);
+      setScrubPosition(null);
+      if (target !== undefined) {
+        const anchor = anchors[layout.indices[target]];
+        if (anchor) onJump(anchor.index);
+      }
+    };
+    scrubCleanup.current = () => {
+      scrubCleanup.current = null;
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+  };
+
+  if (anchors.length === 0) return null;
+
+  // The scrub preview follows the finger, so its offset is the centre of the tick
+  // being passed rather than the pointer's own position.
+  const scrubAnchor = scrubPosition === null ? undefined : anchors[layout.indices[scrubPosition]];
+  const scrubOffsetY =
+    scrubPosition === null
+      ? 0
+      : railHeight / 2 -
+        (layout.indices.length * layout.pitch) / 2 +
+        scrubPosition * layout.pitch +
+        layout.pitch / 2;
+
   return (
     <nav
       ref={railRef}
-      className={`turn-nav${coarse ? " turn-nav--coarse" : ""}`}
+      className={`turn-nav${coarse ? " turn-nav--coarse" : ""}${
+        scrubPosition !== null ? " turn-nav--scrubbing" : ""
+      }`}
       aria-label="Jump to a message"
       style={{ "--tick-pitch": `${layout.pitch}px` } as React.CSSProperties}
     >
-      <div className="turn-nav__list">
+      {scrubAnchor ? (
+        <ScrubLabel
+          text={(scrubAnchor.turn.user_message ?? "").trim()}
+          offsetY={scrubOffsetY}
+        />
+      ) : null}
+      <div className="turn-nav__list" ref={listRef} onPointerDown={onPointerDown}>
         {layout.indices.map((position) => {
           const { turn, index } = anchors[position];
           const label = (turn.user_message ?? "").trim();
+          const selected = scrubPosition === null ? index === anchorIndex : position === scrubPosition;
           return (
             <button
               key={turn.turn_id ?? index}
               type="button"
-              className={`turn-nav__tick${index === anchorIndex ? " turn-nav__tick--active" : ""}`}
+              className={`turn-nav__tick${selected ? " turn-nav__tick--active" : ""}`}
               aria-label={`Jump to: ${label.slice(0, 80)}`}
               aria-current={index === anchorIndex ? "true" : undefined}
               onClick={() => onJump(index)}
@@ -180,6 +291,21 @@ function TurnNavigator({
         })}
       </div>
     </nav>
+  );
+}
+
+/**
+ * The message the finger is currently over while scrubbing.
+ *
+ * A touch scrub has no hover, so without this the reader would slide blind and
+ * only see where they landed. It floats beside the rail and follows the tick
+ * under the finger.
+ */
+function ScrubLabel({ text, offsetY }: { text: string; offsetY: number }) {
+  return (
+    <div className="turn-nav__scrub-label" style={{ top: `${offsetY}px` }} role="status">
+      {text}
+    </div>
   );
 }
 

@@ -538,6 +538,13 @@ textarea {
   padding: 0.75rem 0;
   /* Wide enough for a finger to land on a tick without clipping the rail. */
   width: 1.75rem;
+  /* The rail is its own control: a scrub must not pan the transcript under the
+     finger, and a long press must not raise the text-selection callout. */
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  position: relative;
 }
 
 .turn-nav--coarse {
@@ -589,10 +596,45 @@ textarea {
   transform: scale(1.35, 2);
 }
 
-/* The turn being read. Needs to win over hover, so it is declared after. */
+/* The turn being read, and the tick under a scrubbing finger. */
 .turn-nav__tick--active .turn-nav__bar,
 .turn-nav__tick--active:hover .turn-nav__bar {
   background: var(--accent);
+}
+
+/* While scrubbing, the whole rail is the control, so the ticks grow a little to
+   read as one connected strip rather than individual targets. */
+.turn-nav--scrubbing .turn-nav__tick--active .turn-nav__bar {
+  transform: scale(1.5, 2.4);
+}
+
+/*
+ * The message preview shown while scrubbing.
+ *
+ * A touch scrub has no hover, so this is the only feedback about where the
+ * finger is. It sits beside the rail and follows the tick, pointing away from
+ * the rail so it never covers the transcript the reader is scanning.
+ */
+.turn-nav__scrub-label {
+  position: absolute;
+  left: calc(100% + 0.25rem);
+  transform: translateY(-50%);
+  z-index: 40;
+  width: max-content;
+  max-width: min(18rem, 70vw);
+  max-height: 5.4em;
+  overflow: hidden;
+  padding: 0.5rem 0.65rem;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: normal;
+  word-break: break-word;
+  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  pointer-events: none;
 }
 
 /*

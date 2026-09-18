@@ -111,6 +111,25 @@ function clampIndex(index: number | undefined, count: number): number | undefine
   return index;
 }
 
+/**
+ * Which rendered tick a touch at `offsetY` selects.
+ *
+ * Used while scrubbing: the finger slides along the rail and the nearest tick
+ * wins. `offsetY` is measured from the top of the tick block, and each tick is
+ * `pitch` tall, so the tick under the finger is the one whose centre is nearest.
+ * A finger slightly above the block or below the last tick clamps to the ends
+ * rather than selecting nothing, since a scrub has to keep producing a target.
+ */
+export function tickPositionAt(
+  offsetY: number,
+  pitch: number,
+  count: number,
+): number | undefined {
+  if (count <= 0 || pitch <= 0) return undefined;
+  const raw = Math.floor(offsetY / pitch);
+  return Math.max(0, Math.min(count - 1, raw));
+}
+
 function range(count: number): number[] {
   return Array.from({ length: count }, (_, i) => i);
 }
