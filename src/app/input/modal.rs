@@ -6,10 +6,12 @@ use ratatui::layout::Rect;
 use crate::{
     app::{
         state::{
-            AppState, ContextMenuKind, ContextMenuState, MenuListState, Mode, NavigatorStateFilter,
+            AppState, ContextMenuCommand, ContextMenuKind, ContextMenuState, MenuListState, Mode,
+            NavigatorStateFilter,
         },
         App,
     },
+    events::AppEvent,
     input::TerminalKey,
     layout::NavDirection,
 };
@@ -670,6 +672,12 @@ pub(super) fn apply_context_menu_action(
     menu: ContextMenuState,
     idx: usize,
 ) {
+    if menu.extra_action_at(idx).is_some() {
+        // Handled by the App-level path, which owns the event channel used to
+        // write the clipboard.
+        state.mode = Mode::Terminal;
+        return;
+    }
     if menu.plugin_action_at(idx).is_some() {
         state.mode = Mode::Terminal;
         return;
@@ -1098,6 +1106,23 @@ impl App {
     }
 
     pub(crate) fn apply_context_menu_action_via_api(&mut self, menu: ContextMenuState, idx: usize) {
+        if let Some(action) = menu.extra_action_at(idx).cloned() {
+            match action.command {
+                ContextMenuCommand::CopySessionLink { url } => {
+                    // Same route as a terminal selection copy: it goes out as
+                    // OSC 52, which is what actually reaches the user's own
+                    // clipboard over SSH and WSL, and it shows the usual
+                    // "copied" feedback.
+                    if let Err(err) = self.event_tx.try_send(AppEvent::ClipboardWrite {
+                        content: url.into_bytes(),
+                    }) {
+                        tracing::warn!(%err, "failed to queue clipboard write for session link");
+                    }
+                }
+            }
+            leave_modal(&mut self.state);
+            return;
+        }
         if let Some(action) = menu.plugin_action_at(idx).cloned() {
             if let ContextMenuKind::Pane {
                 ws_idx, pane_id, ..
@@ -1958,6 +1983,7 @@ mod tests {
             y: 0,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         };
         let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
 
@@ -2005,6 +2031,7 @@ mod tests {
             y: 0,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         };
         let idx = menu
             .items()
@@ -2037,6 +2064,7 @@ mod tests {
             y: 0,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         };
         let idx = menu
             .items()
@@ -2073,6 +2101,7 @@ mod tests {
             y: 0,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         };
         let close_idx = menu
             .items()

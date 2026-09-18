@@ -163,6 +163,9 @@ pub enum Method {
     PaneSendInput(PaneSendInputParams),
     #[serde(rename = "pane.read")]
     PaneRead(PaneReadParams),
+    /// Parsed agent transcript for a pane, as opposed to its rendered screen.
+    #[serde(rename = "pane.session")]
+    PaneSession(PaneSessionParams),
     #[serde(rename = "pane.report_agent")]
     PaneReportAgent(PaneReportAgentParams),
     #[serde(rename = "pane.report_agent_session")]

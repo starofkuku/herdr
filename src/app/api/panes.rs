@@ -9,9 +9,11 @@ use crate::api::schema::{
     PaneProcessInfo, PaneProcessInfoParams, PaneProcessInfoProcess, PaneReadParams, PaneReadResult,
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
     PaneReportDiagnosticParams, PaneReportMetadataParams, PaneResizeParams, PaneResizeReason,
-    PaneResizeResult, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams,
-    PaneSwapParams, PaneSwapReason, PaneSwapResult, PaneTarget, PaneZoomMode, PaneZoomParams,
-    PaneZoomReason, PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
+    PaneResizeResult, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams,
+    PaneSessionMessage, PaneSessionPagination, PaneSessionParams, PaneSessionResult,
+    PaneSessionToolCall, PaneSessionTurn, PaneSplitParams, PaneSwapParams, PaneSwapReason,
+    PaneSwapResult, PaneTarget, PaneZoomMode, PaneZoomParams, PaneZoomReason, PaneZoomResult,
+    ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1237,6 +1239,104 @@ impl App {
         )
     }
 
+    /// Returns the pane's agent transcript, parsed into turns.
+    ///
+    /// The transcript is found through the session reference the agent's own
+    /// integration reported, so this only works for agents that publish a
+    /// readable path. Everything here is read-only: writing to the agent still
+    /// goes through `pane.send_input`.
+    pub(super) fn handle_pane_session(&mut self, id: String, params: PaneSessionParams) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+
+        let Some((path, reported_agent)) = self.pane_transcript(ws_idx, pane_id) else {
+            return encode_error(
+                id,
+                "no_transcript",
+                "pane has no agent transcript; the agent reports a session id rather than a path",
+            );
+        };
+
+        // Load on miss, then refresh, so repeated paging does not re-parse.
+        if self.session_cache.get_mut(&path).is_none() {
+            match codex_trace_parser::session::SessionHandle::load(std::path::Path::new(&path)) {
+                Ok(loaded) => self.session_cache.insert(path.clone(), loaded),
+                Err(err) => return encode_error(id, "transcript_unreadable", err),
+            }
+        }
+
+        let Some(handle) = self.session_cache.get_mut(&path) else {
+            return encode_error(id, "transcript_unreadable", "transcript cache miss");
+        };
+
+        // Pick up anything appended since the cached parse without re-reading
+        // the whole file.
+        if let Err(err) = handle.refresh() {
+            return encode_error(id, "transcript_unreadable", err);
+        }
+
+        let source_size = handle.source_size_bytes();
+        let paged = match codex_trace_parser::session::page_session(
+            handle.session(),
+            codex_trace_parser::session::SessionPageDirection::Backward,
+            params.cursor.map(|cursor| cursor as usize),
+            params.max_bytes.map(|bytes| bytes as usize),
+            source_size,
+        ) {
+            Ok(paged) => paged,
+            Err(err) => return encode_error(id, "transcript_unreadable", err),
+        };
+
+        let pagination = paged
+            .pagination
+            .as_ref()
+            .map(|pagination| PaneSessionPagination {
+                next_cursor: pagination.next_cursor.map(|cursor| cursor as u64),
+                has_more: pagination.has_more,
+                total_turns: pagination.total_turns as u64,
+            });
+
+        let turns = paged.turns.iter().map(pane_session_turn).collect();
+
+        encode_success(
+            id,
+            ResponseResult::PaneSession {
+                session: PaneSessionResult {
+                    pane_id: public_pane_id,
+                    path,
+                    agent: reported_agent,
+                    // The transcript itself says which agent wrote it. That can
+                    // disagree with the label detected on the pane, for example
+                    // when a session was started by one agent and resumed by
+                    // another, or when it is being viewed on a pane whose
+                    // detection is still settling. The file is the authority on
+                    // its own contents, so it is reported separately.
+                    provider: paged.provider.clone(),
+                    cwd: paged.cwd.clone(),
+                    total_tokens: paged.total_tokens.as_ref().map(|usage| usage.total_tokens),
+                    turns,
+                    pagination,
+                },
+            },
+        )
+    }
+
+    /// The pane's transcript path and agent label, when the agent reported a
+    /// path-shaped session reference.
+    fn pane_transcript(&self, ws_idx: usize, pane_id: PaneId) -> Option<(String, String)> {
+        let pane = self.state.workspaces.get(ws_idx)?.pane_state(pane_id)?;
+        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
+        let info = crate::app::creation::terminal_agent_session_info(terminal)?;
+        if info.kind != crate::agent_resume::AgentSessionRefKind::Path {
+            return None;
+        }
+        Some((info.value, info.agent))
+    }
+
     pub(super) fn handle_pane_report_agent(
         &mut self,
         id: String,
@@ -1855,6 +1955,46 @@ fn normalize_state_labels(
 
 fn pane_not_found(id: String, pane_id: &str) -> String {
     encode_error(id, "pane_not_found", format!("pane {pane_id} not found"))
+}
+
+/// Converts one parsed turn into the wire shape.
+///
+/// The parser's types are deliberately not re-exported through the API: this
+/// keeps the public schema stable when the parser crate evolves, and lets the
+/// API drop fields the UI does not need.
+fn pane_session_turn(turn: &codex_trace_parser::turn::CodexTurn) -> PaneSessionTurn {
+    PaneSessionTurn {
+        turn_id: turn.turn_id.clone(),
+        started_at: turn.started_at,
+        completed_at: turn.completed_at,
+        duration_ms: turn.duration_ms,
+        status: format!("{:?}", turn.status).to_lowercase(),
+        user_message: turn.user_message.clone(),
+        agent_messages: turn
+            .agent_messages
+            .iter()
+            .map(|message| PaneSessionMessage {
+                text: message.text.clone(),
+                is_reasoning: message.is_reasoning,
+                timestamp: Some(message.timestamp.clone()),
+            })
+            .collect(),
+        tool_calls: turn
+            .tool_calls
+            .iter()
+            .map(|call| PaneSessionToolCall {
+                call_id: Some(call.call_id.clone()),
+                kind: Some(format!("{:?}", call.kind).to_lowercase()),
+                name: Some(call.name.clone()),
+                arguments: Some(call.arguments.clone()),
+                output: call.output.clone(),
+            })
+            .collect(),
+        final_answer: turn.final_answer.clone(),
+        model: turn.model.clone(),
+        error: turn.error.clone(),
+        aborted_reason: turn.aborted_reason.clone(),
+    }
 }
 
 impl App {

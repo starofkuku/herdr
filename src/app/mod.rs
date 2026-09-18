@@ -16,6 +16,8 @@ mod input;
 mod runtime;
 mod runtime_mutations;
 mod session;
+pub(crate) mod session_cache;
+mod session_link;
 pub mod state;
 mod terminal_targets;
 mod terminal_titles;
@@ -148,10 +150,25 @@ pub struct App {
     pub(crate) local_input_source_switch: bool,
     pub(crate) config_reloaded_from_disk: bool,
     prefix_input_source: Box<dyn crate::platform::PrefixInputSource>,
+    /// Parsed agent transcripts, keyed by path.
+    ///
+    /// Parsing a multi-megabyte transcript costs tens of milliseconds, and a
+    /// client pages through it repeatedly, so the handle is kept between calls
+    /// and advanced incrementally. Entries are evicted least-recently-used once
+    /// [`API_SESSION_CACHE_CAPACITY`] transcripts are held.
+    pub(crate) session_cache:
+        crate::app::session_cache::SessionCache<crate::app::session_cache::SessionEntry>,
 }
 
 pub(crate) const APP_EVENT_CHANNEL_CAPACITY: usize = 256;
 pub(crate) const APP_EVENT_DRAIN_LIMIT: usize = 64;
+
+/// How many parsed transcripts to keep resident.
+///
+/// Each entry is a parsed turn list, so this trades memory for avoiding a
+/// re-parse on every page request. Set well above the number of panes a person
+/// realistically opens in a session.
+pub(crate) const API_SESSION_CACHE_CAPACITY: usize = 8;
 
 pub(crate) enum LoopEvent {
     Timer,
@@ -638,6 +655,7 @@ impl App {
             local_sound_playback: true,
             bell: config.ui.bell,
             toast_config: config.ui.toast.clone(),
+            codex_trace_url: config.codex_trace.url.clone(),
             keybinds: config.keybinds(),
             spinner_tick: 0,
             palette: theme_palette,
@@ -756,6 +774,7 @@ impl App {
             local_terminal_notifications: true,
             local_input_source_switch: true,
             config_reloaded_from_disk: false,
+            session_cache: crate::app::session_cache::SessionCache::new(API_SESSION_CACHE_CAPACITY),
             prefix_input_source: Box::new(crate::platform::RealPrefixInputSource::default()),
         }
     }
@@ -4897,6 +4916,7 @@ last_pane = "prefix+tab"
             y: 2,
             list: state::MenuListState::new(1),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
 

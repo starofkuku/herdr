@@ -302,6 +302,11 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
         .map(|item| ListItem::new(Line::from(*item)))
         .collect();
     items.extend(
+        menu.extra_actions
+            .iter()
+            .map(|action| ListItem::new(Line::from(action.label.clone()))),
+    );
+    items.extend(
         menu.plugin_actions
             .iter()
             .map(|action| ListItem::new(Line::from(action.title.clone()))),

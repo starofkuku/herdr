@@ -306,6 +306,19 @@ pub struct Config {
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
     pub web: WebConfig,
+    pub codex_trace: CodexTraceConfig,
+}
+
+/// Link target for opening a conversation in codex-trace.
+///
+/// When `url` is unset the pane context menu hides its "Copy session link"
+/// action, since there would be nothing useful to copy.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct CodexTraceConfig {
+    /// Base URL of a running codex-trace instance, for example
+    /// `http://127.0.0.1:1422`.
+    pub url: Option<String>,
 }
 
 #[derive(Debug)]
@@ -906,6 +919,12 @@ pub struct WebConfig {
     /// The UI is served from disk at request time and is never embedded in
     /// the binary. When unset, only the WebSocket endpoint is served.
     pub static_dir: Option<String>,
+    /// URL the web UI is downloaded from by `herdr update web`.
+    ///
+    /// The page is published on its own release, so it can be updated without
+    /// touching the binary. Requires `static_dir`; without a directory to write
+    /// into there is nowhere to put the downloaded file.
+    pub update_url: Option<String>,
     /// Optional WebSocket Origin allowlist.
     ///
     /// Empty means no Origin check. Set this when the page is hosted
@@ -926,6 +945,7 @@ impl Default for WebConfig {
             bind: DEFAULT_WEB_BIND.to_string(),
             port: DEFAULT_WEB_PORT,
             static_dir: None,
+            update_url: None,
             allowed_origins: Vec::new(),
             key: None,
         }

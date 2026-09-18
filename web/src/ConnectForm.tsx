@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { ConnectionState } from "./gateway";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface ConnectFormProps {
   initialUrl: string;
@@ -44,6 +45,11 @@ export function ConnectForm({
 
   return (
     <form className="connect-form" onSubmit={submit}>
+      {/* The connect screen has no header of its own, so the theme switch gets
+          its own row to keep it reachable before a session is bound. */}
+      <div className="connect-topbar">
+        <ThemeToggle />
+      </div>
       <h1>herdr web</h1>
       <p className="subtitle">Connect to a Herdr web gateway.</p>
 

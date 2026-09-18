@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Subscription } from "./gateway";
 import { HISTORY_PAGE_LINES, shortenPath, statusLabel, type AgentView } from "./api";
+import { ConversationView } from "./ConversationView";
+import { ThemeToggle } from "./ThemeToggle";
 
 /** Reads a page of the transcript. */
 async function readPage(
@@ -34,6 +36,59 @@ function countRows(text: string): number {
   return lines.length;
 }
 
+/**
+ * Reads the live bottom of the pane.
+ *
+ * This is what the detector looks at, so it is the closest thing to "what the
+ * agent is asking right now". It is shown as-is: the UI does not try to parse
+ * options out of it.
+ */
+async function readBlockerText(client: DetailClient, paneId: string): Promise<string> {
+  const envelope = await client.call<Record<string, unknown>>("pane.read", {
+    pane_id: paneId,
+    source: "detection",
+    lines: BLOCKER_LINES,
+    format: "text",
+    strip_ansi: true,
+  });
+  const read = envelope.read as { text?: string } | undefined;
+  // Trim trailing blank rows so a short prompt does not reserve empty space.
+  return (read?.text ?? "").replace(/\s+$/, "");
+}
+
+/**
+ * How many rows of the bottom of the pane to show while blocked.
+ *
+ * Enough to cover a prompt box plus a couple of lines of context above it.
+ */
+const BLOCKER_LINES = 24;
+
+/**
+ * Keys offered while the agent is blocked.
+ *
+ * These are raw terminal keys, not choices. The user reads the pane text above
+ * and presses what the agent is asking for, exactly as they would in the
+ * terminal. Nothing here tries to interpret the prompt, so a wrong guess about
+ * an agent's wording can never cause the wrong option to be selected.
+ */
+const BLOCKER_KEY_GROUPS: { keys: string[]; label: string; title: string; variant?: string }[][] = [
+  [
+    { keys: ["up"], label: "↑", title: "Move selection up" },
+    { keys: ["down"], label: "↓", title: "Move selection down" },
+  ],
+  [
+    { keys: ["enter"], label: "Enter", title: "Confirm the selected option", variant: "primary" },
+    // Esc often aborts the turn rather than answering the prompt, so it is
+    // styled apart from the keys that resolve the prompt.
+    { keys: ["esc"], label: "Esc", title: "Dismiss or interrupt", variant: "danger" },
+  ],
+  "123456789".split("").map((key) => ({ keys: [key], label: key, title: `Press ${key}` })),
+  [
+    { keys: ["y"], label: "y", title: "Press y" },
+    { keys: ["n"], label: "n", title: "Press n" },
+  ],
+];
+
 export interface DetailClient {
   call: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
   subscribe: (kinds: string[], onEvent: (payload: unknown) => void) => Subscription;
@@ -64,8 +119,19 @@ export function AgentDetail({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [blockerText, setBlockerText] = useState("");
+  // The stop affordance is tied to a turn this client started, not to the pane
+  // merely being busy: opening someone else's running agent should not put a
+  // destructive button in front of the user.
+  const [pendingTurn, setPendingTurn] = useState(false);
 
   const paneId = agent?.paneId ?? null;
+  const blocked = agent?.status === "blocked";
+  const transcriptPath = agent?.transcriptPath ?? null;
+  // Read inside the subscription callback, which is created once per pane and
+  // would otherwise capture a stale `blocked` value.
+  const blockedRef = useRef(false);
+  blockedRef.current = blocked;
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const nextOffset = useRef(0);
   const pinnedToBottom = useRef(true);
@@ -74,10 +140,18 @@ export function AgentDetail({
   // refreshes instead of re-reading page 0 on every event.
   const refreshTimer = useRef<number | null>(null);
   const inFlight = useRef(false);
+  const stopTimer = useRef<number | null>(null);
 
-  /** Replaces the newest page with fresh output. */
+  /**
+   * Replaces the newest page with fresh output.
+   *
+   * Only the fallback view reads the rendered pane. When the agent publishes a
+   * transcript the conversation view owns the content, and reading the screen
+   * would be both wasted work and a failure on a pane with no live runtime.
+   * The check lives here so no caller has to remember it.
+   */
   const refreshNewest = useCallback(async () => {
-    if (!paneId || inFlight.current) return;
+    if (!paneId || inFlight.current || agent?.transcriptPath) return;
     inFlight.current = true;
     try {
       const text = await readPage(client, paneId, 0);
@@ -93,6 +167,17 @@ export function AgentDetail({
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       inFlight.current = false;
+    }
+  }, [client, paneId, agent?.transcriptPath]);
+
+  /** Refreshes the bottom-of-pane text shown while blocked. */
+  const refreshBlocker = useCallback(async () => {
+    if (!paneId) return;
+    try {
+      setBlockerText(await readBlockerText(client, paneId));
+    } catch {
+      // The transcript already surfaces read failures; a stale blocker text is
+      // better than replacing a working key bar with an error.
     }
   }, [client, paneId]);
 
@@ -113,17 +198,12 @@ export function AgentDetail({
     const previousHeight = container?.scrollHeight ?? 0;
     try {
       const text = await readPage(client, paneId, nextOffset.current);
+      // Only an empty page means the history ends. The API returns "up to N"
+      // rows and the newest page is one row shorter than a paged read, so a
+      // page shorter than the request is not an end-of-history signal.
       if (!text.trim()) {
         setExhausted(true);
       } else {
-        // Advance by the rows actually returned, not the requested page size.
-        // The final page is usually short, and advancing by the request size
-        // would re-read rows that were already shown.
-        const returned = countRows(text);
-        if (returned === 0 || returned < HISTORY_PAGE_LINES) {
-          setExhausted(true);
-        }
-        nextOffset.current += Math.max(returned, 1);
         setPages((current) => [text, ...current]);
         // Keep the viewport anchored on the content the user was reading.
         requestAnimationFrame(() => {
@@ -144,11 +224,30 @@ export function AgentDetail({
     setPages([]);
     setExhausted(false);
     setError(null);
-    nextOffset.current = HISTORY_PAGE_LINES;
+    setBlockerText("");
+    nextOffset.current = 0;
     pinnedToBottom.current = true;
     inFlight.current = false;
     void refreshNewest();
   }, [paneId, refreshNewest]);
+
+  // The next older page starts where the loaded rows end. Deriving this from
+  // the pages themselves keeps the offset correct whether the newest page was
+  // reset or replaced: the API returns "up to N" rows, so page sizes differ.
+  useEffect(() => {
+    nextOffset.current = pages.reduce((sum, page) => sum + countRows(page), 0);
+  }, [pages]);
+
+  // Keep the blocker text current whenever the agent is blocked, including the
+  // first time the state is observed (the pane itself is not re-read by the
+  // transcript refresh, which only covers scrollback).
+  useEffect(() => {
+    if (!blocked) {
+      setBlockerText("");
+      return;
+    }
+    void refreshBlocker();
+  }, [blocked, refreshBlocker]);
 
   // Live updates: `pane.output_changed` is not a subscribable kind, so watch
   // `pane.updated`, which the server emits as the pane's output advances.
@@ -156,6 +255,9 @@ export function AgentDetail({
     if (!paneId) return;
     const subscription = client.subscribe(["pane.updated"], () => {
       scheduleRefreshNewest();
+      // While blocked the pane text is the prompt, so keep it in step with the
+      // transcript refresh rather than waiting for a separate event.
+      if (blockedRef.current) void refreshBlocker();
     });
     return () => {
       subscription.close();
@@ -164,7 +266,7 @@ export function AgentDetail({
         refreshTimer.current = null;
       }
     };
-  }, [client, paneId, scheduleRefreshNewest]);
+  }, [client, paneId, scheduleRefreshNewest, refreshBlocker]);
 
   // Follow new output only while the user is already at the bottom.
   useEffect(() => {
@@ -181,6 +283,32 @@ export function AgentDetail({
     if (el.scrollTop < 60) void loadOlder();
   };
 
+  /**
+   * Sends raw terminal keys, the same bytes the terminal would send.
+   *
+   * No key is derived from the prompt text, so this cannot select an option the
+   * user did not intend.
+   */
+  const sendKeys = async (keys: string[]) => {
+    if (!paneId || busy) return;
+    setBusy(true);
+    try {
+      await client.call("pane.send_input", { pane_id: paneId, text: "", keys });
+      setError(null);
+      onChanged();
+      // The pane answers immediately after a key, so read it back rather than
+      // leaving stale prompt text on screen.
+      window.setTimeout(() => {
+        void refreshNewest();
+        void refreshBlocker();
+      }, 250);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const send = async () => {
     const message = draft.trim();
     if (!paneId || !message || busy) return;
@@ -189,6 +317,7 @@ export function AgentDetail({
       await client.call("pane.send_input", { pane_id: paneId, text: message, keys: ["Enter"] });
       setDraft("");
       setError(null);
+      setPendingTurn(true);
       pinnedToBottom.current = true;
       onChanged();
       window.setTimeout(() => void refreshNewest(), 250);
@@ -199,11 +328,66 @@ export function AgentDetail({
     }
   };
 
+  /**
+   * Interrupts the turn this client started.
+   *
+   * Agents advertise the key themselves (`esc to interrupt` in their footer),
+   * and Esc is what every agent in the detection manifests accepts. The key is
+   * forwarded verbatim; nothing is parsed off the screen.
+   */
+  const interrupt = async () => {
+    if (!paneId || busy) return;
+    setBusy(true);
+    try {
+      await client.call("pane.send_input", { pane_id: paneId, text: "", keys: ["esc"] });
+      setError(null);
+      setPendingTurn(false);
+      onChanged();
+      window.setTimeout(() => {
+        void refreshNewest();
+        void refreshBlocker();
+      }, 250);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // A page does not always end with a newline, so join explicitly. Without a
   // separator the last line of one page runs into the first line of the next.
+  // A sent turn ends once the agent leaves the working state. Detection lags a
+  // little behind the send, so a non-working status is only trusted after a
+  // short grace period; otherwise the button would vanish the instant it appears.
+  useEffect(() => {
+    if (!pendingTurn) return;
+    if (agent?.status === "working" || agent?.status === "blocked") {
+      if (stopTimer.current !== null) {
+        window.clearTimeout(stopTimer.current);
+        stopTimer.current = null;
+      }
+      return;
+    }
+    if (stopTimer.current !== null) return;
+    stopTimer.current = window.setTimeout(() => {
+      stopTimer.current = null;
+      setPendingTurn(false);
+    }, 1500);
+  }, [pendingTurn, agent?.status]);
+
+  // Switching panes must not carry the affordance across.
+  useEffect(() => {
+    setPendingTurn(false);
+  }, [paneId]);
+
   const transcript = pages
     .map((page) => (page.endsWith("\n") ? page : `${page}\n`))
     .join("");
+
+  // While a turn this client started is live, the submit button becomes a stop
+  // button. Keeping one control avoids adding a permanent, destructive-looking
+  // button next to the composer.
+  const canStop = pendingTurn && agent?.status === "working";
 
   return (
     <div className="detail-screen">
@@ -217,16 +401,56 @@ export function AgentDetail({
             {agent?.project ?? ""} {agent?.cwd ? `· ${shortenPath(agent.cwd)}` : ""}
           </span>
         </div>
+        <ThemeToggle />
         <span className={`dot ${agent?.status ?? "unknown"}`} aria-label={statusLabel(agent?.status ?? "unknown")} />
       </header>
 
       {error ? <p className="error banner">{error}</p> : null}
 
-      <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
-        {loadingOlder ? <p className="pager">loading earlier output…</p> : null}
-        {exhausted && pages.length > 1 ? <p className="pager">start of history</p> : null}
-        <pre>{transcript || "waiting for output…"}</pre>
-      </div>
+      {blocked ? (
+        <div className="blocker">
+          <div className="blocker-head">
+            <span className="blocker-label">waiting for you</span>
+            <span className="blocker-hint">press what the agent is asking for</span>
+          </div>
+          {blockerText ? <pre className="blocker-text">{blockerText}</pre> : null}
+          <div className="blocker-keys">
+            {BLOCKER_KEY_GROUPS.map((group, index) => (
+              <div className="blocker-key-group" key={index}>
+                {group.map((key) => (
+                  <button
+                    type="button"
+                    key={key.label}
+                    className={`key ${key.variant ?? ""}`}
+                    title={key.title}
+                    disabled={busy}
+                    onClick={() => void sendKeys(key.keys)}
+                  >
+                    {key.label}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {/*
+        The agent's own transcript is the primary view. The rendered pane is
+        only a fallback: it is what the agent is painting on screen, which for a
+        TUI agent is chrome and redraws rather than the conversation. Agents that
+        publish a transcript path get the structured view; the rest still show
+        something rather than an empty panel.
+      */}
+      {transcriptPath ? (
+        <ConversationView client={client} paneId={paneId ?? ""} label={agent?.label ?? "agent"} />
+      ) : (
+        <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
+          {loadingOlder ? <p className="pager">loading earlier output…</p> : null}
+          {exhausted && pages.length > 1 ? <p className="pager">start of history</p> : null}
+          <pre>{transcript || "waiting for output…"}</pre>
+        </div>
+      )}
 
       <form
         className="composer"
@@ -248,9 +472,22 @@ export function AgentDetail({
             }
           }}
         />
-        <button type="submit" disabled={busy || !draft.trim()} aria-label="Send">
-          ↑
-        </button>
+        {canStop ? (
+          <button
+            type="button"
+            className="stop"
+            disabled={busy}
+            aria-label="Stop the agent"
+            title="Stop the agent (sends Esc)"
+            onClick={() => void interrupt()}
+          >
+            <span className="stop-glyph" aria-hidden="true" />
+          </button>
+        ) : (
+          <button type="submit" disabled={busy || !draft.trim()} aria-label="Send">
+            ↑
+          </button>
+        )}
       </form>
     </div>
   );

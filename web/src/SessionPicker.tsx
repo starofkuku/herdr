@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import type { SessionSummary } from "./gateway";
+import { ThemeToggle } from "./ThemeToggle";
 
 interface SessionPickerProps {
   sessions: SessionSummary[];
@@ -55,6 +56,7 @@ export function SessionPicker({
         <button type="button" className="ghost" onClick={onDisconnect}>
           disconnect
         </button>
+        <ThemeToggle />
       </header>
 
       {detail ? <p className="error">{detail}</p> : null}

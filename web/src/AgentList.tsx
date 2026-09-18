@@ -1,4 +1,5 @@
 import { shortenPath, statusLabel, type AgentView } from "./api";
+import { ThemeToggle } from "./ThemeToggle";
 
 /** Agent overview grouped by project, matching the reference layout. */
 export function AgentList({
@@ -39,6 +40,7 @@ export function AgentList({
         <button type="button" className="ghost" onClick={onRefresh} aria-label="Refresh">
           ⟳
         </button>
+        <ThemeToggle />
       </header>
 
       <div className="summary">

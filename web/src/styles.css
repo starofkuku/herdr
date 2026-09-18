@@ -10,7 +10,41 @@
   --warn: #e0af68;
   --err: #f7768e;
   --running: #7dcfff;
+  /*
+   * Destructive-action colour (stop, escape). Kept separate from --err so the
+   * two can diverge; previously this was referenced but never defined, so every
+   * use silently fell back to a hardcoded value that ignored the theme.
+   */
+  --danger: #ff5263;
+  /* Text placed on top of an accent-filled control. */
+  --on-accent: #101018;
   color-scheme: dark;
+}
+
+/*
+ * Light palette.
+ *
+ * Only the variables change; every rule below reads them, so nothing needs a
+ * theme-specific override. Accent and state colours are darkened because the
+ * dark-theme values are tuned to read on a near-black background and lose
+ * contrast on white.
+ */
+:root[data-theme="light"] {
+  --bg: #f6f6f8;
+  --surface: #ffffff;
+  --surface-2: #eeeef2;
+  --border: #d8d8e0;
+  --text: #1b1b22;
+  --muted: #6a6a7a;
+  --accent: #2f6fd0;
+  --ok: #3f7d1f;
+  --warn: #9a6100;
+  --err: #c02b3f;
+  --running: #0b6f9c;
+  --danger: #d12036;
+  /* The light accent is dark, so text on it must be light. */
+  --on-accent: #ffffff;
+  color-scheme: light;
 }
 
 * {
@@ -130,14 +164,18 @@ textarea {
   background: var(--muted);
 }
 
+/*
+ * State tints are derived from the state colour itself, so they follow the
+ * theme instead of being fixed dark-theme values that vanish on white.
+ */
 .dot.working {
   background: var(--running);
-  box-shadow: 0 0 0 3px rgba(125, 207, 255, 0.15);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--running) 22%, transparent);
 }
 
 .dot.blocked {
   background: var(--err);
-  box-shadow: 0 0 0 3px rgba(247, 118, 142, 0.18);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent);
 }
 
 .dot.done {
@@ -159,17 +197,17 @@ textarea {
 }
 
 .pill.working {
-  background: rgba(125, 207, 255, 0.14);
+  background: color-mix(in srgb, var(--running) 20%, transparent);
   color: var(--running);
 }
 
 .pill.blocked {
-  background: rgba(247, 118, 142, 0.16);
+  background: color-mix(in srgb, var(--err) 20%, transparent);
   color: var(--err);
 }
 
 .pill.done {
-  background: rgba(158, 206, 106, 0.14);
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
   color: var(--ok);
 }
 
@@ -183,6 +221,13 @@ textarea {
   max-width: 34rem;
   margin: 0 auto;
   padding: 1.5rem 1rem;
+}
+
+/* Connect screen: a bare row that holds the theme switch above the form. */
+.connect-topbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: -0.5rem;
 }
 
 .connect-form h1 {
@@ -239,7 +284,7 @@ textarea {
 .new-session button {
   background: var(--accent);
   border-radius: 10px;
-  color: #101018;
+  color: var(--on-accent);
   font-weight: 600;
   padding: 0.75rem 1rem;
 }
@@ -283,12 +328,12 @@ textarea {
 }
 
 .status.running {
-  background: rgba(158, 206, 106, 0.14);
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
   color: var(--ok);
 }
 
 .status.stopped {
-  background: rgba(224, 175, 104, 0.14);
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
   color: var(--warn);
 }
 
@@ -408,6 +453,379 @@ textarea {
   text-align: left;
 }
 
+/* ---- conversation view ---- */
+
+/* Structured rendering of the agent's own transcript. */
+.conversation {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.75rem;
+}
+
+.conversation-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.15rem;
+}
+
+.conversation-title {
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.conversation-provider {
+  font-size: 0.7rem;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 999px;
+  padding: 0 0.45rem;
+}
+
+.conversation-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.conversation-cwd {
+  margin: 0 0 0.75rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.conversation-error .hint {
+  font-size: 0.72rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.turns {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/* The user's message is right-aligned, matching the desktop app. */
+.bubble.user {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 2px 12px;
+  padding: 0.5rem 0.7rem;
+}
+
+.bubble.agent {
+  align-self: stretch;
+  border-left: 2px solid var(--border);
+  padding: 0 0 0 0.7rem;
+}
+
+.bubble.agent.ongoing {
+  border-left-color: var(--accent);
+}
+
+.bubble-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.bubble-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+
+.agent-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.agent-meta {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.turn-status {
+  font-size: 0.66rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.turn-status.error,
+.turn-status.aborted {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
+.agent-message {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.84rem;
+  line-height: 1.6;
+  margin-bottom: 0.4rem;
+}
+
+/* Reasoning is secondary detail, so it recedes. */
+.agent-message.reasoning {
+  color: var(--muted);
+  font-style: italic;
+  font-size: 0.8rem;
+}
+
+.turn-error {
+  color: var(--danger);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+}
+
+.activity {
+  margin-top: 0.35rem;
+}
+
+.activity-toggle {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.tool-call {
+  margin: 0.3rem 0 0 0.9rem;
+  border-left: 1px solid var(--border);
+  padding-left: 0.6rem;
+}
+
+.tool-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  text-align: left;
+}
+
+.tool-head code {
+  font-size: 0.76rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.tool-caret {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.tool-body {
+  margin: 0.3rem 0 0;
+  padding: 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 18rem;
+  overflow: auto;
+}
+
+/* Markdown renders block-level elements, so collapse their outer margins. */
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown pre,
+.markdown blockquote,
+.markdown table {
+  margin: 0.4rem 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 0.6rem 0 0.3rem;
+  font-size: 0.9rem;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 1.2rem;
+}
+
+.markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  background: var(--surface-2);
+  border-radius: 4px;
+  padding: 0.1rem 0.25rem;
+}
+
+.markdown pre {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  overflow-x: auto;
+}
+
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.5rem;
+  text-align: left;
+}
+
+.markdown blockquote {
+  border-left: 2px solid var(--border);
+  padding-left: 0.6rem;
+  color: var(--muted);
+}
+
+.markdown a {
+  color: var(--accent);
+}
+
+/* ---- blocked prompt ---- */
+
+/*
+ * Shown while the agent waits for input. The pane text is displayed verbatim
+ * and the keys below send raw terminal input, so the user answers by reading
+ * the prompt rather than by trusting a parsed option list.
+ */
+.blocker {
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  padding: 0.6rem 0.75rem 0.5rem;
+  flex: none;
+  max-height: 46dvh;
+  overflow: auto;
+}
+
+.blocker-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+.blocker-label {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.blocker-hint {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.blocker-text {
+  margin: 0 0 0.55rem;
+  padding: 0.5rem 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+  max-height: 22dvh;
+  overflow: auto;
+}
+
+.blocker-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.blocker-key-group {
+  display: flex;
+  gap: 0.3rem;
+}
+
+/* A separator keeps the raw-key groups readable when they wrap. */
+.blocker-key-group + .blocker-key-group {
+  margin-left: 0.35rem;
+  padding-left: 0.65rem;
+  border-left: 1px solid var(--border);
+}
+
+.blocker .key {
+  min-width: 2.2rem;
+  height: 2.2rem;
+  padding: 0 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.blocker .key:disabled {
+  opacity: 0.5;
+}
+
+.blocker .key.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Esc aborts rather than answers the prompt, so it does not look like a choice. */
+.blocker .key.danger {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+
 /* ---- agent detail ---- */
 
 .detail-screen {
@@ -475,7 +893,7 @@ textarea {
   height: 2.5rem;
   border-radius: 50%;
   background: var(--accent);
-  color: #101018;
+  color: var(--on-accent);
   font-size: 1.1rem;
   font-weight: 700;
   flex: none;
@@ -484,6 +902,65 @@ textarea {
 .composer button[type="submit"]:disabled {
   background: var(--border);
   color: var(--muted);
+}
+
+/*
+ * Stop replaces the send button while a turn this client started is running,
+ * so it keeps the same footprint and only changes the glyph. It is not
+ * accent-coloured: it discards the current turn, so it must not read as the
+ * primary action.
+ */
+.composer button.stop {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--danger);
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+
+.composer button.stop:disabled {
+  opacity: 0.5;
+}
+
+/* A small square reads as "stop" without pulling the eye like a filled shape. */
+.composer button.stop .stop-glyph {
+  width: 0.62rem;
+  height: 0.62rem;
+  border-radius: 2px;
+  background: currentColor;
+  display: block;
+}
+
+/*
+ * Theme switch.
+ *
+ * Sits inline in each screen's header, immediately left of the status dot so
+ * the header reads as one row of controls. It renders as a plain icon button
+ * matching the other header controls.
+ */
+.theme-toggle {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0;
+  /* Never let the glyph be selected or dragged like page content. */
+  user-select: none;
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
 }
 
 /* ---- wide screens ---- */

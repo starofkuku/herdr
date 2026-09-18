@@ -1050,6 +1050,7 @@ impl AppState {
                         y: mouse.row,
                         list: MenuListState::new(0),
                         plugin_actions: Vec::new(),
+                        extra_actions: Vec::new(),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1067,6 +1068,7 @@ impl AppState {
                         y: mouse.row,
                         list: MenuListState::new(0),
                         plugin_actions: Vec::new(),
+                        extra_actions: Vec::new(),
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -1094,6 +1096,7 @@ impl AppState {
                         .is_some();
                     let has_diagnostics = self.has_active_diagnostics_for_pane(ws_idx, info.id);
                     let plugin_actions = self.plugin_actions_for_agent_pane(ws_idx, info.id);
+                    let extra_actions = self.session_link_actions_for_pane(ws_idx, info.id);
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Pane {
                             ws_idx,
@@ -1107,6 +1110,7 @@ impl AppState {
                         y: mouse.row,
                         list: MenuListState::new(0),
                         plugin_actions,
+                        extra_actions,
                     });
                     self.mode = Mode::ContextMenu;
                 }
@@ -2474,6 +2478,7 @@ mod tests {
             y: 2,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2769,6 +2774,7 @@ mod tests {
             y: 2,
             list: MenuListState::new(1),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
         handle_context_menu_key(
@@ -2810,6 +2816,7 @@ mod tests {
             y: 2,
             list: MenuListState::new(1),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
 
@@ -2864,6 +2871,7 @@ mod tests {
             y: 2,
             list: MenuListState::new(1),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         });
         app.state.mode = Mode::ContextMenu;
 

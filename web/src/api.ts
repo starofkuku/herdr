@@ -17,6 +17,20 @@ export interface AgentRecord {
   cwd?: string;
   foreground_cwd?: string;
   focused?: boolean;
+  agent_session?: AgentSessionRecord;
+}
+
+/**
+ * Native agent session identity, reported by the agent's own integration.
+ *
+ * `value` is either a transcript path or an opaque session id; only `path`
+ * kinds can be used to read the conversation off disk.
+ */
+export interface AgentSessionRecord {
+  source?: string;
+  agent?: string;
+  kind?: string;
+  value?: string;
 }
 
 export interface WorkspaceRecord {
@@ -52,6 +66,8 @@ export interface AgentView {
   project: string;
   /** Directory shown under the title. */
   cwd: string;
+  /** Local path of the agent's own transcript, when the agent reports one. */
+  transcriptPath?: string;
 }
 
 function asString(value: unknown): string | undefined {
@@ -108,9 +124,22 @@ export function agentsFromSnapshot(
       status: asStatus(agent.agent_status),
       project: workspaceLabels.get(workspaceId) ?? workspaceId,
       cwd: asString(agent.foreground_cwd) ?? asString(agent.cwd) ?? "",
+      transcriptPath: transcriptPathOf(agent),
     });
   }
   return out;
+}
+
+/**
+ * The agent's own transcript on disk, if it reported one.
+ *
+ * Only `kind: "path"` values are usable; session ids name an internal agent
+ * session, not a readable file.
+ */
+function transcriptPathOf(agent: Partial<AgentRecord>): string | undefined {
+  const session = agent.agent_session;
+  if (!session || session.kind !== "path") return undefined;
+  return asString(session.value);
 }
 
 /** Human-readable label for a status value. */

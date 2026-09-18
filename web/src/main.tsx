@@ -7,4 +7,6 @@ if (!container) {
   throw new Error("missing #root container");
 }
 
+// The theme switch renders inside each screen's header rather than here, so it
+// lines up with that screen's own controls.
 createRoot(container).render(<App />);

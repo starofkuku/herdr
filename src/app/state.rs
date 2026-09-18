@@ -1147,6 +1147,28 @@ pub struct ContextMenuState {
     /// Plugin actions available for this menu's target pane. These are kept
     /// alongside the menu so the list remains stable while it is open.
     pub plugin_actions: Vec<crate::api::schema::PluginActionInfo>,
+    /// Extra trailing actions built from the target pane, as opposed to the
+    /// fixed list in `items()`.
+    ///
+    /// Rendered after the built-in items and before plugin actions. Commands are
+    /// handled by [`ContextMenuState::extra_action_at`], so adding one does not
+    /// require a new arm for each of the eight built-in variants.
+    pub extra_actions: Vec<ContextMenuAction>,
+}
+
+/// A context-menu entry generated for one specific pane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextMenuAction {
+    /// Label shown in the menu.
+    pub label: String,
+    /// What choosing it does.
+    pub command: ContextMenuCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextMenuCommand {
+    /// Copy the pane's codex-trace conversation link to the clipboard.
+    CopySessionLink { url: String },
 }
 
 impl ContextMenuState {
@@ -1299,11 +1321,17 @@ impl ContextMenuState {
     }
 
     pub fn total_item_count(&self) -> usize {
-        self.items().len() + self.plugin_actions.len()
+        self.items().len() + self.extra_actions.len() + self.plugin_actions.len()
+    }
+
+    /// The generated action at `idx`, if the index falls in that range.
+    pub fn extra_action_at(&self, idx: usize) -> Option<&ContextMenuAction> {
+        idx.checked_sub(self.items().len())
+            .and_then(|extra_idx| self.extra_actions.get(extra_idx))
     }
 
     pub fn plugin_action_at(&self, idx: usize) -> Option<&crate::api::schema::PluginActionInfo> {
-        idx.checked_sub(self.items().len())
+        idx.checked_sub(self.items().len() + self.extra_actions.len())
             .and_then(|plugin_idx| self.plugin_actions.get(plugin_idx))
     }
 }
@@ -1534,6 +1562,10 @@ pub struct AppState {
     pub local_sound_playback: bool,
     pub bell: BellConfig,
     pub toast_config: ToastConfig,
+    /// Base URL of a codex-trace instance, when configured.
+    ///
+    /// Derived from config at startup; `None` hides the link-copying menu action.
+    pub codex_trace_url: Option<String>,
     pub keybinds: Keybinds,
     /// Frame counter for spinner animations (wraps around).
     pub spinner_tick: u32,
@@ -1579,6 +1611,50 @@ pub struct AppState {
 impl AppState {
     pub(crate) fn mark_session_dirty(&mut self) {
         self.session_dirty = true;
+    }
+
+    /// Menu actions generated from one pane's own state.
+    ///
+    /// Currently this offers copying the conversation's codex-trace link. It is
+    /// hidden unless the pane has an agent, that agent reports a transcript
+    /// path, the path yields a recognizable session id, and a codex-trace URL is
+    /// configured; copying a link that would not open anything is worse than not
+    /// offering it.
+    pub(crate) fn session_link_actions_for_pane(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Vec<ContextMenuAction> {
+        let Some(base) = self.codex_trace_url.as_deref() else {
+            return Vec::new();
+        };
+        let Some(terminal) = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
+        else {
+            return Vec::new();
+        };
+        let agent_label = terminal.effective_agent_label().map(str::to_string);
+        let Some(session_ref) = terminal.persisted_agent_session.as_ref() else {
+            return Vec::new();
+        };
+        if session_ref.session_ref.kind != crate::agent_resume::AgentSessionRefKind::Path {
+            return Vec::new();
+        }
+        let Some(link) = crate::app::session_link::session_link(
+            agent_label.as_deref(),
+            &session_ref.session_ref.value,
+        ) else {
+            return Vec::new();
+        };
+        vec![ContextMenuAction {
+            label: "Copy session link".to_string(),
+            command: ContextMenuCommand::CopySessionLink {
+                url: link.url(base),
+            },
+        }]
     }
 
     /// Return enabled plugin actions that explicitly support pane contexts for
@@ -1952,6 +2028,7 @@ impl AppState {
             local_sound_playback: false,
             bell: BellConfig::default(),
             toast_config: ToastConfig::default(),
+            codex_trace_url: None,
             keybinds: Keybinds::default(),
             spinner_tick: 0,
             palette: Palette::catppuccin(),
@@ -2423,6 +2500,7 @@ mod tests {
             y: 0,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         };
 
         assert_eq!(
@@ -2444,6 +2522,7 @@ mod tests {
             y: 0,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         };
 
         assert_eq!(
@@ -2465,6 +2544,7 @@ mod tests {
             y: 0,
             list: MenuListState::new(0),
             plugin_actions: Vec::new(),
+            extra_actions: Vec::new(),
         };
 
         assert_eq!(
@@ -2502,6 +2582,7 @@ mod tests {
                 command: vec!["true".into()],
                 platforms: None,
             }],
+            extra_actions: Vec::new(),
         };
 
         assert_eq!(menu.items()[menu.items().len() - 2], "Inspect activity");

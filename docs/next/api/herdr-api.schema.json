@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 19,
+  "protocol": 20,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -2817,6 +2817,36 @@
           ],
           "type": "object"
         },
+        "PaneSessionParams": {
+          "description": "Reads the agent's own transcript for a pane, parsed into turns.\n\nThis is the structured counterpart to `pane.read`: instead of the rendered\nterminal, it returns what the agent recorded — turns, tool calls, and token\nusage — for clients that want to present a conversation rather than a screen.",
+          "properties": {
+            "cursor": {
+              "description": "Byte cursor from a previous page's `next_cursor`; omit for the newest page.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "max_bytes": {
+              "description": "Upper bound on the bytes one page may cover.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "PaneSplitParams": {
           "properties": {
             "cwd": {
@@ -5060,6 +5090,23 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneReadParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Parsed agent transcript for a pane, as opposed to its rendered screen.",
+          "properties": {
+            "method": {
+              "const": "pane.session",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneSessionParams"
             }
           },
           "required": [
@@ -7549,6 +7596,232 @@
           ],
           "type": "object"
         },
+        "PaneSessionMessage": {
+          "properties": {
+            "is_reasoning": {
+              "default": false,
+              "description": "True when the message is reasoning rather than user-visible output.",
+              "type": "boolean"
+            },
+            "text": {
+              "type": "string"
+            },
+            "timestamp": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "text"
+          ],
+          "type": "object"
+        },
+        "PaneSessionPagination": {
+          "description": "Where to resume reading when a client wants older turns.",
+          "properties": {
+            "has_more": {
+              "type": "boolean"
+            },
+            "next_cursor": {
+              "description": "Pass this back as `cursor` to read the page before the one just returned.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "total_turns": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "has_more",
+            "total_turns"
+          ],
+          "type": "object"
+        },
+        "PaneSessionResult": {
+          "properties": {
+            "agent": {
+              "description": "Agent that produced the transcript, for example `pi` or `claude`.",
+              "type": "string"
+            },
+            "cwd": {
+              "description": "Working directory recorded at the start of the session.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pagination": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/PaneSessionPagination"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "path": {
+              "description": "Transcript path that was read, as reported by the agent's integration.",
+              "type": "string"
+            },
+            "provider": {
+              "description": "Provider the transcript itself declares.\n\nThis is read from the file rather than from pane detection, so it stays\ncorrect when a session is resumed by a different agent or viewed on a\npane whose detection has not settled yet.",
+              "type": "string"
+            },
+            "total_tokens": {
+              "description": "Total tokens across the whole session, when the transcript records usage.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "turns": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneSessionTurn"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "pane_id",
+            "path",
+            "agent",
+            "provider",
+            "turns"
+          ],
+          "type": "object"
+        },
+        "PaneSessionToolCall": {
+          "properties": {
+            "arguments": {
+              "description": "Raw arguments as recorded by the agent."
+            },
+            "call_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "description": "Normalised tool category, for example `exec_command` or `patch_apply`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "output": {
+              "description": "Text the tool produced, when the transcript records it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "PaneSessionTurn": {
+          "description": "One exchange between the user and the agent.",
+          "properties": {
+            "aborted_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_messages": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneSessionMessage"
+              },
+              "type": "array"
+            },
+            "completed_at": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "duration_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "error": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "final_answer": {
+              "description": "The message that closed the turn, when the transcript records one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "started_at": {
+              "description": "Unix seconds.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "status": {
+              "type": "string"
+            },
+            "tool_calls": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneSessionToolCall"
+              },
+              "type": "array"
+            },
+            "turn_id": {
+              "type": "string"
+            },
+            "user_message": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "turn_id",
+            "status"
+          ],
+          "type": "object"
+        },
         "PaneSwapReason": {
           "enum": [
             "no_neighbor",
@@ -8820,6 +9093,22 @@
               "required": [
                 "type",
                 "read"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "session": {
+                  "$ref": "#/schemas/success_response/$defs/PaneSessionResult"
+                },
+                "type": {
+                  "const": "pane_session",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "session"
               ],
               "type": "object"
             },

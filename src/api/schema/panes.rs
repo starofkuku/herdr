@@ -638,3 +638,108 @@ pub struct PaneReadResult {
     pub revision: u64,
     pub truncated: bool,
 }
+
+/// Reads the agent's own transcript for a pane, parsed into turns.
+///
+/// This is the structured counterpart to `pane.read`: instead of the rendered
+/// terminal, it returns what the agent recorded — turns, tool calls, and token
+/// usage — for clients that want to present a conversation rather than a screen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSessionParams {
+    pub pane_id: String,
+    /// Byte cursor from a previous page's `next_cursor`; omit for the newest page.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u64>,
+    /// Upper bound on the bytes one page may cover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSessionResult {
+    pub pane_id: String,
+    /// Transcript path that was read, as reported by the agent's integration.
+    pub path: String,
+    /// Agent that produced the transcript, for example `pi` or `claude`.
+    pub agent: String,
+    /// Provider the transcript itself declares.
+    ///
+    /// This is read from the file rather than from pane detection, so it stays
+    /// correct when a session is resumed by a different agent or viewed on a
+    /// pane whose detection has not settled yet.
+    pub provider: String,
+    /// Working directory recorded at the start of the session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    /// Total tokens across the whole session, when the transcript records usage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_tokens: Option<u64>,
+    pub turns: Vec<PaneSessionTurn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pagination: Option<PaneSessionPagination>,
+}
+
+/// Where to resume reading when a client wants older turns.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSessionPagination {
+    /// Pass this back as `cursor` to read the page before the one just returned.
+    pub next_cursor: Option<u64>,
+    pub has_more: bool,
+    pub total_turns: u64,
+}
+
+/// One exchange between the user and the agent.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSessionTurn {
+    pub turn_id: String,
+    /// Unix seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_message: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_messages: Vec<PaneSessionMessage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<PaneSessionToolCall>,
+    /// The message that closed the turn, when the transcript records one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_answer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aborted_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSessionMessage {
+    pub text: String,
+    /// True when the message is reasoning rather than user-visible output.
+    #[serde(default)]
+    pub is_reasoning: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSessionToolCall {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    /// Normalised tool category, for example `exec_command` or `patch_apply`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Raw arguments as recorded by the agent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<serde_json::Value>,
+    /// Text the tool produced, when the transcript records it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+}
