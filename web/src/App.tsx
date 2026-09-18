@@ -94,10 +94,10 @@ export default function App() {
       setPhase("agents");
 
       subscriptionRef.current?.close();
-      // `pane.agent_status_changed` requires a pane_id and `pane.output_changed`
-      // is not a subscribable kind, so watch the kinds that are: agent
-      // detection and pane lifecycle. `pane.updated` covers state changes
-      // reported through other paths.
+      // The kinds that are subscribable: agent detection, pane lifecycle, and
+      // pane updates. A status change reaches `pane.updated` only on servers
+      // that emit it there, so `AgentDetail` also subscribes to
+      // `pane.agent_status_changed` for the pane it is showing.
       subscriptionRef.current = client.subscribe(
         [
           "pane.updated",

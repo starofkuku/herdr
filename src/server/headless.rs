@@ -6207,6 +6207,58 @@ next_tab = ""
     }
 
     #[test]
+    fn headless_agent_status_change_emits_pane_updated() {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("status-updated");
+        let pane_id = workspace.tabs[0].root_pane;
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+
+        let report = |state| AppEvent::HookStateReported {
+            pane_id,
+            source: "herdr:pi".into(),
+            agent_label: "pi".into(),
+            state,
+            message: None,
+            seq: None,
+            session_ref: None,
+        };
+
+        assert!(server
+            .handle_internal_event_with_forwarding(report(crate::detect::AgentState::Working)));
+        let baseline = server.app.event_hub.events_after(0).len();
+
+        // Finishing a turn must reach `pane.updated` subscribers, not only
+        // `pane.agent_status_changed`: a client that watches the former otherwise
+        // never learns the agent stopped and keeps showing it as working.
+        assert!(
+            server.handle_internal_event_with_forwarding(report(crate::detect::AgentState::Idle))
+        );
+        let events = server.app.event_hub.events_after(0);
+        let emitted = &events[baseline..];
+
+        // Status change notifications are unchanged by this fix; only assert one
+        // was produced, without pinning the mapped status value.
+        assert!(
+            emitted.iter().any(|(_, event)| {
+                event.event == crate::api::schema::EventKind::PaneAgentStatusChanged
+            }),
+            "status change should still emit pane.agent_status_changed"
+        );
+        assert!(
+            emitted.iter().any(|(_, event)| {
+                event.event == crate::api::schema::EventKind::PaneUpdated
+                    && matches!(
+                        &event.data,
+                        crate::api::schema::EventData::PaneUpdated { pane }
+                            if pane.pane_id == "w1:p1"
+                    )
+            }),
+            "status change should also emit pane.updated for its subscribers"
+        );
+    }
+
+    #[test]
     fn headless_scheduled_tasks_expire_agent_metadata() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("metadata");

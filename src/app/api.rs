@@ -608,6 +608,15 @@ impl App {
                     state_labels: presentation.state_labels,
                 },
             });
+
+            // A status change also changes the pane's own representation, which
+            // is what `pane.updated` carries. Emitting it here keeps subscribers
+            // of that event correct without every client having to know that
+            // status arrived on a differently named event: an agent finishing
+            // its turn otherwise produced no `pane.updated`, so a viewer kept
+            // showing the agent as still working. `pane.updated` is excluded
+            // from plugin hooks, so this cannot re-enter through a hook.
+            self.emit_pane_updated(update.ws_idx, update.pane_id);
         }
     }
 

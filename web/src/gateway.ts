@@ -203,9 +203,15 @@ export class GatewayClient {
     return (envelope.result ?? {}) as T;
   }
 
-  /** Starts a subscription; `onEvent` receives each streamed payload. */
+  /**
+   * Starts a subscription; `onEvent` receives each streamed payload.
+   *
+   * A kind is either a bare name or a full subscription object, which some
+   * kinds require: `pane.agent_status_changed` is scoped to one pane and the
+   * server rejects it without a `pane_id`.
+   */
   subscribe(
-    kinds: string[],
+    kinds: (string | Record<string, unknown>)[],
     onEvent: (payload: unknown) => void,
     onClosed?: (reason: string) => void,
   ): Subscription {
@@ -224,7 +230,11 @@ export class GatewayClient {
     this.send({
       type: "subscribe",
       id,
-      subscriptions: kinds.map((kind) => ({ type: kind })),
+      // The API expects an internally tagged object per subscription, so a bare
+      // name is expanded to `{ type: name }` here rather than at each call site.
+      subscriptions: kinds.map((kind) =>
+        typeof kind === "string" ? { type: kind } : kind,
+      ),
     });
 
     return {

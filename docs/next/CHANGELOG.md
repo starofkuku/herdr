@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- A finished agent turn now reaches `pane.updated` subscribers instead of only `pane.agent_status_changed`. The web UI's stop button is driven by the agent's reported state, so an agent that finished its turn could leave the button in place and block the composer until something else refreshed the view. The UI also subscribes to the pane-scoped status event directly, so a page can be newer than the server it talks to and still clear the button.
+
 ## [0.7.24] - 2026-09-18
 
 ### Fixed

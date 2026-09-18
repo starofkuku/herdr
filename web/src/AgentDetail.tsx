@@ -100,7 +100,12 @@ const BLOCKER_KEY_GROUPS: { keys: string[]; label: string; title: string; varian
 
 export interface DetailClient {
   call: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
-  subscribe: (kinds: string[], onEvent: (payload: unknown) => void) => Subscription;
+  // A kind is a bare name, or a full subscription object for kinds that need
+  // extra parameters such as a `pane_id`.
+  subscribe: (
+    kinds: (string | Record<string, unknown>)[],
+    onEvent: (payload: unknown) => void,
+  ) => Subscription;
 }
 
 /**
@@ -275,7 +280,7 @@ export function AgentDetail({
 
   // Live updates: `pane.output_changed` is not a subscribable kind, so watch
   // `pane.updated`. That event covers title, metadata, and diagnostic changes
-  // rather than output, so it is filtered to this pane; without the filter a
+  // as well as status, so it is filtered to this pane; without the filter a
   // busy session would refresh this view for every unrelated pane.
   useEffect(() => {
     if (!paneId) return;
@@ -388,6 +393,19 @@ export function AgentDetail({
       setBusy(false);
     }
   };
+
+  // The stop affordance follows the agent's reported state, so it has to hear
+  // that the state changed even against a server that does not fold status into
+  // `pane.updated`. This subscription is pane-scoped because the event requires
+  // a pane_id, unlike `pane.updated` which is session-wide.
+  useEffect(() => {
+    if (!paneId) return;
+    const subscription = client.subscribe(
+      [{ type: "pane.agent_status_changed", pane_id: paneId }],
+      () => onChanged(),
+    );
+    return () => subscription.close();
+  }, [client, paneId, onChanged]);
 
   // A page does not always end with a newline, so join explicitly. Without a
   // separator the last line of one page runs into the first line of the next.
