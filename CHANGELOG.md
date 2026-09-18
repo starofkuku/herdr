@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.23] - 2026-09-18
+
 ### Fixed
 - The web UI follows new agent output again. It stopped tracking the bottom of a conversation, so a growing answer left the viewport stranded partway up and the reader had to scroll down manually after every message. Following pauses while you scroll up to read back and resumes when you return to the bottom.
 - The web UI shows a message as soon as you send it, instead of leaving the composer looking as though the text was dropped until the agent wrote the turn to its transcript. A short **agent is responding** indicator appears underneath it, and the transcript replaces the pending copy once it records the turn.
