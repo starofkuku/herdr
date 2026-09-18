@@ -66,30 +66,39 @@ export function AgentList({
       ) : null}
 
       <div className="cards">
-        {[...groups.entries()].map(([project, items]) => (
-          <section key={project} className="card">
-            <header className="card-head">
-              <span className="project">{project}</span>
-              <span className="count">
-                {items.length} {items.length === 1 ? "agent" : "agents"}
-              </span>
-            </header>
-            <ul className="rows">
-              {items.map((agent) => (
-                <li key={agent.paneId}>
-                  <button type="button" onClick={() => onOpen(agent.paneId)}>
-                    <span className={`dot ${agent.status}`} aria-hidden="true" />
-                    <span className="row-main">
-                      <span className="row-title">{agent.label}</span>
-                      <span className="row-sub">{shortenPath(agent.cwd)}</span>
-                    </span>
-                    <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ))}
+        {[...groups.entries()].map(([project, items]) => {
+          // A project is "working" when any of its agents is, so the card can
+          // carry the state at a glance instead of only in the small pill.
+          const running = items.some((agent) => agent.status === "working");
+          return (
+            <section key={project} className={`card ${running ? "working" : ""}`}>
+              <header className="card-head">
+                <span className="project">{project}</span>
+                <span className="count">
+                  {items.length} {items.length === 1 ? "agent" : "agents"}
+                </span>
+              </header>
+              <ul className="rows">
+                {items.map((agent) => (
+                  <li key={agent.paneId}>
+                    <button type="button" onClick={() => onOpen(agent.paneId)}>
+                      <span className={`dot ${agent.status}`} aria-hidden="true" />
+                      <span className="row-main">
+                        <span
+                          className={`row-title ${agent.status === "working" ? "working" : ""}`}
+                        >
+                          {agent.label}
+                        </span>
+                        <span className="row-sub">{shortenPath(agent.cwd)}</span>
+                      </span>
+                      <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          );
+        })}
       </div>
     </div>
   );

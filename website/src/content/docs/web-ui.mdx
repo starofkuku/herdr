@@ -136,7 +136,7 @@ The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every
 
 **Sessions.** Every session Herdr knows about, with whether it is running, plus a field to open an existing session or start a new one.
 
-**Agents.** The agents in the selected session, grouped by workspace and showing each one's current state. Tap an agent to open it.
+**Agents.** The agents in the selected session, grouped by workspace and showing each one's current state. A running agent is tinted green — its name, its status dot, and the border of the panel it is in — so activity is visible while scanning the list instead of only in the small status pill. Tap an agent to open it.
 
 **Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below.
 
@@ -144,9 +144,11 @@ The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every
 
 Output is plain text taken from the pane, so it uses normal browser scrolling, text selection, and copy on every platform.
 
-While an agent is working, new output appears as it is produced. Scrolling to the top loads earlier output a page at a time, so a long conversation can be read back without loading it all at once. A `start of history` marker shows when there is nothing older to load.
+While an agent is working, new output appears as it is produced, and the view stays at the newest turn. Scrolling up to read back pauses that, so incoming output does not pull the view away from what you are reading; returning to the bottom resumes it. Scrolling to the top loads earlier output a page at a time, so a long conversation can be read back without loading it all at once. A `start of history` marker shows when there is nothing older to load.
 
 The composer sends a message to the agent. `Enter` sends and `Shift+Enter` inserts a newline.
+
+A sent message appears in the conversation straight away, with an **agent is responding** indicator under it. The agent's own transcript is the real record, so it only contains the message once the agent has written the turn; when it does, the placeholder is replaced by the recorded turn rather than shown twice.
 
 After you send a message, the send button becomes a **stop** button for as long as the agent is working on that turn. Stopping sends the same key the agent advertises for interruption (usually `esc`), so it behaves the same as pressing the key yourself.
 

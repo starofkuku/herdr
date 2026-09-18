@@ -66,6 +66,44 @@ function Markdown({ text }: { text: string }) {
   );
 }
 
+/**
+ * The "agent is responding" indicator.
+ *
+ * Three dots that pulse in sequence. Shown while a turn is still being written,
+ * so a running agent is visibly alive rather than looking like a stalled reply.
+ */
+function Responding() {
+  return (
+    <div className="responding" role="status" aria-label="agent is responding">
+      <span className="responding-dot" aria-hidden="true" />
+      <span className="responding-dot" aria-hidden="true" />
+      <span className="responding-dot" aria-hidden="true" />
+    </div>
+  );
+}
+
+/**
+ * A message this client sent that the transcript has not recorded yet.
+ *
+ * Rendered in the same shape as a real turn so the layout does not shift when
+ * the agent's own copy arrives and replaces it.
+ */
+function PendingTurn({ message }: { message: string }) {
+  return (
+    <div className="turn pending">
+      <div className="bubble user">
+        <Markdown text={message} />
+      </div>
+      <div className="bubble agent ongoing">
+        <div className="bubble-head">
+          <span className="agent-name">agent</span>
+        </div>
+        <Responding />
+      </div>
+    </div>
+  );
+}
+
 function ToolCall({
   name,
   args,
@@ -134,6 +172,10 @@ function Turn({ turn }: { turn: ConversationTurn }) {
         {turn.error ? <div className="turn-error">{turn.error}</div> : null}
         {turn.aborted_reason ? <div className="turn-error">aborted: {turn.aborted_reason}</div> : null}
 
+        {/* The parser marks the in-progress turn `ongoing`, so this is real
+            state off the transcript rather than a guess from the send. */}
+        {turn.status === "ongoing" ? <Responding /> : null}
+
         {tools.length ? (
           <div className="activity">
             <button
@@ -172,10 +214,19 @@ export function ConversationView({
   client,
   paneId,
   label,
+  sentMessage,
 }: {
   client: DetailClient;
   paneId: string;
   label: string;
+  /**
+   * Message this client just sent, until the agent's own transcript records it.
+   *
+   * The transcript is written by the agent, so a freshly sent message is not in
+   * it yet. Without this the composer looks like it dropped the text: nothing
+   * appears until the agent starts writing the turn.
+   */
+  sentMessage?: string | null;
 }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   /**
@@ -197,6 +248,31 @@ export function ConversationView({
   const loadingOlderRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Whether the view should follow new turns.
+   *
+   * True while the reader is at the bottom, false once they scroll up to read
+   * back. New output must not yank the viewport away from history they are
+   * reading, so this is only recomputed from the user's own scrolling.
+   */
+  const pinnedToBottom = useRef(true);
+  /**
+   * Newest turn id at the moment a message was sent.
+   *
+   * The optimistic echo is dropped once the transcript moves past this point.
+   * Matching the sent text alone is not enough: providers normalise the user
+   * message (Codex wraps it with environment context), so the recorded text may
+   * legitimately differ from what was typed.
+   */
+  const echoBaseline = useRef<string | null>(null);
+  /**
+   * Previous `sentMessage`, used to detect a new send during render.
+   *
+   * Captured here rather than in an effect: an effect runs after commit, by
+   * which time the transcript may already have refreshed and the baseline would
+   * point at the agent's own new turn, disabling the echo prematurely.
+   */
+  const sawSentMessage = useRef<string | null>(null);
 
   /** Reloads the newest page. Older pages loaded so far are left untouched. */
   const refreshNewest = useCallback(async () => {
@@ -223,6 +299,10 @@ export function ConversationView({
     setOlder([]);
     cursor.current = undefined;
     loadingOlderRef.current = false;
+    // A different pane is a different conversation, so following starts over
+    // from the bottom. Carrying the previous pane's scroll-up state across
+    // would leave the new conversation unfollowed until the reader scrolled.
+    pinnedToBottom.current = true;
 
     loadConversation(client, paneId, { maxBytes: PAGE_BYTES })
       .then((data) => {
@@ -301,11 +381,56 @@ export function ConversationView({
 
   const onScroll = () => {
     const element = scrollRef.current;
-    if (element && element.scrollTop < 80) void loadOlder();
+    if (!element) return;
+    // Distance from the bottom, tolerant of sub-pixel rounding and of the
+    // scrollbar itself so sitting at the end still counts as pinned.
+    pinnedToBottom.current =
+      element.scrollHeight - element.scrollTop - element.clientHeight < 40;
+    // Reaching the top pulls in the previous page.
+    if (element.scrollTop < 80) void loadOlder();
   };
+
+  /**
+   * Keeps the newest turn in view as content arrives.
+   *
+   * Depends on the turn arrays rather than their length: an agent streaming a
+   * reply grows the last turn without adding one, and that should follow too.
+   * Runs after layout so `scrollHeight` reflects what was just rendered.
+   */
+  useEffect(() => {
+    if (!pinnedToBottom.current) return;
+    const element = scrollRef.current;
+    if (!element) return;
+    element.scrollTop = element.scrollHeight;
+  }, [newest, older, sentMessage]);
 
   const totalTokens = conversation?.totalTokens;
   const turns: ConversationTurn[] = [...older.flat(), ...newest];
+
+  const newestTurn = newest[newest.length - 1];
+  const newestTurnId = newestTurn?.turn_id ?? null;
+
+  // Record the transcript position the send started from, during render, so it
+  // reflects the state before this send's refresh can land.
+  if (sentMessage == null) {
+    echoBaseline.current = null;
+  } else if (sawSentMessage.current !== sentMessage) {
+    echoBaseline.current = newestTurnId ?? "";
+  }
+  sawSentMessage.current = sentMessage ?? null;
+
+  // The transcript is the agent's own record, so it only contains the message
+  // once the agent has written it. Show it optimistically in the meantime, and
+  // drop it as soon as the real turn arrives so nothing is duplicated.
+  const echoed =
+    sentMessage != null &&
+    sentMessage.length > 0 &&
+    (newestTurn?.user_message === sentMessage ||
+      (echoBaseline.current !== null &&
+        newestTurnId !== null &&
+        newestTurnId !== echoBaseline.current));
+  const pending = sentMessage != null && sentMessage.length > 0 && !echoed;
+  const shownTurns = turns.length + (pending ? 1 : 0);
 
   return (
     <div className="conversation" ref={scrollRef} onScroll={onScroll}>
@@ -315,7 +440,7 @@ export function ConversationView({
           <span className="conversation-provider">{conversation.provider}</span>
         ) : null}
         <span className="conversation-meta">
-          {turns.length}
+          {shownTurns}
           {conversation?.pagination?.total_turns
             ? `/${conversation.pagination.total_turns}`
             : ""}{" "}
@@ -338,8 +463,7 @@ export function ConversationView({
           <p className="error">{error}</p>
           <p className="hint">
             The transcript is read from the agent's own session log, so it is only available when the
-            agent reports a path. Agents that report a session id instead have no transcript to
-            show; use the terminal tab for those.
+            agent reports a path. Agents that report a session id instead have none to show.
           </p>
         </div>
       ) : null}
@@ -352,6 +476,7 @@ export function ConversationView({
         {turns.map((turn, index) => (
           <Turn key={turn.turn_id ?? index} turn={turn} />
         ))}
+        {pending ? <PendingTurn message={sentMessage ?? ""} /> : null}
       </div>
     </div>
   );

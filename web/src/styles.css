@@ -9,7 +9,13 @@
   --ok: #9ece6a;
   --warn: #e0af68;
   --err: #f7768e;
-  --running: #7dcfff;
+  /*
+   * "Working" state.
+   *
+   * Green rather than the original blue, so a running agent reads as active
+   * instead of blending into the blue accent used by ordinary controls.
+   */
+  --running: #7ee787;
   /*
    * Destructive-action colour (stop, escape). Kept separate from --err so the
    * two can diverge; previously this was referenced but never defined, so every
@@ -40,7 +46,7 @@
   --ok: #3f7d1f;
   --warn: #9a6100;
   --err: #c02b3f;
-  --running: #0b6f9c;
+  --running: #1f883d;
   --danger: #d12036;
   /* The light accent is dark, so text on it must be light. */
   --on-accent: #ffffff;
@@ -171,6 +177,24 @@ textarea {
 .dot.working {
   background: var(--running);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--running) 22%, transparent);
+  /* A slow halo, so a running agent is noticeable without being noisy. */
+  animation: working-halo 1.8s ease-in-out infinite;
+}
+
+@keyframes working-halo {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--running) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--running) 10%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot.working {
+    animation: none;
+  }
 }
 
 .dot.blocked {
@@ -381,6 +405,17 @@ textarea {
   overflow: hidden;
 }
 
+/*
+ * A project that has a running agent.
+ *
+ * The list is scanned at a glance, so activity is carried by the card edge and
+ * the row label rather than only by the small status pill at the far right.
+ */
+.card.working {
+  border-color: color-mix(in srgb, var(--running) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--running) 20%, transparent);
+}
+
 .card-head {
   display: flex;
   align-items: baseline;
@@ -441,6 +476,11 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.row-title.working {
+  color: var(--running);
+  font-weight: 600;
 }
 
 .row-sub {
@@ -532,7 +572,59 @@ textarea {
 }
 
 .bubble.agent.ongoing {
-  border-left-color: var(--accent);
+  border-left-color: var(--running);
+}
+
+/*
+ * Optimistic turn shown between sending a message and the agent's own
+ * transcript recording it. Without it the composer looks like it swallowed the
+ * message: the transcript only updates once the agent writes the turn.
+ */
+.turn.pending .bubble.user {
+  opacity: 0.75;
+}
+
+.responding {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0;
+}
+
+.responding-dot {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--running);
+  animation: responding-pulse 1.2s ease-in-out infinite;
+}
+
+.responding-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.responding-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes responding-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .responding-dot {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 .bubble-text {
@@ -566,6 +658,11 @@ textarea {
   border-radius: 999px;
   border: 1px solid var(--border);
   color: var(--muted);
+}
+
+.turn-status.ongoing {
+  color: var(--running);
+  border-color: color-mix(in srgb, var(--running) 45%, var(--border));
 }
 
 .turn-status.error,

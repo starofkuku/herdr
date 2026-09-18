@@ -4,6 +4,15 @@ import { HISTORY_PAGE_LINES, shortenPath, statusLabel, type AgentView } from "./
 import { ConversationView } from "./ConversationView";
 import { ThemeToggle } from "./ThemeToggle";
 
+/**
+ * Backstop for the optimistic echo.
+ *
+ * The echo normally disappears as soon as the agent's transcript catches up. If
+ * the agent never records the message, this keeps a phantom turn from sitting in
+ * the conversation indefinitely.
+ */
+const SENT_ECHO_TIMEOUT_MS = 30_000;
+
 /** Reads a page of the transcript. */
 async function readPage(
   client: DetailClient,
@@ -124,6 +133,21 @@ export function AgentDetail({
   // merely being busy: opening someone else's running agent should not put a
   // destructive button in front of the user.
   const [pendingTurn, setPendingTurn] = useState(false);
+  /**
+   * Message this client just sent, until the agent's own transcript records it.
+   *
+   * Passed to the conversation view so the sent text appears immediately
+   * instead of only after the agent writes the turn.
+   */
+  const [sentMessage, setSentMessage] = useState<string | null>(null);
+  /**
+   * Drops the optimistic echo if the agent never records the message.
+   *
+   * The echo normally disappears as soon as the transcript catches up. This is
+   * only the backstop for the case where it never does, so a phantom turn
+   * cannot sit in the conversation forever.
+   */
+  const sentExpiry = useRef<number | null>(null);
 
   const paneId = agent?.paneId ?? null;
   const blocked = agent?.status === "blocked";
@@ -318,6 +342,12 @@ export function AgentDetail({
       setDraft("");
       setError(null);
       setPendingTurn(true);
+      setSentMessage(message);
+      if (sentExpiry.current !== null) window.clearTimeout(sentExpiry.current);
+      sentExpiry.current = window.setTimeout(() => {
+        sentExpiry.current = null;
+        setSentMessage(null);
+      }, SENT_ECHO_TIMEOUT_MS);
       pinnedToBottom.current = true;
       onChanged();
       window.setTimeout(() => void refreshNewest(), 250);
@@ -342,6 +372,7 @@ export function AgentDetail({
       await client.call("pane.send_input", { pane_id: paneId, text: "", keys: ["esc"] });
       setError(null);
       setPendingTurn(false);
+      setSentMessage(null);
       onChanged();
       window.setTimeout(() => {
         void refreshNewest();
@@ -378,7 +409,19 @@ export function AgentDetail({
   // Switching panes must not carry the affordance across.
   useEffect(() => {
     setPendingTurn(false);
+    setSentMessage(null);
+    if (sentExpiry.current !== null) {
+      window.clearTimeout(sentExpiry.current);
+      sentExpiry.current = null;
+    }
   }, [paneId]);
+
+  useEffect(
+    () => () => {
+      if (sentExpiry.current !== null) window.clearTimeout(sentExpiry.current);
+    },
+    [],
+  );
 
   const transcript = pages
     .map((page) => (page.endsWith("\n") ? page : `${page}\n`))
@@ -443,7 +486,12 @@ export function AgentDetail({
         something rather than an empty panel.
       */}
       {transcriptPath ? (
-        <ConversationView client={client} paneId={paneId ?? ""} label={agent?.label ?? "agent"} />
+        <ConversationView
+          client={client}
+          paneId={paneId ?? ""}
+          label={agent?.label ?? "agent"}
+          sentMessage={sentMessage}
+        />
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
           {loadingOlder ? <p className="pager">loading earlier output…</p> : null}
