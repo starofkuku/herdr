@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.22] - 2026-09-18
+
 ### Added
 - `herdr update web` downloads and installs the newest web UI page, and `herdr update web --check` reports the available version without writing anything. Set `[web] update_url` to the page to install and `[web] static_dir` to the directory the gateway serves. The download is validated and then renamed over `index.html`, so a failed or interrupted download cannot leave a partial page in place.
 - `pane.session` returns a pane's agent transcript as parsed turns instead of as a rendered screen. It reads the transcript path the agent's own integration reports, so it works for agents that publish one (pi, Claude Code, Codex) and reports `no_transcript` for agents that only report a session id.
