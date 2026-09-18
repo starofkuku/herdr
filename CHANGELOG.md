@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.24] - 2026-09-18
+
 ### Fixed
 - The web UI keeps up with an agent that is working. The server emits `pane.updated` for title, metadata, and diagnostic changes rather than for output, so a TUI agent writing an answer produced no event and the view froze mid-turn until something unrelated changed a pane. The transcript is now polled while the agent is reported working, and `pane.updated` is filtered to the pane on screen instead of refreshing on every pane in the session.
 - The send button turns into the stop button whenever the agent is working, not only for a turn this browser started. Opening an agent that was already running now offers the interrupt control.
