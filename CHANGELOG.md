@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+- The web UI keeps up with an agent that is working. The server emits `pane.updated` for title, metadata, and diagnostic changes rather than for output, so a TUI agent writing an answer produced no event and the view froze mid-turn until something unrelated changed a pane. The transcript is now polled while the agent is reported working, and `pane.updated` is filtered to the pane on screen instead of refreshing on every pane in the session.
+- The send button turns into the stop button whenever the agent is working, not only for a turn this browser started. Opening an agent that was already running now offers the interrupt control.
+
+### Changed
+- Thinking is collapsed by default in the conversation view, like the tool calls below it, and expands on click. A turn's reasoning is normally much longer than its answer and was pushing the reply off screen.
+
 ### Added
 - `just web-publish` builds the browser UI and publishes it to the rolling `web-ui` release on its own, without a herdr release or rebuilt platform binaries. It stamps a distinct version marker (`<crate version>+web.<timestamp>` by default) so `herdr update web` installs the page instead of treating it as already up to date. `just web-status` reports the installed and last-built versions.
 

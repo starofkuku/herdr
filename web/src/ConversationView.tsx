@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DetailClient } from "./AgentDetail";
+import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
 import {
   loadConversation,
   ConversationError,
@@ -133,8 +134,17 @@ function ToolCall({
 
 function Turn({ turn }: { turn: ConversationTurn }) {
   const [showActivity, setShowActivity] = useState(false);
+  // Reasoning is thinking out loud, not the answer. It is the bulk of a turn's
+  // text for an agent that explains itself, so it starts collapsed; the answer
+  // and any errors stay visible.
+  const [showReasoning, setShowReasoning] = useState(false);
   const tools = turn.tool_calls ?? [];
-  const messages = (turn.agent_messages ?? []).filter((message) => (message.text ?? "").trim());
+  const allMessages = (turn.agent_messages ?? []).filter((message) => (message.text ?? "").trim());
+  const messages = allMessages.filter((message) => !message.is_reasoning);
+  const reasoning = allMessages.filter((message) => message.is_reasoning);
+  // A turn can be reasoning only; if so there is nothing else to show and
+  // collapsing it would hide the whole turn.
+  const hasAnswer = messages.length > 0 || (turn.final_answer ?? "").trim().length > 0;
   const meta = [clockTime(turn.started_at), duration(turn.duration_ms), turn.model].filter(
     Boolean,
   );
@@ -156,13 +166,34 @@ function Turn({ turn }: { turn: ConversationTurn }) {
           ) : null}
         </div>
 
-        {messages.map((message, index) => (
+        {reasoning.length && hasAnswer ? (
+          <div className="activity reasoning-group">
+            <button
+              type="button"
+              className="activity-toggle"
+              aria-expanded={showReasoning}
+              onClick={() => setShowReasoning((value) => !value)}
+            >
+              {showReasoning ? "▾" : "▸"} thinking
+            </button>
+            {showReasoning
+              ? reasoning.map((message, index) => (
+                  <div key={index} className="agent-message reasoning">
+                    <Markdown text={message.text ?? ""} />
+                  </div>
+                ))
+              : null}
+          </div>
+        ) : null}
+
+        {(!hasAnswer ? allMessages : messages).map((message, index) => (
           <div key={index} className={`agent-message ${message.is_reasoning ? "reasoning" : ""}`}>
             <Markdown text={message.text ?? ""} />
           </div>
         ))}
 
-        {/* Reasoning is often present without a separate answer; show it last. */}
+        {/* A turn can carry only reasoning; then the answer preview is all there
+            is to show and it must not be hidden behind the reasoning toggle. */}
         {!messages.length && turn.final_answer ? (
           <div className="agent-message">
             <Markdown text={turn.final_answer} />
@@ -215,6 +246,7 @@ export function ConversationView({
   paneId,
   label,
   sentMessage,
+  working = false,
 }: {
   client: DetailClient;
   paneId: string;
@@ -227,6 +259,8 @@ export function ConversationView({
    * appears until the agent starts writing the turn.
    */
   sentMessage?: string | null;
+  /** Whether the agent is reported working, which turns on live polling. */
+  working?: boolean;
 }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   /**
@@ -248,6 +282,10 @@ export function ConversationView({
   const loadingOlderRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  /** Guards `refreshNewest` against overlapping reads. */
+  const refreshInFlight = useRef(false);
+  /** Set when a refresh is requested while one is already running. */
+  const refreshAgain = useRef(false);
   /**
    * Whether the view should follow new turns.
    *
@@ -274,8 +312,20 @@ export function ConversationView({
    */
   const sawSentMessage = useRef<string | null>(null);
 
-  /** Reloads the newest page. Older pages loaded so far are left untouched. */
-  const refreshNewest = useCallback(async () => {
+  /**
+   * Reloads the newest page. Older pages loaded so far are left untouched.
+   *
+   * Polling and the event path can both request a refresh, and a read can be in
+   * flight when the next request arrives. Rather than run them concurrently, a
+   * request that arrives mid-read is remembered and re-run once, so an update is
+   * never dropped and no two reads race to set the newest page.
+   */
+  const refreshNewest = useCallback(async (): Promise<void> => {
+    if (refreshInFlight.current) {
+      refreshAgain.current = true;
+      return;
+    }
+    refreshInFlight.current = true;
     try {
       const data = await loadConversation(client, paneId, { maxBytes: PAGE_BYTES });
       setConversation(data);
@@ -283,6 +333,12 @@ export function ConversationView({
       setError(null);
     } catch (err) {
       setError(err instanceof ConversationError ? err.message : String(err));
+    } finally {
+      refreshInFlight.current = false;
+      if (refreshAgain.current) {
+        refreshAgain.current = false;
+        void refreshNewest();
+      }
     }
   }, [client, paneId]);
 
@@ -299,6 +355,8 @@ export function ConversationView({
     setOlder([]);
     cursor.current = undefined;
     loadingOlderRef.current = false;
+    refreshInFlight.current = false;
+    refreshAgain.current = false;
     // A different pane is a different conversation, so following starts over
     // from the bottom. Carrying the previous pane's scroll-up state across
     // would leave the new conversation unfollowed until the reader scrolled.
@@ -322,27 +380,44 @@ export function ConversationView({
     return () => controller.abort();
   }, [client, paneId]);
 
-  // Follow the agent while it works. `pane.updated` fires often, so coalesce
-  // and ignore events that arrive while a previous read is still running.
+  // Keep the transcript current while the agent works.
+  //
+  // `pane.updated` is not an output signal: the server emits it for terminal
+  // title, metadata, and diagnostic changes, and not when a pane's scrollback
+  // grows. A TUI agent writing its answer emits nothing at all, so an
+  // event-only view freezes mid-turn. A poll runs while the pane is reported
+  // working, which is exactly when the transcript changes without events.
+  //
+  // The event path is still useful: it refreshes promptly on the state and
+  // title changes that do emit, and it is filtered to this pane because the
+  // subscription delivers every pane's updates.
   useEffect(() => {
     let timer: number | null = null;
-    let inFlight = false;
-    const subscription = client.subscribe(["pane.updated"], () => {
+    const refresh = () => {
       if (timer !== null) return;
       timer = window.setTimeout(() => {
         timer = null;
-        if (inFlight) return;
-        inFlight = true;
-        void refreshNewest().finally(() => {
-          inFlight = false;
-        });
+        void refreshNewest();
       }, 500);
+    };
+    const subscription = client.subscribe(["pane.updated"], (payload) => {
+      const eventPane = paneIdOfEvent(payload);
+      if (eventPane !== undefined && eventPane !== paneId) return;
+      refresh();
     });
     return () => {
       subscription.close();
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [client, refreshNewest]);
+  }, [client, paneId, refreshNewest]);
+
+  // Poll while the agent is reported working. The status comes from the pane,
+  // so it covers a turn this client did not start.
+  useEffect(() => {
+    if (!working) return;
+    const id = window.setInterval(() => void refreshNewest(), LIVE_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [working, refreshNewest]);
 
   const hasMore = conversation?.pagination?.has_more ?? false;
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Subscription } from "./gateway";
-import { HISTORY_PAGE_LINES, shortenPath, statusLabel, type AgentView } from "./api";
+import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type AgentView } from "./api";
 import { ConversationView } from "./ConversationView";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -274,10 +274,14 @@ export function AgentDetail({
   }, [blocked, refreshBlocker]);
 
   // Live updates: `pane.output_changed` is not a subscribable kind, so watch
-  // `pane.updated`, which the server emits as the pane's output advances.
+  // `pane.updated`. That event covers title, metadata, and diagnostic changes
+  // rather than output, so it is filtered to this pane; without the filter a
+  // busy session would refresh this view for every unrelated pane.
   useEffect(() => {
     if (!paneId) return;
-    const subscription = client.subscribe(["pane.updated"], () => {
+    const subscription = client.subscribe(["pane.updated"], (payload) => {
+      const eventPane = paneIdOfEvent(payload);
+      if (eventPane !== undefined && eventPane !== paneId) return;
       scheduleRefreshNewest();
       // While blocked the pane text is the prompt, so keep it in step with the
       // transcript refresh rather than waiting for a separate event.
@@ -359,7 +363,7 @@ export function AgentDetail({
   };
 
   /**
-   * Interrupts the turn this client started.
+   * Interrupts the turn the agent is running.
    *
    * Agents advertise the key themselves (`esc to interrupt` in their footer),
    * and Esc is what every agent in the detection manifests accepts. The key is
@@ -427,10 +431,11 @@ export function AgentDetail({
     .map((page) => (page.endsWith("\n") ? page : `${page}\n`))
     .join("");
 
-  // While a turn this client started is live, the submit button becomes a stop
-  // button. Keeping one control avoids adding a permanent, destructive-looking
-  // button next to the composer.
-  const canStop = pendingTurn && agent?.status === "working";
+  // A running agent can always be interrupted, whether or not this page started
+  // the turn. The state comes from detection rather than from the send, so
+  // opening an agent someone else started still offers the stop control. A
+  // pending turn is included because detection lags a moment behind a send.
+  const canStop = agent?.status === "working" || pendingTurn;
 
   return (
     <div className="detail-screen">
@@ -491,6 +496,7 @@ export function AgentDetail({
           paneId={paneId ?? ""}
           label={agent?.label ?? "agent"}
           sentMessage={sentMessage}
+          working={agent?.status === "working"}
         />
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>

@@ -181,6 +181,29 @@ export function compareAgents(a: AgentView, b: AgentView): number {
  */
 export const HISTORY_PAGE_LINES = 120;
 
+/**
+ * How often to re-read a page while an agent is working.
+ *
+ * The API emits no event when a pane's scrollback grows, so a live view has to
+ * poll for it. The interval is a compromise between latency and load: fast
+ * enough that a streaming answer keeps appearing, slow enough that a long turn
+ * does not hammer the server.
+ */
+export const LIVE_POLL_MS = 1500;
+
+/**
+ * The pane a `pane.updated` event refers to.
+ *
+ * Subscriptions are per event kind rather than per pane, so every pane's update
+ * reaches every listener. Callers use this to ignore updates for panes they are
+ * not showing: a busy session emits these constantly for unrelated panes.
+ */
+export function paneIdOfEvent(payload: unknown): string | undefined {
+  const data = (payload as { data?: { pane?: { pane_id?: unknown } } } | null)?.data;
+  const id = data?.pane?.pane_id;
+  return typeof id === "string" ? id : undefined;
+}
+
 /** Extracts the text of a `pane.read` response. */
 export function paneText(envelope: Record<string, unknown>): string {
   const read = envelope.read as { text?: unknown } | undefined;

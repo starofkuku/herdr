@@ -168,7 +168,7 @@ The composer sends a message to the agent. `Enter` sends and `Shift+Enter` inser
 
 A sent message appears in the conversation straight away, with an **agent is responding** indicator under it. The agent's own transcript is the real record, so it only contains the message once the agent has written the turn; when it does, the placeholder is replaced by the recorded turn rather than shown twice.
 
-After you send a message, the send button becomes a **stop** button for as long as the agent is working on that turn. Stopping sends the same key the agent advertises for interruption (usually `esc`), so it behaves the same as pressing the key yourself.
+After you send a message, the send button becomes a **stop** button for as long as the agent is working. This is driven by the agent's reported state rather than by which browser sent the message, so opening an agent that is already running also offers the stop control. Stopping sends the same key the agent advertises for interruption (usually `esc`), so it behaves the same as pressing the key yourself.
 
 Local UI state, meaning which screen you are on and how far you have scrolled, is not shared with the terminal. Only the agent's own output and state are.
 
@@ -190,6 +190,10 @@ The keys are sent to the pane as raw terminal input, so they behave the same as 
 Agents that publish their native session file — pi, Claude Code, and Codex, when their Herdr integration is installed — can be shown as a structured conversation instead of a terminal screen: one exchange per turn, with tool calls you can expand and the token count for the session.
 
 The transcript is parsed on the server from the agent's own session log, so it reflects what the agent recorded rather than what its TUI happens to be painting. Deep links into that conversation are available through the pane right-click menu; see [codex-trace links](/docs/configuration/#codex-trace-links).
+
+Each turn shows the answer and any errors, with the agent's thinking and its tool calls collapsed behind a label you can expand. Thinking is usually far longer than the answer, so it stays out of the way until you want it.
+
+A working agent's transcript is polled while it runs. The server does not emit an event when a pane's output grows — only when a pane's title, metadata, or diagnostics change — so a view driven purely by events stops updating the moment the agent starts writing. Polling is what keeps the newest turn appearing as it is produced; it stops when the agent leaves the working state.
 
 Agents that only report a session id, and plain shells, fall back to the rendered pane.
 

@@ -696,6 +696,18 @@ textarea {
   margin-top: 0.35rem;
 }
 
+/*
+ * Collapsed reasoning sits above the answer, so it reads as a label for the
+ * thinking rather than as part of the reply itself.
+ */
+.reasoning-group {
+  margin-bottom: 0.5rem;
+}
+
+.reasoning-group .activity-toggle {
+  font-style: italic;
+}
+
 .activity-toggle {
   background: transparent;
   border: none;
