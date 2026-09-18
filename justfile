@@ -47,6 +47,29 @@ build:
 web-build:
     cd web && bun install --frozen-lockfile && bun run build
 
+# Build and publish the browser UI on its own, without a herdr release
+#
+# Pass a version marker to override the default `<crate version>+web.<utc>`.
+web-publish version="":
+    scripts/publish_web_ui.sh {{version}}
+
+# Report which UI version is installed locally and which is published
+web-status:
+    @crate_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"; \
+    config_file="${HERDR_CONFIG_PATH:-$HOME/.config/herdr/config.toml}"; \
+    installed_dir="$(sed -n 's/^static_dir = "\(.*\)"/\1/p' "$config_file" 2>/dev/null | head -1)"; \
+    printf 'crate version:     %s\n' "$crate_version"; \
+    if [ -n "$installed_dir" ] && [ -f "$installed_dir/index.html" ]; then \
+        printf 'installed web UI:  %s\n' "$(grep -o 'herdr-web-ui version: [^ ]*' "$installed_dir/index.html" | head -1 | sed 's/.*: //')"; \
+    else \
+        printf 'installed web UI:  (not found)\n'; \
+    fi; \
+    if [ -f web/dist/index.html ]; then \
+        printf 'local build:       %s\n' "$(grep -o 'herdr-web-ui version: [^ ]*' web/dist/index.html | head -1 | sed 's/.*: //')"; \
+    else \
+        printf 'local build:       (no build)\n'; \
+    fi
+
 # Build the website and documentation
 website-build:
     cd website && bun install --frozen-lockfile && bun run build

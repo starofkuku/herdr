@@ -125,6 +125,24 @@ update_url = "https://github.com/ogulcancelik/herdr/releases/download/web-ui/her
 
 不带子命令的 `herdr update` 更新的是二进制，不是页面。两者分别发布，互不更新。
 
+### 发布页面
+
+如果改动只涉及 UI，可以单独发布页面：
+
+```bash
+just web-publish
+```
+
+它会构建 `web/` 并把结果上传到 rolling 的 `web-ui` release（也就是 `update_url` 指向的位置）。不会创建 herdr 版本，也不会重新构建各平台二进制，因为它们都没有变化。
+
+由于版本标记决定更新是否会被安装，仅前端的发布会默认打上一个不同的标记——`<crate 版本>+web.<时间戳>`，而不是单纯使用 crate 版本。若标记与已安装页面相同，`herdr update web` 会认为页面已是最新。也可以自己指定版本：
+
+```bash
+just web-publish 0.7.24
+```
+
+`just web-status` 会报告已安装的版本和上次构建的版本。
+
 ## 连接
 
 在浏览器中打开网关地址，输入密钥，然后选择会话或输入新名称。

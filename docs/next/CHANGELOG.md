@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- `just web-publish` builds the browser UI and publishes it to the rolling `web-ui` release on its own, without a herdr release or rebuilt platform binaries. It stamps a distinct version marker (`<crate version>+web.<timestamp>` by default) so `herdr update web` installs the page instead of treating it as already up to date. `just web-status` reports the installed and last-built versions.
+
 ## [0.7.23] - 2026-09-18
 
 ### Fixed

@@ -120,6 +120,24 @@ When both the installed page and the downloaded one carry a version, an identica
 
 `herdr update` with no subcommand updates the binary, not the page. The two are released separately, so neither updates the other.
 
+### Publishing the page
+
+For a change that only touches the UI, publish the page on its own:
+
+```bash
+just web-publish
+```
+
+That builds `web/` and uploads the result to the rolling `web-ui` release, which is where `update_url` points. No herdr release is created and no platform binaries are rebuilt, because none of them changed.
+
+Because the marker is what decides whether an update installs, a UI-only publish stamps a distinct one by default — `<crate version>+web.<timestamp>` rather than the bare crate version. Without a distinct marker the download would match what is installed and `herdr update web` would report the page as already up to date. Pass a version to choose your own:
+
+```bash
+just web-publish 0.7.24
+```
+
+`just web-status` reports what is installed and what was built last.
+
 ## Connecting
 
 Open the gateway URL in a browser, enter the key, then pick a session or type a new name.

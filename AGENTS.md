@@ -224,6 +224,41 @@ The release workflows must publish these binary assets:
 
 The release and preview workflows also publish the browser UI as the separate `herdr-web-ui.html` asset. It is built from `web/` and must stay outside the binary so it can be updated independently of a herdr release. User-facing docs for it live in `docs/next/website/src/content/docs/web-ui.mdx`.
 
+### Frontend-only publish
+
+When the request is to publish only the frontend, do **not** run `just release`
+and do **not** tag a `v*` version. A `v*` tag triggers the release workflow,
+which rebuilds and uploads the platform binaries even when no Rust changed,
+producing a herdr release whose binaries are identical to the previous one.
+Use the UI-only path instead:
+
+```bash
+just web-publish [version]
+```
+
+That builds `web/` and uploads the page to the rolling `web-ui` release with
+`--clobber`, so the tag stays stable and every user's `herdr update web` picks
+it up. It runs `tsc` first, so a type error fails the publish.
+
+A frontend-only publish must stamp a marker that differs from what users
+already have, or `herdr update web` treats the download as "already up to
+date" and skips the install without saying so. `just web-publish` defaults to
+`<crate version>+web.<utc timestamp>` for exactly this reason: the comparison
+in `herdr update web` is string inequality, not version ordering, so the marker
+only has to be distinct. The marker comes from `HERDR_WEB_UI_VERSION`, which
+`web/vite.config.ts` reads; without it the build falls back to the crate
+version, which is what a normal release should keep using.
+
+Check what is installed and what is built with:
+
+```bash
+just web-status
+```
+
+Editing frontend code is still normal feature work: commit it like any other
+change, and `docs/next/website/src/content/docs/web-ui.mdx` is the place for
+user-facing UI documentation. Only the publish step is different.
+
 `nix/package.nix` imports `Cargo.lock` directly with `cargoLock.lockFile`, so release version bumps do not require a separate Nix cargo hash update. If Cargo git dependencies are added later, add the required `cargoLock.outputHashes` entries as part of that dependency change.
 
 ## External contributor guardrail
