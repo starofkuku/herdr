@@ -5086,7 +5086,15 @@ mod tests {
         );
         let pasted = input_rx.try_recv().expect("staged path paste");
         let pasted = String::from_utf8(pasted.to_vec()).expect("utf8 staged path");
-        assert!(pasted.starts_with("@/tmp/herdr-clipboard-images-"));
+        // The staging directory comes from `std::env::temp_dir`, which is not
+        // `/tmp` on every platform: macOS points it at a per-user directory
+        // under `/var/folders`, so a hardcoded prefix only passes on Linux.
+        // Build the expectation from the same source the code uses.
+        let staging_dir = std::env::temp_dir().join("herdr-clipboard-images");
+        assert!(
+            pasted.starts_with(&format!("@{}", staging_dir.display())),
+            "paste should mention the staging directory: {pasted}"
+        );
         shutdown_test_runtimes(&mut server);
     }
 
