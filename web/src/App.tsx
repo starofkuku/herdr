@@ -34,6 +34,14 @@ export default function App() {
   const sessionRef = useRef<string | null>(null);
   sessionRef.current = session;
   const subscriptionRef = useRef<Subscription | null>(null);
+  /**
+   * Pane-scoped status subscriptions, one per pane currently listed.
+   *
+   * `pane.agent_status_changed` requires a `pane_id`, so it cannot be part of
+   * the session-wide subscription below. The agent list has to stay correct
+   * without the detail view mounted, so each listed pane gets its own.
+   */
+  const statusSubsRef = useRef<Map<string, Subscription>>(new Map());
   const refreshTimer = useRef<number | null>(null);
 
   if (!clientRef.current) {
@@ -96,8 +104,8 @@ export default function App() {
       subscriptionRef.current?.close();
       // The kinds that are subscribable: agent detection, pane lifecycle, and
       // pane updates. A status change reaches `pane.updated` only on servers
-      // that emit it there, so `AgentDetail` also subscribes to
-      // `pane.agent_status_changed` for the pane it is showing.
+      // that emit it there; older ones send `pane.agent_status_changed` alone,
+      // which `syncStatusSubscriptions` covers per pane.
       subscriptionRef.current = client.subscribe(
         [
           "pane.updated",
@@ -108,8 +116,48 @@ export default function App() {
         ],
         () => scheduleRefresh(),
       );
+
+      statusSubsRef.current.forEach((sub) => sub.close());
+      statusSubsRef.current.clear();
     },
     [client, refreshAgents, scheduleRefresh],
+  );
+
+  // Keep one status subscription per listed pane, so the agent list reflects a
+  // status change on a server that reports it only as
+  // `pane.agent_status_changed`. Panes that disappear are unsubscribed, and a
+  // subscription is reused while its pane stays listed.
+  useEffect(() => {
+    const wanted = new Set(
+      agents.map((agent) => agent.paneId).filter((paneId): paneId is string => !!paneId),
+    );
+
+    for (const [paneId, subscription] of statusSubsRef.current) {
+      if (!wanted.has(paneId)) {
+        subscription.close();
+        statusSubsRef.current.delete(paneId);
+      }
+    }
+
+    for (const paneId of wanted) {
+      if (statusSubsRef.current.has(paneId)) continue;
+      statusSubsRef.current.set(
+        paneId,
+        client.subscribe([{ type: "pane.agent_status_changed", pane_id: paneId }], () =>
+          scheduleRefresh(),
+        ),
+      );
+    }
+  }, [agents, client, scheduleRefresh]);
+
+  // Drop every status subscription when the session is left, so a later session
+  // does not inherit subscriptions to panes that no longer exist.
+  useEffect(
+    () => () => {
+      statusSubsRef.current.forEach((sub) => sub.close());
+      statusSubsRef.current.clear();
+    },
+    [],
   );
 
   const connect = useCallback(
