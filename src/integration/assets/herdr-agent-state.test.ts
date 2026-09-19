@@ -736,6 +736,70 @@ test("Pi maps the plugin's blocked event onto the blocked state it already reads
   ).toBe(true);
 });
 
+test("Pi keeps the pane working while the subagents extension reports busy", async () => {
+  // A child agent can outlive the turn that started it. The subagents extension
+  // announces that through `herdr:busy`, so without honoring it the pane falls
+  // back to idle while the child is still running.
+  const { requests } = await startInteractionServer("pi-busy");
+  const bus = await installPiWithPrompt(requests, singleQuestion);
+
+  const reported = (state: string) =>
+    requests.some(
+      (request) =>
+        isRecord(request) &&
+        request.method === "pane.report_agent" &&
+        isRecord(request.params) &&
+        request.params.state === state,
+    );
+
+  bus.emit("herdr:busy", { active: true, label: "2 subagents (worker)" });
+  await waitFor(() => reported("working"));
+  expect(reported("working")).toBe(true);
+
+  // The turn ending must not clear the busy hold.
+  await Bun.sleep(400);
+  expect(reported("working")).toBe(true);
+
+  // Only the extension retiring its last child ends the work.
+  bus.emit("herdr:busy", { active: false });
+  await waitFor(() => reported("idle"));
+  expect(reported("idle")).toBe(true);
+});
+
+test("Pi reports blocked while a child needs attention, even with others running", async () => {
+  // A waiting child outranks a running one: the pane should read as blocked
+  // until someone answers, not as ordinary work in progress.
+  const { requests } = await startInteractionServer("pi-busy-blocked");
+  const bus = await installPiWithPrompt(requests, singleQuestion);
+
+  const latestState = () => {
+    let state: unknown;
+    for (const request of requests) {
+      if (
+        isRecord(request) &&
+        request.method === "pane.report_agent" &&
+        isRecord(request.params)
+      ) {
+        state = request.params.state;
+      }
+    }
+    return state;
+  };
+
+  bus.emit("herdr:busy", { active: true, label: "1 subagent (worker)" });
+  await waitFor(() => latestState() === "working");
+  expect(latestState()).toBe("working");
+
+  bus.emit("herdr:blocked", { active: true, label: "needs your answer" });
+  await waitFor(() => latestState() === "blocked");
+  expect(latestState()).toBe("blocked");
+
+  // Answering it returns to working because the child is still running.
+  bus.emit("herdr:blocked", { active: false });
+  await waitFor(() => latestState() === "working");
+  expect(latestState()).toBe("working");
+});
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }

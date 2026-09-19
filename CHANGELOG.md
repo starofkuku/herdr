@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Added
+- The web UI sends files to an agent by pasting, dropping, or choosing them from a new attach button beside the composer. Images are previewed as thumbnails and open full size on click; any other file is shown by name and size and downloads when clicked. Pasted images come from the `paste` event rather than the clipboard API, so this works on a plain-HTTP internal address where `navigator.clipboard` is refused for lacking a secure context. Files wait beside the composer until send, and a multi-file send goes to the pane as one message.
+- Uploaded files are served from `/uploads/<id>.<ext>`, so a conversation can reference them by URL. The id is 32 random bytes, which is what keeps one upload from being found by guessing at another, since this route carries no key: an `<img>` cannot send one. `[web] uploads_dir` chooses where the files live and defaults to an uploads directory inside `web.static_dir`.
+- Non-image uploads download rather than render, and script-capable types (`.html`, `.svg`, `.js`, and similar) are forced to download with `X-Content-Type-Options: nosniff`. The upload route shares the web UI's origin, so a document the browser would execute there could otherwise read the gateway key.
+- `pane.stage_upload` stages one file for a pane and reports the path to paste. Agents differ in how they recognise an attachment, so the server resolves that from the pane's agent: pi gets an `@path` mention while most others take a bare path.
+
+### Fixed
+- The Pi integration keeps a pane `working` while the subagents extension still has child agents running. That extension already announced this through its `herdr:busy` event, but nothing consumed it, so a pane fell back to idle the moment the main turn ended even though its children were still working. A child waiting on a person still reports `blocked`, which outranks ordinary work in progress.
+- A large upload no longer fails with a closed connection and no explanation. Four separate limits applied to it: the gateway's 256 KiB request cap, the server's 1 MiB request cap, a 16 MiB WebSocket frame cap, and a request timeout shorter than the read took. Each is now either raised for this one method or removed as the bottleneck, and a file past the 16 MiB limit reports `upload_too_large` instead of dropping the socket.
+- Reading one API request no longer checks the whole buffer for the line terminator. The read helper reported that bytes arrived without saying how many, so the scan could see a previous chunk's leftovers and splice them into the current request, which surfaced as `trailing characters` errors.
+
 ## [0.7.25] - 2026-09-19
 
 ### Added

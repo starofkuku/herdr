@@ -9,8 +9,8 @@ use super::integrations::{
 use super::panes::{
     LayoutDescription, PaneAnswerInteractionResult, PaneEdgesResult, PaneFocusDirectionResult,
     PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneMoveResult, PaneNeighborResult,
-    PaneProcessInfo, PaneReadResult, PaneResizeResult, PaneSessionResult, PaneSwapResult,
-    PaneZoomResult,
+    PaneProcessInfo, PaneReadResult, PaneResizeResult, PaneSessionResult, PaneStageUploadResult,
+    PaneSwapResult, PaneZoomResult,
 };
 use super::plugins::{
     InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
@@ -159,6 +159,10 @@ pub enum ResponseResult {
     },
     PaneSession {
         session: PaneSessionResult,
+    },
+    /// An uploaded file was written and is now addressable.
+    PaneUploadStaged {
+        upload: PaneStageUploadResult,
     },
     /// The answer a client submitted was recorded for the integration.
     PaneInteractionAnswered {

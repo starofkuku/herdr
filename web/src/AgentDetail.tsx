@@ -1,11 +1,19 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import type { Subscription, ConnectionState } from "./gateway";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type AgentView } from "./api";
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
+import { PendingUploads } from "./PendingUploads";
 import { ThemeToggle } from "./ThemeToggle";
+import {
+  fileToBase64,
+  releaseUpload,
+  stageUpload,
+  uploadError,
+  type StagedUpload,
+} from "./upload";
 
 /**
  * Backstop for the optimistic echo.
@@ -15,6 +23,17 @@ import { ThemeToggle } from "./ThemeToggle";
  * the conversation indefinitely.
  */
 const SENT_ECHO_TIMEOUT_MS = 30_000;
+
+/**
+ * What the server returns for one staged file.
+ *
+ * Only the fields the UI reads are declared. `paste_text` is already shaped for
+ * the agent by the server, which keeps the per-agent rules (an `@` prefix for
+ * some, a bare path for others) in one place instead of duplicating them here.
+ */
+interface StagedUploadResult {
+  paste_text: string;
+}
 
 /** Reads a page of the transcript. */
 async function readPage(
@@ -160,6 +179,24 @@ export function AgentDetail({
    * cannot sit in the conversation forever.
    */
   const sentExpiry = useRef<number | null>(null);
+  /**
+   * Files chosen and not yet sent, in the order they were added.
+   *
+   * Held here rather than uploaded on selection: a file may be removed before
+   * sending, and the message that accompanies it is still being typed.
+   */
+  const [uploads, setUploads] = useState<StagedUpload[]>([]);
+  /** True while files are being decoded, so the composer cannot send mid-add. */
+  const [preparing, setPreparing] = useState(false);
+  /** Highlights the pane while a drag is over it. */
+  const [dragging, setDragging] = useState(false);
+  /** The image shown enlarged, if any. */
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // `dragleave` fires when the pointer crosses between child elements, so a
+  // plain boolean flickers. Counting enter/leave pairs keeps the highlight
+  // steady until the drag actually leaves the pane.
+  const dragDepth = useRef(0);
 
   const paneId = agent?.paneId ?? null;
   const blocked = agent?.status === "blocked";
@@ -357,16 +394,106 @@ export function AgentDetail({
     }
   };
 
+  /**
+   * Adds files to the pending list, refusing the ones that cannot be sent.
+   *
+   * Every reason is collected into one message so a multi-file drop reports all
+   * of its problems at once instead of only the first.
+   */
+  const addFiles = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+    const accepted: File[] = [];
+    const refused: string[] = [];
+    for (const file of files) {
+      const reason = uploadError(file);
+      if (reason) refused.push(reason);
+      else accepted.push(file);
+    }
+    if (refused.length > 0) {
+      setError(refused.join("; "));
+    }
+    if (accepted.length === 0) return;
+
+    setPreparing(true);
+    try {
+      // Staged one at a time: a thumbnail that fails to decode must not take
+      // the rest of the batch down with it.
+      const staged: StagedUpload[] = [];
+      for (const file of accepted) {
+        staged.push(await stageUpload(file));
+      }
+      setUploads((current) => [...current, ...staged]);
+    } finally {
+      setPreparing(false);
+    }
+  }, []);
+
+  /** Removes a file from the pending list and releases its preview. */
+  const removeUpload = useCallback((id: string) => {
+    setUploads((current) => {
+      const entry = current.find((upload) => upload.id === id);
+      if (entry) releaseUpload(entry);
+      return current.filter((upload) => upload.id !== id);
+    });
+  }, []);
+
+  /**
+   * Uploads every pending file and returns the paste tokens.
+   *
+   * Does not clear the pending list: the tokens are only worth having if the
+   * message that carries them is actually delivered, so the caller clears once
+   * the send has succeeded. Clearing here would lose the user's files whenever
+   * the send failed after a successful upload.
+   */
+  const uploadFiles = useCallback(async (): Promise<string[]> => {
+    if (!paneId || uploads.length === 0) return [];
+    const results: string[] = [];
+    for (const upload of uploads) {
+      const data = await fileToBase64(upload.file);
+      const response = await client.call<Record<string, unknown>>("pane.stage_upload", {
+        pane_id: paneId,
+        name: upload.file.name,
+        mime: upload.file.type,
+        data_base64: data,
+        // Absent rather than empty when there is no thumbnail, so the server
+        // does not have to tell "no thumbnail" from "empty thumbnail".
+        ...(upload.thumbnail ? { thumbnail_base64: upload.thumbnail } : {}),
+      });
+      const staged = response.upload as StagedUploadResult | undefined;
+      if (!staged?.paste_text) {
+        throw new Error(`upload of ${upload.file.name} returned no path`);
+      }
+      results.push(staged.paste_text);
+    }
+    return results;
+  }, [client, paneId, uploads]);
+
+  /** Drops every pending file, releasing the object URLs each one holds. */
+  const clearUploads = useCallback(() => {
+    setUploads((current) => {
+      for (const upload of current) releaseUpload(upload);
+      return [];
+    });
+  }, []);
+
   const send = async () => {
     const message = draft.trim();
-    if (!paneId || !message || busy) return;
+    // A file with no message is a normal thing to send, so the composer is not
+    // required to contain text when something is attached.
+    if (!paneId || (!message && uploads.length === 0) || busy || preparing) return;
     setBusy(true);
     try {
-      await client.call("pane.send_input", { pane_id: paneId, text: message, keys: ["Enter"] });
+      const pasted = await uploadFiles();
+      const text = [message, ...pasted].filter((part) => part.length > 0).join("\n");
+      // The files are only dropped once the message is away: an upload that
+      // succeeded must not leave a copy behind, and a send that failed must not
+      // take the user's files with it.
+      await client.call("pane.send_input", { pane_id: paneId, text, keys: ["Enter"] });
+      clearUploads();
       setDraft("");
       setError(null);
       setPendingTurn(true);
-      setSentMessage(message);
+      setSentMessage(text);
       if (sentExpiry.current !== null) window.clearTimeout(sentExpiry.current);
       sentExpiry.current = window.setTimeout(() => {
         sentExpiry.current = null;
@@ -453,9 +580,24 @@ export function AgentDetail({
     }
   }, [paneId]);
 
+  // Files chosen for one agent must not be sent to another, and their object
+  // URLs would otherwise leak.
+  useEffect(() => {
+    clearUploads();
+    setLightbox(null);
+    dragDepth.current = 0;
+    setDragging(false);
+  }, [paneId, clearUploads]);
+
+  // Releasing on unmount needs the entries themselves, not just the setter, so
+  // the latest list is read through a ref. Without this the previews of files
+  // still attached when the view closes stay alive for the life of the document.
+  const uploadsRef = useRef<StagedUpload[]>([]);
+  uploadsRef.current = uploads;
   useEffect(
     () => () => {
       if (sentExpiry.current !== null) window.clearTimeout(sentExpiry.current);
+      for (const upload of uploadsRef.current) releaseUpload(upload);
     },
     [],
   );
@@ -489,6 +631,45 @@ export function AgentDetail({
     .join("");
 
   /**
+   * Whether a drag carries files, as opposed to text or a selection.
+   *
+   * Dragging a selection or a link also fires `dragover`; claiming those would
+   * make the whole pane a drop target for content it cannot accept.
+   */
+  const dragHasFiles = (event: DragEvent) =>
+    Array.from(event.dataTransfer.types).includes("Files");
+
+  const onDragEnter = (event: DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    // Without this the browser opens the dropped file and leaves the page.
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDragging(true);
+  };
+
+  const onDragOver = (event: DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    // The default is "no drop", which also suppresses the drop event.
+    event.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDragLeave = (event: DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDragging(false);
+  };
+
+  const onDrop = (event: DragEvent) => {
+    if (!dragHasFiles(event)) return;
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDragging(false);
+    void addFiles(Array.from(event.dataTransfer.files));
+  };
+
+  /**
    * Grows the composer to fit what has been typed.
    *
    * A fixed-height field shows two lines on a phone and hides the rest, which is
@@ -511,7 +692,13 @@ export function AgentDetail({
   const canStop = agent?.status === "working" || pendingTurn;
 
   return (
-    <div className="detail-screen">
+    <div
+      className={`detail-screen${dragging ? " dragging" : ""}`}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
       <header className="topbar">
         <button type="button" className="ghost" onClick={onBack} aria-label="Back">
           ‹
@@ -597,37 +784,104 @@ export function AgentDetail({
           void send();
         }}
       >
-        <textarea
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          placeholder="Send a message…"
-          rows={1}
-          ref={composerRef}
-          onKeyDown={(event) => {
-            // Enter sends, Shift+Enter inserts a newline.
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              void send();
-            }
-          }}
+        {/*
+          Pending files sit above the field, inside the composer, so they move
+          with it rather than scrolling away with the conversation.
+        */}
+        <PendingUploads
+          uploads={uploads}
+          busy={busy || preparing}
+          onRemove={removeUpload}
+          onPreview={setLightbox}
         />
-        {canStop ? (
+        <div className="composer-row">
           <button
             type="button"
-            className="stop"
-            disabled={busy}
-            aria-label="Stop the agent"
-            title="Stop the agent (sends Esc)"
-            onClick={() => void interrupt()}
+            className="attach"
+            disabled={busy || preparing}
+            aria-label="Attach files"
+            title="Attach files"
+            onClick={() => fileInputRef.current?.click()}
           >
-            <span className="stop-glyph" aria-hidden="true" />
+            <span className="attach-glyph" aria-hidden="true" />
           </button>
-        ) : (
-          <button type="submit" disabled={busy || !draft.trim()} aria-label="Send">
-            ↑
-          </button>
-        )}
+          {/*
+            Hidden rather than styled away: a visible control would be a second
+            way to do the same thing, and the button above is the affordance.
+          */}
+          <input
+            ref={fileInputRef}
+            className="attach-input"
+            type="file"
+            multiple
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              // Cleared so choosing the same file twice still fires a change.
+              event.target.value = "";
+              void addFiles(files);
+            }}
+          />
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Send a message…"
+            rows={1}
+            ref={composerRef}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData?.files ?? []);
+              if (files.length === 0) return;
+              // Only intercepted when the clipboard actually holds files, so
+              // pasting text keeps its default behaviour. The clipboard is read
+              // from the event rather than `navigator.clipboard`, which needs a
+              // secure context this UI does not have on a LAN address.
+              event.preventDefault();
+              void addFiles(files);
+            }}
+            onKeyDown={(event) => {
+              // Enter sends, Shift+Enter inserts a newline.
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                void send();
+              }
+            }}
+          />
+          {canStop ? (
+            <button
+              type="button"
+              className="stop"
+              disabled={busy}
+              aria-label="Stop the agent"
+              title="Stop the agent (sends Esc)"
+              onClick={() => void interrupt()}
+            >
+              <span className="stop-glyph" aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={busy || preparing || (!draft.trim() && uploads.length === 0)}
+              aria-label="Send"
+            >
+              ↑
+            </button>
+          )}
+        </div>
       </form>
+
+      {/*
+        The enlarged view. Rendered as an overlay rather than a new tab so the
+        conversation stays where it was, and dismissed by a tap anywhere.
+      */}
+      {lightbox ? (
+        <div
+          className="lightbox"
+          role="dialog"
+          aria-label="Image preview"
+          onClick={() => setLightbox(null)}
+        >
+          <img src={lightbox} alt="" />
+        </div>
+      ) : null}
     </div>
   );
 }

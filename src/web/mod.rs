@@ -33,6 +33,9 @@ pub(crate) struct WebOptions {
     pub bind: String,
     pub port: u16,
     pub static_dir: Option<PathBuf>,
+    /// Resolved uploads directory, shared with the server so both sides agree
+    /// on where a staged file is written and served from.
+    pub uploads_dir: Option<PathBuf>,
     pub allowed_origins: Vec<String>,
     pub key: WebKey,
 }
@@ -64,6 +67,7 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
         })?;
 
         let static_dir = options.static_dir.as_deref().map(expand_tilde);
+        let uploads_dir = options.uploads_dir.clone();
 
         if let Some(dir) = &static_dir {
             if !dir.is_dir() {
@@ -86,6 +90,7 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
         let shared = Arc::new(SharedState {
             key: options.key,
             static_dir,
+            uploads_dir,
             allowed_origins: options.allowed_origins,
         });
 
@@ -111,11 +116,14 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
 struct SharedState {
     key: WebKey,
     static_dir: Option<PathBuf>,
+    /// Resolved uploads directory; `None` when neither `uploads_dir` nor
+    /// `static_dir` is configured, in which case `/uploads/*` is not served.
+    uploads_dir: Option<PathBuf>,
     allowed_origins: Vec<String>,
 }
 
 /// Expands a leading `~` to the user's home directory.
-fn expand_tilde(path: &Path) -> PathBuf {
+pub(crate) fn expand_tilde(path: &Path) -> PathBuf {
     let raw = path.to_string_lossy();
     let Some(rest) = raw.strip_prefix("~/") else {
         return path.to_path_buf();
@@ -137,7 +145,102 @@ async fn handle_connection(
         return handle_websocket(stream, peer, shared, &request, rest).await;
     }
 
+    if request.target.starts_with(UPLOADS_ROUTE_PREFIX) {
+        return handle_upload_asset(stream, &request, shared).await;
+    }
+
     handle_static(stream, &request, shared).await
+}
+
+/// Route prefix uploaded files are served from.
+const UPLOADS_ROUTE_PREFIX: &str = "/uploads/";
+
+/// Serves one uploaded file.
+///
+/// This route is deliberately unauthenticated: the browser references the file
+/// from an `<img>` or a download link, and neither can carry the gateway key.
+/// The filename is unguessable instead, which is what keeps one upload from
+/// being found by guessing at another.
+///
+async fn handle_upload_asset(
+    mut stream: TcpStream,
+    request: &http::Request,
+    shared: Arc<SharedState>,
+) -> std::io::Result<()> {
+    if request.method != "GET" && request.method != "HEAD" {
+        return http::write_simple(&mut stream, 405, "text/plain", "method not allowed").await;
+    }
+
+    let Some(dir) = shared.uploads_dir.as_deref() else {
+        return http::write_simple(
+            &mut stream,
+            404,
+            "text/plain",
+            "uploads are not configured; set [web] static_dir or [web] uploads_dir",
+        )
+        .await;
+    };
+
+    // `resolve_path` rejects traversal, so a name cannot escape the uploads
+    // directory. The prefix is stripped first so the remainder is a plain name.
+    let relative = request
+        .target
+        .strip_prefix(UPLOADS_ROUTE_PREFIX)
+        .unwrap_or(&request.target);
+    let Some(path) = http::resolve_path(dir, relative) else {
+        return http::write_simple(&mut stream, 400, "text/plain", "bad path").await;
+    };
+
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let serving = crate::server::uploads::serving_for(&extension);
+
+    // An image renders inline so a preview works. Everything else downloads:
+    // this route shares an origin with the web UI, so a document the browser is
+    // willing to execute could otherwise run script in that origin and read the
+    // gateway key.
+    let disposition =
+        if serving.attachment || crate::server::uploads::must_force_download(&extension) {
+            "attachment"
+        } else {
+            "inline"
+        };
+    let nosniff = if serving.is_image {
+        ""
+    } else {
+        "X-Content-Type-Options: nosniff\r\n"
+    };
+
+    match tokio::fs::read(&path).await {
+        Ok(body) => {
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
+                 Content-Disposition: {disposition}\r\n{nosniff}\
+                 Cache-Control: no-cache\r\nConnection: close\r\n\r\n",
+                serving.content_type,
+                body.len()
+            );
+            use tokio::io::AsyncWriteExt as _;
+            stream.write_all(header.as_bytes()).await?;
+            if request.method == "GET" {
+                stream.write_all(&body).await?;
+            }
+            stream.flush().await
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            http::write_simple(&mut stream, 404, "text/plain", "not found").await
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
+            http::write_simple(&mut stream, 403, "text/plain", "forbidden").await
+        }
+        Err(err) => {
+            debug!(path = %path.display(), err = %err, "failed to read uploaded asset");
+            http::write_simple(&mut stream, 500, "text/plain", "internal error").await
+        }
+    }
 }
 
 async fn handle_static(
@@ -191,6 +294,29 @@ async fn handle_static(
     }
 }
 
+/// WebSocket limits for the browser connection.
+///
+/// A file upload arrives as one JSON frame with the bytes base64-encoded, so a
+/// 16 MiB file is about 21 MiB on the wire. The library defaults cap a single
+/// frame at 16 MiB, which silently dropped anything past roughly 12 MiB of
+/// file: the socket closed with no response and the handler never ran. The
+/// frame limit is raised to cover the largest file the API accepts, and the
+/// message limit is raised past it so the frame limit is the binding one.
+///
+/// These bounds stay well below the protocol's own request cap, so they only
+/// stop a runaway frame rather than acting as the real size check.
+fn websocket_config() -> tungstenite::protocol::WebSocketConfig {
+    /// Largest file the API accepts, before base64 expansion, plus headroom.
+    const MAX_UPLOAD_FRAME_BYTES: usize = 32 * 1024 * 1024;
+
+    // `WebSocketConfig` is non-exhaustive, so it is built from `Default` and
+    // adjusted rather than written out as a struct literal.
+    let mut config = tungstenite::protocol::WebSocketConfig::default();
+    config.max_frame_size = Some(MAX_UPLOAD_FRAME_BYTES);
+    config.max_message_size = Some(MAX_UPLOAD_FRAME_BYTES);
+    config
+}
+
 async fn handle_websocket(
     mut stream: TcpStream,
     peer: SocketAddr,
@@ -232,7 +358,7 @@ async fn handle_websocket(
         stream,
         rest,
         tungstenite::protocol::Role::Server,
-        None,
+        Some(websocket_config()),
     )
     .await;
 
@@ -440,6 +566,7 @@ async fn handle_message(
                 .await;
             };
 
+            let request_limit = api::max_request_bytes_for(&method);
             let line = serde_json::to_string(&serde_json::json!({
                 "id": id,
                 "method": method,
@@ -447,9 +574,11 @@ async fn handle_message(
             }))
             .map_err(std::io::Error::other)?;
 
-            let response = tokio::task::spawn_blocking(move || api::request(&socket, &line))
-                .await
-                .map_err(std::io::Error::other)?;
+            let response = tokio::task::spawn_blocking(move || {
+                api::request_with_limit(&socket, &line, request_limit)
+            })
+            .await
+            .map_err(std::io::Error::other)?;
 
             let payload = match response {
                 Ok(raw) => serde_json::from_str::<serde_json::Value>(raw.trim())
@@ -568,6 +697,7 @@ pub(crate) fn options_from_config(config: &crate::config::Config) -> Result<WebO
         bind: config.web.bind.clone(),
         port: config.web.port,
         static_dir: config.web.static_dir.clone().map(PathBuf::from),
+        uploads_dir: crate::server::uploads::uploads_dir(config),
         allowed_origins: config.web.allowed_origins.clone(),
         key,
     })

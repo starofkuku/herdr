@@ -919,6 +919,13 @@ pub struct WebConfig {
     /// The UI is served from disk at request time and is never embedded in
     /// the binary. When unset, only the WebSocket endpoint is served.
     pub static_dir: Option<String>,
+    /// Directory uploaded files are written to and served from.
+    ///
+    /// The web UI serves it at `/uploads/<id>.<ext>` and the server writes
+    /// there, so both sides must resolve the same path. Defaults to an
+    /// `uploads` directory inside `static_dir`; without a `static_dir` there
+    /// is nowhere to serve from and uploads are refused.
+    pub uploads_dir: Option<String>,
     /// URL the web UI is downloaded from by `herdr update web`.
     ///
     /// The page is published on its own release, so it can be updated without
@@ -945,6 +952,7 @@ impl Default for WebConfig {
             bind: DEFAULT_WEB_BIND.to_string(),
             port: DEFAULT_WEB_PORT,
             static_dir: None,
+            uploads_dir: None,
             update_url: None,
             allowed_origins: Vec::new(),
             key: None,

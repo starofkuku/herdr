@@ -1066,6 +1066,12 @@
           "description": "URL the web UI is downloaded from by `herdr update web`. The page is published on its own release, so it can be updated without touching the binary. Requires `web.static_dir`."
         },
         {
+          "key": "web.uploads_dir",
+          "type": "string",
+          "default": "none",
+          "description": "Directory uploaded files are written to and served from at /uploads/<id>.<ext>. Defaults to an uploads directory inside web.static_dir; without either setting uploads are refused."
+        },
+        {
           "key": "web.allowed_origins",
           "type": "array of strings",
           "default": "[]",

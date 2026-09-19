@@ -12,9 +12,10 @@ use crate::api::schema::{
     PaneReportDiagnosticParams, PaneReportInteractionParams, PaneReportMetadataParams,
     PaneResizeParams, PaneResizeReason, PaneResizeResult, PaneSendInputParams, PaneSendKeysParams,
     PaneSendTextParams, PaneSessionMessage, PaneSessionPagination, PaneSessionParams,
-    PaneSessionResult, PaneSessionToolCall, PaneSessionTurn, PaneSplitParams, PaneSwapParams,
-    PaneSwapReason, PaneSwapResult, PaneTakeInteractionAnswerParams, PaneTarget, PaneZoomMode,
-    PaneZoomParams, PaneZoomReason, PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
+    PaneSessionResult, PaneSessionToolCall, PaneSessionTurn, PaneSplitParams,
+    PaneStageUploadParams, PaneStageUploadResult, PaneSwapParams, PaneSwapReason, PaneSwapResult,
+    PaneTakeInteractionAnswerParams, PaneTarget, PaneZoomMode, PaneZoomParams, PaneZoomReason,
+    PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1900,6 +1901,105 @@ impl App {
             ResponseResult::PaneInteractionAnswerTaken {
                 answers: answers.unwrap_or_default(),
                 pending,
+            },
+        )
+    }
+
+    /// Writes a client-uploaded file and reports where it landed.
+    ///
+    /// The file is not sent to the pane here: the caller decides when to paste,
+    /// so several uploads can be delivered as one message. What this returns is
+    /// everything needed to do that, including the paste text already shaped for
+    /// this pane's agent.
+    pub(super) fn handle_pane_stage_upload(
+        &mut self,
+        id: String,
+        params: PaneStageUploadParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+
+        // Resolve the uploads directory from config. Without one there is
+        // nowhere to write and nothing to serve, so this is a configuration
+        // error rather than a pane error.
+        let Some(dir) = self.uploads_dir.clone() else {
+            return encode_error(
+                id,
+                "uploads_not_configured",
+                "no uploads directory configured; set [web] static_dir or [web] uploads_dir",
+            );
+        };
+
+        use base64::Engine as _;
+        let data = match base64::engine::general_purpose::STANDARD
+            .decode(params.data_base64.as_bytes())
+        {
+            Ok(data) => data,
+            Err(err) => {
+                return encode_error(id, "invalid_upload_data", format!("invalid base64: {err}"));
+            }
+        };
+        if data.len() > crate::server::uploads::MAX_UPLOAD_BYTES {
+            return encode_error(
+                id,
+                "upload_too_large",
+                format!(
+                    "upload is {} bytes; the limit is {}",
+                    data.len(),
+                    crate::server::uploads::MAX_UPLOAD_BYTES
+                ),
+            );
+        }
+
+        let extension = crate::server::uploads::extension_of(&params.name);
+        let staged = match crate::server::uploads::stage(&dir, extension, &data) {
+            Ok(staged) => staged,
+            Err(err) => {
+                return encode_error(id, "upload_write_failed", err.to_string());
+            }
+        };
+
+        let serving = crate::server::uploads::serving_for(&staged.extension);
+        let path = staged.path.to_string_lossy().into_owned();
+        let url = format!("/uploads/{}.{}", staged.id, staged.extension);
+
+        // The agent decides how the path must be spelled: pi needs an `@path`
+        // mention while most others take a bare path. A pane whose agent is
+        // unknown still gets the plain path, which is the least surprising text
+        // to receive.
+        let agent = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+            .and_then(|terminal_id| self.state.terminals.get(&terminal_id))
+            .and_then(|terminal| terminal.effective_known_agent());
+        let paste_text = agent
+            .and_then(|agent| crate::server::clipboard_image::remote_image_paste_text(agent, &path))
+            .unwrap_or_else(|| path.clone());
+
+        tracing::info!(
+            pane = %params.pane_id,
+            bytes = staged.size,
+            is_image = serving.is_image,
+            "staged uploaded file"
+        );
+
+        encode_success(
+            id,
+            ResponseResult::PaneUploadStaged {
+                upload: PaneStageUploadResult {
+                    id: staged.id,
+                    name: params.name,
+                    mime: params.mime.unwrap_or(serving.content_type),
+                    size: staged.size as u64,
+                    path,
+                    url,
+                    paste_text,
+                    is_image: serving.is_image,
+                },
             },
         )
     }
@@ -4535,5 +4635,108 @@ mod tests {
             .unwrap()
             .diagnostics
             .is_empty());
+    }
+    fn upload_params(pane_id: String, name: &str, data: &[u8]) -> PaneStageUploadParams {
+        use base64::Engine as _;
+        PaneStageUploadParams {
+            pane_id,
+            name: name.to_string(),
+            mime: None,
+            data_base64: base64::engine::general_purpose::STANDARD.encode(data),
+            thumbnail_base64: None,
+        }
+    }
+
+    #[test]
+    fn staging_an_upload_reports_a_path_and_a_served_url() {
+        let (mut app, pane_id) = app_with_test_workspace();
+        let dir = std::env::temp_dir().join(format!("herdr-upload-handler-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        app.uploads_dir = Some(dir.clone());
+
+        let response =
+            app.handle_pane_stage_upload("req".into(), upload_params(pane_id, "notes.txt", b"hi"));
+        let parsed: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let upload = match parsed.result {
+            ResponseResult::PaneUploadStaged { upload } => upload,
+            other => panic!("unexpected result: {other:?}"),
+        };
+
+        assert_eq!(upload.name, "notes.txt");
+        assert_eq!(upload.size, 2);
+        assert_eq!(upload.id.len(), 32);
+        assert_eq!(upload.url, format!("/uploads/{}.txt", upload.id));
+        assert!(upload.path.ends_with(&format!("{}.txt", upload.id)));
+        assert!(!upload.is_image);
+        // A pane whose agent is unknown still gets a usable bare path.
+        assert_eq!(upload.paste_text, upload.path);
+        assert_eq!(std::fs::read(&upload.path).unwrap(), b"hi");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_image_upload_is_marked_previewable() {
+        let (mut app, pane_id) = app_with_test_workspace();
+        let dir = std::env::temp_dir().join(format!("herdr-upload-image-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        app.uploads_dir = Some(dir.clone());
+
+        let response = app
+            .handle_pane_stage_upload("req".into(), upload_params(pane_id, "shot.png", b"\x89PNG"));
+        let parsed: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let upload = match parsed.result {
+            ResponseResult::PaneUploadStaged { upload } => upload,
+            other => panic!("unexpected result: {other:?}"),
+        };
+
+        assert!(upload.is_image);
+        assert!(upload.url.ends_with(".png"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn staging_an_upload_without_a_configured_directory_is_rejected() {
+        let (mut app, pane_id) = app_with_test_workspace();
+        app.uploads_dir = None;
+
+        let response =
+            app.handle_pane_stage_upload("req".into(), upload_params(pane_id, "a.txt", b"hi"));
+
+        assert_eq!(upload_error_code(&response), "uploads_not_configured");
+    }
+
+    #[test]
+    fn staging_an_upload_rejects_invalid_base64() {
+        let (mut app, pane_id) = app_with_test_workspace();
+        let dir = std::env::temp_dir().join(format!("herdr-upload-b64-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        app.uploads_dir = Some(dir.clone());
+
+        let mut params = upload_params(pane_id, "a.txt", b"hi");
+        params.data_base64 = "not base64!!".into();
+        let response = app.handle_pane_stage_upload("req".into(), params);
+
+        assert_eq!(upload_error_code(&response), "invalid_upload_data");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn staging_an_upload_on_a_missing_pane_is_rejected() {
+        let (mut app, _pane_id) = app_with_test_workspace();
+        app.uploads_dir = Some(std::env::temp_dir());
+
+        let response = app.handle_pane_stage_upload(
+            "req".into(),
+            upload_params("w999:p999".into(), "a.txt", b"hi"),
+        );
+
+        assert_eq!(upload_error_code(&response), "pane_not_found");
+    }
+
+    fn upload_error_code(response: &str) -> String {
+        let parsed: ErrorResponse = serde_json::from_str(response).unwrap();
+        parsed.error.code
     }
 }

@@ -51,6 +51,9 @@ bind = "127.0.0.1"
 port = 8787
 # Directory containing the built web UI. Optional.
 static_dir = "/home/you/herdr/web/dist"
+# Where uploaded files are stored and served from. Optional; defaults to an
+# uploads directory inside static_dir.
+uploads_dir = "/home/you/herdr/web/uploads"
 # Optional Origin allowlist. Empty disables the check.
 allowed_origins = []
 # URL `herdr update web` downloads the page from. Optional.
@@ -190,6 +193,28 @@ Agent 工作时，新输出会随产生而出现。滚动到顶部会逐页加�
 发送消息后，只要 Agent 仍在处理该轮，发送按钮就会变成 **停止** 按钮。停止发送的是 Agent 自己声明用于中断的按键（通常是 `esc`），效果与自己按下该键相同。
 
 本地 UI 状态（即你所在的界面和滚动位置）不与终端共享。只有 Agent 自身的输出和状态是共享的。
+
+## 发送文件
+
+有三种方式发送文件，它们都会先停在输入框旁，直到你发送：
+
+- 用 `Ctrl+V`（macOS 为 `Cmd+V`）**粘贴**图片
+- 把文件**拖放**到会话区域
+- 用输入框旁的**附件按钮**选择文件
+
+粘贴读取的是 `paste` 事件，而不是剪贴板 API。剪贴板 API 需要安全上下文，而内网上的明文 HTTP 地址不属于安全上下文，因此会被拒绝；`paste` 事件由你自己的按键触发，不需要任何权限。
+
+图片显示为缩略图，点击后按原尺寸打开。其他文件显示文件名与大小,点击则下载。也允许只发送文件;发送多个文件会合并为一条消息。
+
+Agent 收到的是**路径**而不是文件本身,因为运行在主机上的 Agent 能读的只有路径。该路径会按窗格的 Agent 整形:pi 使用 `@path` 形式,多数其他 Agent 接受裸路径。
+
+文件通过 `/uploads/<id>.<ext>` 提供。该路由不带密钥(因为 `<img>` 无法发送密钥);id 是 32 字节随机值,因此无法从一个上传推測出另一个。知道确切 URL 的任何人都可以读取,所以请把它当作“未公开列示”而非私密。
+
+非图片文件会下载而不是渲染。浏览器会在该源下执行的类型（`.html`、`.svg`、`.js` 等）也会被强制下载,因为在那里运行的页面可以读到网关密钥。因此 `.svg` 是下载而非预览。
+
+`[web] uploads_dir` 决定文件的存放位置,默认是 `web.static_dir` 内的上传目录。两者都未设置时会拒绝上传。文件不会自动删除,如果经常上传请自行清理。
+
+单个文件上限为 16 MiB。
 
 ## 回答提示
 

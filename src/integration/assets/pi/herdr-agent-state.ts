@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=6
+// HERDR_INTEGRATION_VERSION=7
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -481,6 +481,11 @@ export default function (pi) {
   let failureMessage: string | undefined;
   let blockedCount = 0;
   let blockedMessage: string | undefined;
+  // Async child agents the subagents extension still has running, reported
+  // through its `herdr:busy` sibling event. The main turn can end while these
+  // continue, so without this the pane falls back to idle mid-work.
+  let busyCount = 0;
+  let busyMessage: string | undefined;
   let lastState: AgentState | undefined;
   let lastMessage: string | undefined;
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
@@ -509,8 +514,13 @@ export default function (pi) {
   }
 
   function desiredState() {
+    // A child waiting on a person outranks one that is merely running: the
+    // pane should read as blocked until that question is answered.
     if (blockedCount > 0) {
       return { state: "blocked" as const, message: blockedMessage };
+    }
+    if (busyCount > 0) {
+      return { state: "working" as const, message: busyMessage };
     }
     if (failureBlocked) {
       return { state: "blocked" as const, message: failureMessage };
@@ -573,6 +583,32 @@ export default function (pi) {
     clearPendingTimers();
     blockedCount += 1;
     blockedMessage = data.label;
+    publishState();
+  });
+
+  // The subagents extension reports async child work through this sibling
+  // event, counted the same way `herdr:blocked` is. A child agent outliving the
+  // turn that started it keeps the pane working, which is what the plugin's own
+  // documentation promises: the integration remains the lifecycle authority and
+  // only has to honour the event.
+  pi.events.on("herdr:busy", (data) => {
+    if (!rootSession) {
+      return;
+    }
+    if (!data?.active) {
+      busyCount = Math.max(0, busyCount - 1);
+      if (busyCount === 0) {
+        busyMessage = undefined;
+      }
+      publishState();
+      return;
+    }
+
+    // A running child means work is in progress, so any pending idle
+    // debounce is no longer meaningful.
+    clearPendingTimers();
+    busyCount += 1;
+    busyMessage = data.label;
     publishState();
   });
 

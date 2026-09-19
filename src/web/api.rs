@@ -23,12 +23,33 @@ const MAX_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 /// Hard cap on a single request line from the browser.
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 
-/// Sends one API request and returns the raw JSON response line.
+/// Cap for the one request that carries a file upload.
+///
+/// A file arrives base64-encoded inside the request line, so the default cap
+/// would reject anything past roughly 190 KB of file: a single screenshot is
+/// routinely larger. Only this method gets the raised limit; every other
+/// request keeps the smaller cap so a large body stays a deliberate exception
+/// rather than a general allowance.
+const MAX_UPLOAD_REQUEST_BYTES: usize = 32 * 1024 * 1024;
+
+/// The request line cap that applies to one method.
+pub(crate) fn max_request_bytes_for(method: &str) -> usize {
+    match method {
+        "pane.stage_upload" => MAX_UPLOAD_REQUEST_BYTES,
+        _ => MAX_REQUEST_BYTES,
+    }
+}
+
+/// Sends one API request with an explicit request-line cap.
 ///
 /// The response is passed through unchanged so the browser sees exactly what
 /// the API produced, including error envelopes.
-pub(crate) fn request(socket: &Path, request_line: &str) -> io::Result<String> {
-    if request_line.len() > MAX_REQUEST_BYTES {
+pub(crate) fn request_with_limit(
+    socket: &Path,
+    request_line: &str,
+    max_bytes: usize,
+) -> io::Result<String> {
+    if request_line.len() > max_bytes {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
             "api request is too large",
@@ -220,6 +241,27 @@ mod tests {
         let named = socket_for_session(Some("work"));
         assert!(named.to_string_lossy().contains("sessions"));
         assert_ne!(path, named);
+    }
+
+    #[test]
+    fn only_the_upload_method_gets_the_raised_request_cap() {
+        // A screenshot base64-encoded is routinely larger than the default cap,
+        // so the upload method has to be exempt from it.
+        assert_eq!(
+            max_request_bytes_for("pane.stage_upload"),
+            MAX_UPLOAD_REQUEST_BYTES
+        );
+        // The raised cap is only useful if it is actually larger: a file that
+        // fits the default cap does not need this method to be special.
+        const { assert!(MAX_UPLOAD_REQUEST_BYTES > MAX_REQUEST_BYTES) };
+
+        for method in ["pane.read", "pane.send_input", "session.snapshot", "ping"] {
+            assert_eq!(
+                max_request_bytes_for(method),
+                MAX_REQUEST_BYTES,
+                "{method} must keep the default cap"
+            );
+        }
     }
 }
 

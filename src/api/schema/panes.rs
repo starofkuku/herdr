@@ -882,3 +882,56 @@ pub struct PaneTakeInteractionAnswerParams {
     pub source: String,
     pub request_id: String,
 }
+
+/// Stages a file a client uploaded, and reports where it landed.
+///
+/// The browser reads the file (a pasted image, a drop, or a picker) and sends
+/// the bytes here; the server writes them and returns the path. Nothing is sent
+/// to the pane: the caller decides when to paste, so a multi-file upload can be
+/// delivered as one message.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneStageUploadParams {
+    pub pane_id: String,
+    /// Original filename, used for its extension and for display.
+    pub name: String,
+    /// Content type the browser reported, for example `image/png`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mime: Option<String>,
+    /// The file's bytes, base64-encoded.
+    #[serde(rename = "data_base64")]
+    pub data_base64: String,
+    /// A smaller rendering of an image, base64-encoded, so a list can show it
+    /// without loading the original.
+    #[serde(
+        default,
+        rename = "thumbnail_base64",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thumbnail_base64: Option<String>,
+}
+
+/// Where an uploaded file was stored and how to refer to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneStageUploadResult {
+    /// Unguessable stem of the served URL. The route is unauthenticated, so
+    /// this is what keeps one upload from being found by guessing another.
+    pub id: String,
+    /// Original filename, as sent by the client.
+    pub name: String,
+    /// Content type recorded for the file.
+    pub mime: String,
+    /// Size of the stored file in bytes.
+    pub size: u64,
+    /// Absolute path on the host, which is what an agent reads.
+    pub path: String,
+    /// Path the browser fetches, relative to the gateway: `/uploads/<id>.<ext>`.
+    pub url: String,
+    /// Text to send to the pane, already shaped for this pane's agent.
+    ///
+    /// Agents differ in how they recognise an attachment: pi needs an `@path`
+    /// mention while most others take a bare path. The server resolves that
+    /// from the pane's agent so a client does not have to know the difference.
+    pub paste_text: String,
+    /// Whether the UI can preview this file.
+    pub is_image: bool,
+}

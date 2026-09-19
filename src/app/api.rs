@@ -1077,6 +1077,9 @@ impl App {
             Method::PaneTakeInteractionAnswer(params) => {
                 return self.handle_pane_take_interaction_answer(request.id, params);
             }
+            Method::PaneStageUpload(params) => {
+                return self.handle_pane_stage_upload(request.id, params);
+            }
             Method::PaneClearAgentAuthority(params) => {
                 return self.handle_pane_clear_agent_authority(request.id, params);
             }

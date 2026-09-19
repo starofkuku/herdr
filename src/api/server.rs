@@ -29,6 +29,22 @@ const INITIAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_INITIAL_REQUEST_BYTES: usize = 1024 * 1024;
 
+/// Cap for the one request that carries a file upload.
+///
+/// The file travels base64-encoded inside the request line, so the default cap
+/// rejects a screenshot long before the handler sees it. This mirrors the web
+/// gateway's allowance, which is the only client that sends one; every other
+/// request keeps the smaller cap.
+const MAX_UPLOAD_REQUEST_BYTES: usize = 32 * 1024 * 1024;
+
+/// How much of a request line is read before its method is decided.
+///
+/// The wire shape is `{"id":"...","method":"..."}`, so the method lands
+/// within the first few hundred bytes. This is comfortably past it and far
+/// below any size limit, which is what lets the cap be chosen before the whole
+/// line has been buffered.
+const REQUEST_METHOD_SNIFF_BYTES: usize = 1024;
+
 pub struct ServerHandle {
     _thread: std::thread::JoinHandle<()>,
     path: PathBuf,
@@ -376,6 +392,7 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneClearInteraction(_) => "pane.clear_interaction",
         Method::PaneAnswerInteraction(_) => "pane.answer_interaction",
         Method::PaneTakeInteractionAnswer(_) => "pane.take_interaction_answer",
+        Method::PaneStageUpload(_) => "pane.stage_upload",
         Method::PaneClearAgentAuthority(_) => "pane.clear_agent_authority",
         Method::PaneReleaseAgent(_) => "pane.release_agent",
         Method::PaneClose(_) => "pane.close",
@@ -422,38 +439,112 @@ fn read_initial_request_line_with_timeout(
     stream: &mut LocalStream,
     timeout: Duration,
 ) -> std::io::Result<Option<String>> {
-    read_initial_request_line_with_limits(stream, timeout, MAX_INITIAL_REQUEST_BYTES)
+    read_request_line_with_limit_policy(stream, timeout, LimitPolicy::Adaptive)
 }
 
-fn read_initial_request_line_with_limits(
+/// How the request-line size cap is chosen.
+#[derive(Debug, Clone, Copy)]
+enum LimitPolicy {
+    /// One fixed cap and timeout for every request.
+    ///
+    /// Only the Windows size-limit test drives this directly; production uses
+    /// the adaptive policy below.
+    #[cfg(all(test, windows))]
+    Fixed(usize),
+    /// The default cap, raised (with a longer deadline) for the upload method.
+    ///
+    /// The same connection carries both tiny control requests and a file
+    /// upload, and only the method distinguishes them, so neither bound can be
+    /// fixed up front.
+    Adaptive,
+}
+
+/// Whether a partially read request line names the upload method.
+///
+/// This inspects the raw prefix instead of parsing JSON, because the point is
+/// to choose a size cap before the whole line is available. A false positive
+/// only raises the cap for a single request.
+fn request_line_is_upload(prefix: &[u8]) -> bool {
+    const NEEDLE: &[u8] = b"pane.stage_upload";
+    prefix.windows(NEEDLE.len()).any(|window| window == NEEDLE)
+}
+
+/// How long the request line may take when it carries an upload.
+///
+/// Reading happens in blocks, but the stream is non-blocking and each idle
+/// poll sleeps, so a tens-of-megabytes body can take far longer than the
+/// default deadline. This bounds only the read; the handler itself is not given
+/// extra time.
+const UPLOAD_REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
+
+fn read_request_line_with_limit_policy(
     stream: &mut LocalStream,
     timeout: Duration,
-    max_bytes: usize,
+    policy: LimitPolicy,
 ) -> std::io::Result<Option<String>> {
     set_local_stream_polling(stream, true)?;
-    let deadline = Instant::now() + timeout;
+    // An upload may extend the deadline once its method is known.
+    let mut deadline = Instant::now() + timeout;
     let mut bytes = Vec::new();
-    let mut byte = [0u8; 1];
+    let mut max_bytes = match policy {
+        #[cfg(all(test, windows))]
+        LimitPolicy::Fixed(max_bytes) => max_bytes,
+        LimitPolicy::Adaptive => MAX_INITIAL_REQUEST_BYTES,
+    };
+    // Adaptive only: decided once the method cannot be missing any more.
+    #[cfg(all(test, windows))]
+    let mut limit_resolved = matches!(policy, LimitPolicy::Fixed(_));
+    #[cfg(not(all(test, windows)))]
+    let mut limit_resolved = false;
+
+    // Read in blocks rather than one byte at a time. The stream is
+    // non-blocking, so `read` returns whatever is available; an upload is tens
+    // of megabytes, and a byte-per-syscall loop made that both slow and prone
+    // to hitting the request timeout.
+    let mut chunk = [0u8; 64 * 1024];
 
     let result = loop {
-        let read = match poll_local_stream_read(stream, &mut byte) {
+        let read = match poll_local_stream_read(stream, &mut chunk) {
             Ok(read) => read,
             Err(err) => break Err(err),
         };
         match read {
             LocalStreamRead::Closed => break Ok(None),
-            LocalStreamRead::Data => {
-                bytes.push(byte[0]);
-                if byte[0] == b'\n' {
-                    break String::from_utf8(bytes)
-                        .map(Some)
-                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err));
+            LocalStreamRead::Data { filled } => {
+                // Only the bytes this read produced are real; the rest of the
+                // buffer still holds the previous chunk. A chunk may also run
+                // past the newline that ends the request line, so the line ends
+                // at whichever comes first.
+                let data = &chunk[..filled];
+                let newline = data.iter().position(|byte| *byte == b'\n');
+                let take = newline.unwrap_or(filled);
+                bytes.extend_from_slice(&data[..take]);
+
+                // Decided once: the method sits near the start of the line, so
+                // later bytes never change the answer.
+                if !limit_resolved && bytes.len() >= REQUEST_METHOD_SNIFF_BYTES {
+                    limit_resolved = true;
+                    if request_line_is_upload(&bytes) {
+                        max_bytes = MAX_UPLOAD_REQUEST_BYTES;
+                        // A file needs the longer deadline too: the cap alone
+                        // would admit a body the read loop cannot finish in
+                        // time, which surfaced as an unexplained disconnect.
+                        deadline = Instant::now() + UPLOAD_REQUEST_TIMEOUT;
+                    }
                 }
+
                 if bytes.len() > max_bytes {
                     break Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "api request line is too large",
                     ));
+                }
+
+                if newline.is_some() {
+                    bytes.push(b'\n');
+                    break String::from_utf8(bytes)
+                        .map(Some)
+                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err));
                 }
             }
             LocalStreamRead::Pending => {
@@ -469,6 +560,15 @@ fn read_initial_request_line_with_limits(
     };
     set_local_stream_polling(stream, false)?;
     result
+}
+
+#[cfg(all(test, windows))]
+fn read_initial_request_line_with_limits(
+    stream: &mut LocalStream,
+    timeout: Duration,
+    max_bytes: usize,
+) -> std::io::Result<Option<String>> {
+    read_request_line_with_limit_policy(stream, timeout, LimitPolicy::Fixed(max_bytes))
 }
 
 #[cfg(all(test, windows))]

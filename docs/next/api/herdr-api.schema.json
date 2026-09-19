@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 21,
+  "protocol": 22,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -3282,6 +3282,42 @@
           ],
           "type": "object"
         },
+        "PaneStageUploadParams": {
+          "description": "Stages a file a client uploaded, and reports where it landed.\n\nThe browser reads the file (a pasted image, a drop, or a picker) and sends\nthe bytes here; the server writes them and returns the path. Nothing is sent\nto the pane: the caller decides when to paste, so a multi-file upload can be\ndelivered as one message.",
+          "properties": {
+            "data_base64": {
+              "description": "The file's bytes, base64-encoded.",
+              "type": "string"
+            },
+            "mime": {
+              "description": "Content type the browser reported, for example `image/png`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "name": {
+              "description": "Original filename, used for its extension and for display.",
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "thumbnail_base64": {
+              "description": "A smaller rendering of an image, base64-encoded, so a list can show it\nwithout loading the original.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "pane_id",
+            "name",
+            "data_base64"
+          ],
+          "type": "object"
+        },
         "PaneSwapParams": {
           "properties": {
             "direction": {
@@ -5665,6 +5701,23 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneTakeInteractionAnswerParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Writes a file a client uploaded and reports where it landed.",
+          "properties": {
+            "method": {
+              "const": "pane.stage_upload",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneStageUploadParams"
             }
           },
           "required": [
@@ -8495,6 +8548,56 @@
           ],
           "type": "object"
         },
+        "PaneStageUploadResult": {
+          "description": "Where an uploaded file was stored and how to refer to it.",
+          "properties": {
+            "id": {
+              "description": "Unguessable stem of the served URL. The route is unauthenticated, so\nthis is what keeps one upload from being found by guessing another.",
+              "type": "string"
+            },
+            "is_image": {
+              "description": "Whether the UI can preview this file.",
+              "type": "boolean"
+            },
+            "mime": {
+              "description": "Content type recorded for the file.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Original filename, as sent by the client.",
+              "type": "string"
+            },
+            "paste_text": {
+              "description": "Text to send to the pane, already shaped for this pane's agent.\n\nAgents differ in how they recognise an attachment: pi needs an `@path`\nmention while most others take a bare path. The server resolves that\nfrom the pane's agent so a client does not have to know the difference.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Absolute path on the host, which is what an agent reads.",
+              "type": "string"
+            },
+            "size": {
+              "description": "Size of the stored file in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "url": {
+              "description": "Path the browser fetches, relative to the gateway: `/uploads/<id>.<ext>`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "name",
+            "mime",
+            "size",
+            "path",
+            "url",
+            "paste_text",
+            "is_image"
+          ],
+          "type": "object"
+        },
         "PaneSwapReason": {
           "enum": [
             "no_neighbor",
@@ -9782,6 +9885,23 @@
               "required": [
                 "type",
                 "session"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "An uploaded file was written and is now addressable.",
+              "properties": {
+                "type": {
+                  "const": "pane_upload_staged",
+                  "type": "string"
+                },
+                "upload": {
+                  "$ref": "#/schemas/success_response/$defs/PaneStageUploadResult"
+                }
+              },
+              "required": [
+                "type",
+                "upload"
               ],
               "type": "object"
             },

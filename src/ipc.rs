@@ -11,7 +11,12 @@ pub(crate) type LocalListener = interprocess::local_socket::Listener;
 pub(crate) type LocalStream = interprocess::local_socket::Stream;
 
 pub(crate) enum LocalStreamRead {
-    Data,
+    /// Some bytes were read. `filled` is how many leading bytes of the buffer
+    /// the read produced, so a caller can scan only the bytes that are real
+    /// rather than the whole buffer.
+    Data {
+        filled: usize,
+    },
     Pending,
     Closed,
 }
@@ -133,7 +138,7 @@ pub(crate) fn poll_local_stream_read(
     {
         match stream.read(buf) {
             Ok(0) => Ok(LocalStreamRead::Closed),
-            Ok(_) => Ok(LocalStreamRead::Data),
+            Ok(read) => Ok(LocalStreamRead::Data { filled: read }),
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => Ok(LocalStreamRead::Pending),
             Err(err) => Err(err),
         }
@@ -146,7 +151,7 @@ pub(crate) fn poll_local_stream_read(
             Some(0) => Ok(LocalStreamRead::Pending),
             Some(_) => match stream.read(buf) {
                 Ok(0) => Ok(LocalStreamRead::Closed),
-                Ok(_) => Ok(LocalStreamRead::Data),
+                Ok(read) => Ok(LocalStreamRead::Data { filled: read }),
                 Err(err) if is_connection_closed_error(&err) => Ok(LocalStreamRead::Closed),
                 Err(err) => Err(err),
             },

@@ -713,6 +713,7 @@ dependencies = [
  "crossterm",
  "ctrlc",
  "futures-util",
+ "getrandom 0.3.4",
  "interprocess",
  "libc",
  "png",

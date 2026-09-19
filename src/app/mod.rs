@@ -126,6 +126,9 @@ pub struct App {
     pub(crate) update_version_check_enabled: bool,
     pub(crate) update_manifest_check_enabled: bool,
     pub(crate) loaded_host_cursor: crate::config::HostCursorModeConfig,
+    /// Resolved uploads directory, kept alongside the live config so the upload
+    /// handler does not have to re-read config.toml per request.
+    pub(crate) uploads_dir: Option<std::path::PathBuf>,
     pub(crate) agent_metadata_deadline: Option<Instant>,
     pub(crate) pending_agent_resume_deadline: Option<Instant>,
     pub(crate) pending_agent_restart_exits: HashSet<crate::terminal::TerminalId>,
@@ -746,6 +749,7 @@ impl App {
             update_version_check_enabled: config.update.version_check,
             update_manifest_check_enabled: config.update.manifest_check,
             loaded_host_cursor: config.ui.host_cursor,
+            uploads_dir: crate::server::uploads::uploads_dir(config),
             agent_metadata_deadline: None,
             pending_agent_resume_deadline: None,
             pending_agent_restart_exits: HashSet::new(),
@@ -1438,6 +1442,7 @@ impl App {
                     self.state.request_client_config_reload = true;
                 }
                 self.loaded_host_cursor = config.ui.host_cursor;
+                self.uploads_dir = crate::server::uploads::uploads_dir(config);
                 self.state.mouse_scroll_lines = config.ui.mouse_scroll_lines();
                 self.state.right_click_passthrough_modifiers =
                     config.ui.right_click_passthrough_modifiers();

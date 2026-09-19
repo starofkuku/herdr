@@ -190,6 +190,9 @@ pub enum Method {
     /// Collects an answer a client submitted, for the integration that asked.
     #[serde(rename = "pane.take_interaction_answer")]
     PaneTakeInteractionAnswer(PaneTakeInteractionAnswerParams),
+    /// Writes a file a client uploaded and reports where it landed.
+    #[serde(rename = "pane.stage_upload")]
+    PaneStageUpload(PaneStageUploadParams),
     #[serde(rename = "pane.clear_agent_authority")]
     PaneClearAgentAuthority(PaneClearAgentAuthorityParams),
     #[serde(rename = "pane.release_agent")]

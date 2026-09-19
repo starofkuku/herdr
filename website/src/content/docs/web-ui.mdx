@@ -49,6 +49,9 @@ bind = "127.0.0.1"
 port = 8787
 # Directory containing the built web UI. Optional.
 static_dir = "/home/you/herdr/web/dist"
+# Where uploaded files are stored and served from. Optional; defaults to an
+# uploads directory inside static_dir.
+uploads_dir = "/home/you/herdr/web/uploads"
 # Optional Origin allowlist. Empty disables the check.
 allowed_origins = []
 # URL `herdr update web` downloads the page from. Optional.
@@ -187,6 +190,28 @@ A sent message appears in the conversation straight away, with an **agent is res
 After you send a message, the send button becomes a **stop** button for as long as the agent is working. This is driven by the agent's reported state rather than by which browser sent the message, so opening an agent that is already running also offers the stop control. Stopping sends the same key the agent advertises for interruption (usually `esc`), so it behaves the same as pressing the key yourself.
 
 Local UI state, meaning which screen you are on and how far you have scrolled, is not shared with the terminal. Only the agent's own output and state are.
+
+## Sending files
+
+Three ways to send a file, all of which stage it beside the composer until you send:
+
+- **Paste** an image with `Ctrl+V` (or `Cmd+V`).
+- **Drop** files anywhere on the conversation.
+- Use the **attach button** beside the composer to choose files.
+
+Pasting reads the `paste` event rather than the clipboard API. The clipboard API needs a secure context, which a plain-HTTP address on a private network is not, so it is refused there; the `paste` event is driven by your own keystroke and needs no permission.
+
+Images show as thumbnails and open full size when clicked. Any other file shows its name and size, and clicking it downloads it. A file-only send is allowed, and sending several files produces one message.
+
+The agent receives a **path**, not the file itself, because that is what an agent running on the host can read. Herdr shapes that path for the pane's agent: pi gets an `@path` mention while most other agents take a bare path.
+
+Files are served from `/uploads/<id>.<ext>`. That route takes no key, because an `<img>` cannot send one; the id is 32 random bytes, so one upload cannot be found by guessing at another. Anyone who has the exact URL can read the file, so treat it as unlisted rather than private.
+
+Non-image files download instead of rendering. Types a browser would execute in this origin — `.html`, `.svg`, `.js`, and similar — are forced to download as well, since a page running there could read the gateway key. An `.svg` therefore downloads rather than previews.
+
+`[web] uploads_dir` chooses where the files live and defaults to an uploads directory inside `web.static_dir`. Uploads are refused when neither is set. Files are never removed automatically, so clear that directory yourself if you upload often.
+
+A single file is limited to 16 MiB.
 
 ## Answering a prompt
 

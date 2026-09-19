@@ -1441,9 +1441,14 @@ textarea {
   color: var(--text);
 }
 
+/*
+ * The composer stacks the pending files above the input row. It is a column so
+ * attachments sit above the field; `.composer-row` holds the row that used to
+ * be the whole composer.
+ */
 .composer {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 0.5rem;
   padding: 0.6rem 0.75rem;
   padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
@@ -1451,8 +1456,19 @@ textarea {
   background: var(--surface);
 }
 
+.composer-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
 .composer textarea {
   flex: 1;
+  /*
+   * Without this the field refuses to shrink below its intrinsic width, and a
+   * long unbroken line pushes the buttons off the edge of a phone screen.
+   */
+  min-width: 0;
   min-height: 2.5rem;
   /*
    * A ceiling rather than the old fixed two-line box: the field grows with what
@@ -1562,6 +1578,216 @@ textarea {
   border-color: var(--accent);
 }
 
+/* ---- attaching files ---- */
+
+/*
+ * The attach button matches the send and stop buttons, so the three read as one
+ * row of controls rather than one that is a different size.
+ */
+.composer button.attach {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 50%;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 0;
+}
+
+.composer button.attach:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/*
+ * A paperclip drawn with a rotated rounded border, so the control needs no icon
+ * dependency. The size is in em so it scales with the button's font.
+ */
+.attach-glyph {
+  width: 0.55em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-radius: 0.5em 0.5em 0.5em 0.5em / 0.9em 0.9em 0.9em 0.9em;
+  transform: rotate(35deg);
+  /* The clip mark: a notch cut into the top so it reads as a clip, not a pill. */
+  border-top-color: transparent;
+}
+
+/*
+ * Kept in the layout rather than `display: none`, which some browsers treat as
+ * unclickable when triggered programmatically.
+ */
+.attach-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.pending-uploads {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.pending-upload {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  /* Never wider than the composer: a long filename truncates instead of
+     stretching the row and pushing the buttons out of reach. */
+  max-width: 100%;
+  min-width: 0;
+}
+
+.pending-thumb {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+  display: grid;
+  place-items: center;
+}
+
+.pending-thumb img {
+  width: 100%;
+  height: 100%;
+  /* `cover` rather than `contain`: a thumbnail is a recognisable crop of the
+     image, and letterboxing a tall screenshot makes the entry taller than the
+     row it sits in. */
+  object-fit: cover;
+  display: block;
+}
+
+/* Shown when the image could not be decoded into a thumbnail. */
+.pending-thumb-fallback {
+  width: 100%;
+  height: 100%;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--surface) 0 4px,
+    var(--surface-2) 4px 8px
+  );
+}
+
+.pending-file-glyph {
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 6px;
+  /*
+   * A page with a folded corner, drawn with gradients so the control needs no
+   * icon asset. A plain bordered square reads as a broken image placeholder,
+   * which is the opposite of what a deliberately non-previewable file should
+   * look like.
+   */
+  background-image:
+    linear-gradient(135deg, transparent 0 45%, var(--border) 45% 50%, transparent 50%),
+    linear-gradient(135deg, var(--surface-2) 0 48%, transparent 48%);
+  background-color: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.pending-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+  max-width: 14rem;
+}
+
+.pending-name {
+  font-size: 0.8rem;
+  /* A long name must not widen the entry past the composer. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pending-size {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.pending-remove {
+  flex: none;
+  /* A tap target on touch, where the glyph alone would be too small. */
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted);
+  padding: 0;
+}
+
+.pending-remove:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+/*
+ * The drop highlight. Applied to the whole pane so the target is obvious, with
+ * `pointer-events: none` on the overlay so the drag continues to reach the pane
+ * beneath it instead of the highlight swallowing the drop.
+ */
+.detail-screen.dragging::after {
+  content: "drop files to attach";
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  border: 2px dashed var(--accent);
+  pointer-events: none;
+  z-index: 40;
+}
+
+/*
+ * The enlarged image. Fixed and full-bleed so the conversation underneath keeps
+ * its scroll position, and dismissible by a tap anywhere.
+ */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  /* Bounded on both axes so neither a wide nor a tall image overflows. */
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
 /* ---- wide screens ---- */
 
 @media (min-width: 50rem) {
@@ -1586,12 +1812,16 @@ textarea {
     padding: 0.75rem 2rem;
   }
 
+  .composer-row input,
   .composer textarea,
   .composer button[type="submit"] {
     max-width: 52rem;
   }
 
-  .composer {
+  .composer-row {
     justify-content: center;
+    /* The field grows, so the row must be free to centre its contents rather
+       than stretch them across the pane. */
+    align-items: flex-end;
   }
 }
