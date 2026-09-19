@@ -90,6 +90,78 @@ textarea {
   font: inherit;
 }
 
+/* ---- connection badge ---- */
+
+/*
+ * Connection state, shown in the header of every screen that has a live socket.
+ *
+ * A reader who has been in another app has no other way to tell a live view from
+ * a frozen one, so the dot is always present: green while connected, pulsing
+ * while the client is retrying, and a tappable "reconnect" once it has given
+ * up.
+ */
+.conn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  height: 2rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.conn__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.conn--ok .conn__dot {
+  background: var(--ok);
+}
+
+.conn--working .conn__dot {
+  background: var(--warn);
+  animation: conn-pulse 1.2s ease-in-out infinite;
+}
+
+.conn--down .conn__dot {
+  background: var(--err);
+}
+
+@keyframes conn-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* The manual retry reads as a control rather than a status dot. */
+.conn--retry {
+  gap: 0.35rem;
+  padding: 0 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--err) 45%, var(--border));
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.conn--retry .conn__dot {
+  background: var(--err);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn--working .conn__dot {
+    animation: none;
+  }
+}
+
 /* ---- shared chrome ---- */
 
 .topbar {
@@ -1195,7 +1267,12 @@ textarea {
 .composer textarea {
   flex: 1;
   min-height: 2.5rem;
-  max-height: 8rem;
+  /*
+   * A ceiling rather than the old fixed two-line box: the field grows with what
+   * is typed, and this is where it stops and starts scrolling instead. Taller
+   * than half a phone screen would push the conversation out of view.
+   */
+  max-height: 40vh;
   resize: none;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -1204,6 +1281,9 @@ textarea {
   padding: 0.6rem 0.75rem;
   font-size: 16px; /* avoids iOS zoom on focus */
   line-height: 1.4;
+  /* Height is driven by a measured `scrollHeight`, so the box must not also be
+     free to resize itself or the two fight. */
+  overflow-y: auto;
 }
 
 .composer textarea:focus {
@@ -1211,6 +1291,11 @@ textarea {
   outline: none;
 }
 
+/*
+ * The send button is the same size and shape as the stop button beside it, so
+ * it needs the same centring: without `grid` the arrow glyph sits on the text
+ * baseline and reads as off-centre.
+ */
 .composer button[type="submit"] {
   width: 2.5rem;
   height: 2.5rem;
@@ -1220,6 +1305,10 @@ textarea {
   font-size: 1.1rem;
   font-weight: 700;
   flex: none;
+  display: grid;
+  place-items: center;
+  line-height: 1;
+  padding: 0;
 }
 
 .composer button[type="submit"]:disabled {

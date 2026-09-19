@@ -3,9 +3,12 @@
 ## Unreleased
 
 ### Added
+- Web UI conversations have their own address (`#/<session>/<pane>`), so a refresh returns to the conversation you were reading instead of the connect screen, and the browser's Back and Forward buttons move through the app.
+- The web UI reconnects on its own after the connection drops, which is what a phone browser does to a backgrounded tab. The header shows the connection state, and offers a retry control once the automatic attempts have stopped.
 - The web UI conversation view has a navigation rail beside the transcript: one tick per message you sent, with the turn you are reading highlighted. Hovering a tick shows that message and clicking it jumps there. On a touch screen the rail floats over the transcript so the text keeps the full width, fading to a hint when unused and ignoring touches while faded so line starts stay selectable; the ticks grow to a tap target and the rail can be scrubbed — press anywhere on it, slide to preview each message, and release to jump there.
 
 ### Fixed
+- The web UI composer grows with what you type instead of showing two lines and hiding the rest on a phone, and the send button's glyph is centred like the stop button's.
 - A finished agent turn now reaches `pane.updated` subscribers instead of only `pane.agent_status_changed`. The web UI's stop button is driven by the agent's reported state, so an agent that finished its turn could leave the button in place and block the composer until something else refreshed the view. The UI also subscribes to the pane-scoped status event directly, for every listed pane and for the one on screen, so a page can be newer than the server it talks to and still keep both the agent list and the stop button correct.
 
 ## [0.7.24] - 2026-09-18

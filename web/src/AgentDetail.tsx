@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Subscription } from "./gateway";
+import type { Subscription, ConnectionState } from "./gateway";
+import { ConnectionBadge } from "./ConnectionBadge";
 import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type AgentView } from "./api";
 import { ConversationView } from "./ConversationView";
 import { ThemeToggle } from "./ThemeToggle";
@@ -120,11 +121,15 @@ export function AgentDetail({
   onBack,
   client,
   onChanged,
+  connection,
+  onRetry,
 }: {
   agent: AgentView | null;
   onBack: () => void;
   client: DetailClient;
   onChanged: () => void;
+  connection: ConnectionState;
+  onRetry: () => void;
 }) {
   // Oldest page first, so prepending older pages does not disturb scroll.
   const [pages, setPages] = useState<string[]>([]);
@@ -162,6 +167,7 @@ export function AgentDetail({
   const blockedRef = useRef(false);
   blockedRef.current = blocked;
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const nextOffset = useRef(0);
   const pinnedToBottom = useRef(true);
 
@@ -449,6 +455,22 @@ export function AgentDetail({
     .map((page) => (page.endsWith("\n") ? page : `${page}\n`))
     .join("");
 
+  /**
+   * Grows the composer to fit what has been typed.
+   *
+   * A fixed-height field shows two lines on a phone and hides the rest, which is
+   * awkward for anything longer than a sentence. The height is reset before
+   * measuring, because `scrollHeight` only shrinks once the element has been
+   * allowed to; without the reset, deleting text would leave the box tall.
+   * `max-height` in CSS caps it, after which the field scrolls.
+   */
+  useEffect(() => {
+    const field = composerRef.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  }, [draft]);
+
   // A running agent can always be interrupted, whether or not this page started
   // the turn. The state comes from detection rather than from the send, so
   // opening an agent someone else started still offers the stop control. A
@@ -468,6 +490,7 @@ export function AgentDetail({
           </span>
         </div>
         <ThemeToggle />
+        <ConnectionBadge state={connection} onRetry={onRetry} />
         <span className={`dot ${agent?.status ?? "unknown"}`} aria-label={statusLabel(agent?.status ?? "unknown")} />
       </header>
 
@@ -536,6 +559,7 @@ export function AgentDetail({
           onChange={(event) => setDraft(event.target.value)}
           placeholder="Send a message…"
           rows={1}
+          ref={composerRef}
           onKeyDown={(event) => {
             // Enter sends, Shift+Enter inserts a newline.
             if (event.key === "Enter" && !event.shiftKey) {

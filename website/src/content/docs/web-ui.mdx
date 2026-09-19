@@ -148,6 +148,22 @@ Open the gateway URL in a browser, enter the key, then pick a session or type a 
 
 When you store the key, the UI also remembers the session you opened and returns to it after a page reload. Leaving a session with the back button clears that memory, so a reload keeps you on the picker.
 
+### Addresses and reloads
+
+The screen you are on is in the URL, so a reload lands where you were rather than back at the key form:
+
+```
+#                      pick a session
+#/<session>            that session's agents
+#/<session>/<pane>     one agent's conversation
+```
+
+Opening a conversation adds a history entry, so the browser's Back and Forward buttons move through the app. A link to a conversation can be shared or bookmarked, and opening one directly works as long as the connection is remembered. Without a remembered key there is nothing to reconnect with, so the key form is shown first.
+
+### Losing the connection
+
+A phone browser suspends a backgrounded tab, which drops the WebSocket, so returning to the page would otherwise show a frozen view with no sign that nothing is arriving. The header carries a small state dot: green while connected, pulsing while it is retrying, and a tappable **reconnect** once the automatic attempts have given up. Reconnecting restores the session and its subscriptions, so a backgrounded tab picks up where it left off.
+
 ## Screens
 
 The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every screen is built from the JSON API.

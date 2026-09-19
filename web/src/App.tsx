@@ -11,26 +11,49 @@ import { ConnectForm } from "./ConnectForm";
 import { SessionPicker } from "./SessionPicker";
 import { AgentList } from "./AgentList";
 import { AgentDetail } from "./AgentDetail";
-import { loadSettings, saveSettings, type StoredSettings } from "./settings";
-
-type Phase = "connect" | "pick" | "agents" | "detail";
+import { loadSettings, saveSettings, restoreTarget, type StoredSettings } from "./settings";
+import { currentRoute, navigate, type Route } from "./route";
 
 /** Re-read the transcript when output settles, not on every single event. */
 const REFRESH_DEBOUNCE_MS = 350;
 
+/**
+ * The screen implied by a route plus the connection state.
+ *
+ * Until the socket is up the address bar may already name a conversation, but
+ * the connect form has to be shown regardless, so the connection wins for the
+ * entry screens.
+ */
+type Phase = "connect" | "pick" | "agents" | "detail";
+
 export default function App() {
-  const [phase, setPhase] = useState<Phase>("connect");
+  /**
+   * The route is the source of truth for which view is shown.
+   *
+   * Holding it here rather than in component state is what makes a refresh land
+   * back on the same conversation: the hash survives the reload, so the view is
+   * rebuilt from it instead of starting over at the connect screen.
+   */
+  const [route, setRoute] = useState<Route>(() => currentRoute());
   const [state, setState] = useState<ConnectionState>("closed");
   const [detail, setDetail] = useState<string | undefined>();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [session, setSession] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentView[]>([]);
-  const [activePane, setActivePane] = useState<string | null>(null);
   const [settings, setSettings] = useState<StoredSettings>(() => loadSettings());
+  const phase: Phase =
+    state !== "ready" && route.view === "root"
+      ? "connect"
+      : route.view === "root"
+        ? "pick"
+        : route.view === "detail"
+          ? "detail"
+          : "agents";
 
   const clientRef = useRef<GatewayClient | null>(null);
-  const phaseRef = useRef<Phase>("connect");
-  phaseRef.current = phase;
+  /** The route a reconnect should restore, and where the effect reads it from. */
+  const routeRef = useRef<Route>(route);
+  routeRef.current = route;
   const sessionRef = useRef<string | null>(null);
   sessionRef.current = session;
   const subscriptionRef = useRef<Subscription | null>(null);
@@ -52,7 +75,6 @@ export default function App() {
       },
       onSessions: (items) => {
         setSessions(items);
-        if (phaseRef.current === "connect") setPhase("pick");
       },
     });
   }
@@ -99,7 +121,6 @@ export default function App() {
         return next;
       });
       await refreshAgents();
-      setPhase("agents");
 
       subscriptionRef.current?.close();
       // The kinds that are subscribable: agent detection, pane lifecycle, and
@@ -175,9 +196,91 @@ export default function App() {
     [client],
   );
 
+  /**
+   * Reconnects, or returns to the form when there is nothing to reconnect with.
+   *
+   * `retryNow` can only reuse stored credentials. Without a remembered key there
+   * is nothing to retry, so the reader is sent back to the form instead of
+   * tapping a button that cannot work.
+   */
+  const retry = useCallback(() => {
+    if (restoreTarget(settings)) {
+      client.retryNow();
+      return;
+    }
+    client.close();
+    navigate({ view: "root" }, { replace: true });
+    setRoute({ view: "root" });
+  }, [client, settings]);
+
   useEffect(() => {
     if (state === "ready") client.listSessions();
   }, [state, client]);
+
+  /**
+   * Reconnects on load when the connection was remembered.
+   *
+   * Without this a refresh always lands on the connect form, even though the
+   * route still names the conversation the reader was in and the key is stored.
+   * Runs once: after this the socket owns its own reconnection.
+   */
+  const autoConnectedRef = useRef(false);
+  useEffect(() => {
+    if (autoConnectedRef.current) return;
+    autoConnectedRef.current = true;
+    if (restoreTarget(settings) && settings.url) {
+      client.connect(settings.url, settings.key ?? "");
+    }
+    // Only the initial settings matter; later edits go through `connect`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Follow the browser's Back and Forward buttons, and any hand-edited hash, by
+  // rebuilding the view from the URL rather than keeping a second copy of the
+  // location in memory.
+  useEffect(() => {
+    const onPopState = () => setRoute(currentRoute());
+    window.addEventListener("popstate", onPopState);
+    window.addEventListener("hashchange", onPopState);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("hashchange", onPopState);
+    };
+  }, []);
+
+  /**
+   * Binds the session named by the current route.
+   *
+   * Runs whenever the socket becomes ready. On a refresh the route already names
+   * a session, so this is what turns a deep link back into a live view instead
+   * of leaving the reader on the picker. A route naming a session the server no
+   * longer has falls back to the root rather than pointing at nothing.
+   */
+  const restoringRef = useRef(false);
+  useEffect(() => {
+    if (state !== "ready") return;
+    const wanted = routeRef.current;
+    if (wanted.view === "root") return;
+    if (restoringRef.current) return;
+    // Already bound to the right session; only a pane change is left to apply.
+    if (sessionRef.current === wanted.session) return;
+    restoringRef.current = true;
+    void (async () => {
+      try {
+        await client.useSession(wanted.session);
+        setSession(wanted.session);
+        await refreshAgents();
+      } catch {
+        // Unknown session (deleted, or a link from another machine): fall back
+        // to the picker instead of showing an empty conversation.
+        setSession(null);
+        navigate({ view: "root" }, { replace: true });
+        setRoute({ view: "root" });
+      } finally {
+        restoringRef.current = false;
+      }
+    })();
+  }, [state, client, refreshAgents]);
 
   useEffect(
     () => () => {
@@ -212,23 +315,34 @@ export default function App() {
         sessions={sessions}
         connected={state === "ready"}
         detail={detail}
-        onSelect={(name) => void openSession(name)}
+        onSelect={(name) => {
+          navigate({ view: "agents", session: name });
+          setRoute({ view: "agents", session: name });
+          void openSession(name);
+        }}
         onRefresh={() => client.listSessions()}
         onDisconnect={() => {
           client.close();
-          setPhase("connect");
+          navigate({ view: "root" }, { replace: true });
+          setRoute({ view: "root" });
         }}
       />
     );
   }
 
-  if (phase === "detail" && activePane) {
-    const agent = agents.find((item) => item.paneId === activePane) ?? null;
+  if (phase === "detail" && route.view === "detail") {
+    const agent = agents.find((item) => item.paneId === route.paneId) ?? null;
     return (
       <AgentDetail
         client={client}
         agent={agent}
-        onBack={() => setPhase("agents")}
+        connection={state}
+        onRetry={retry}
+        onBack={() => {
+          const target = { view: "agents" as const, session: session ?? "" };
+          navigate(target);
+          setRoute(target);
+        }}
         onChanged={() => scheduleRefresh()}
       />
     );
@@ -239,21 +353,27 @@ export default function App() {
       session={session ?? ""}
       agents={agents}
       detail={detail}
+      connection={state}
+      onRetry={retry}
       onOpen={(paneId) => {
-        setActivePane(paneId);
-        setPhase("detail");
+        const target = { view: "detail" as const, session: session ?? "", paneId };
+        navigate(target);
+        setRoute(target);
       }}
       onRefresh={() => void refreshAgents()}
       onLeave={() => {
         subscriptionRef.current?.close();
         subscriptionRef.current = null;
+        statusSubsRef.current.forEach((sub) => sub.close());
+        statusSubsRef.current.clear();
         setSession(null);
         setSettings((current) => {
           const next = { ...current, session: undefined };
           saveSettings(next);
           return next;
         });
-        setPhase("pick");
+        navigate({ view: "root" }, { replace: true });
+        setRoute({ view: "root" });
       }}
     />
   );

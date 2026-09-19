@@ -1,4 +1,6 @@
 import { shortenPath, statusLabel, type AgentView } from "./api";
+import { ConnectionBadge } from "./ConnectionBadge";
+import type { ConnectionState } from "./gateway";
 import { ThemeToggle } from "./ThemeToggle";
 
 /** Agent overview grouped by project, matching the reference layout. */
@@ -6,16 +8,20 @@ export function AgentList({
   session,
   agents,
   detail,
+  connection,
   onOpen,
   onRefresh,
   onLeave,
+  onRetry,
 }: {
   session: string;
   agents: AgentView[];
   detail?: string;
+  connection: ConnectionState;
   onOpen: (paneId: string) => void;
   onRefresh: () => void;
   onLeave: () => void;
+  onRetry: () => void;
 }) {
   const groups = new Map<string, AgentView[]>();
   for (const agent of agents) {
@@ -40,6 +46,7 @@ export function AgentList({
         <button type="button" className="ghost" onClick={onRefresh} aria-label="Refresh">
           ⟳
         </button>
+        <ConnectionBadge state={connection} onRetry={onRetry} />
         <ThemeToggle />
       </header>
 
