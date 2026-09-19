@@ -97,6 +97,14 @@ Herdr 把内置扩展写入:
 
 如果设置了 `PI_CODING_AGENT_DIR`,Herdr 会改为写入 `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts`。extensions 目录必须已经存在。卸载只删除那个扩展文件。
 
+安装 [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) 插件后,该扩展还会把它的问卷映射到网页端。插件通过自身有文档的事件契约发布正在等待的问题,因此网页端可以提供 Agent 实际编写的选项,而不必读取屏幕。问题期间也会精确上报 `blocked`,不再依赖屏幕文本。
+
+作答通过驱动插件自身的对话框送达:把光标移到所选行,然后按下 `Enter`。对话框始终保留在屏幕上,终端里同样可以作答,因此两条路径都可用,谁都不是唯一正解。
+
+两个限制是刻意保留的。该对话框没有数字键(只响应方向键、`Enter`、`Esc`、`Tab`、`Space` 和少数控制键),所以选择靠移动光标再确认,而不是按数字。另外只映射单问题对话框:多问题对话框(标签页、复选框、每题的自定义回答)不存在忠实的按键序列,因此完全交给终端,而不是近似作答。自定义回答的输入同样留给终端。
+
+Herdr 会在 `HERDR_PI_ASK_WAIT_MS`(默认 120 秒)内持续提示该问题。若届时无人作答,面板会被撤回,对话框保持原样。
+
 ## OMP
 
 安装 OMP 集成:
@@ -125,6 +133,8 @@ herdr integration install claude
 
 该钩子在会话启动时把 Claude Code 的会话身份上报给本地 Herdr socket。Claude Code 的状态来自 Herdr 的屏幕清单检测。
 
+它还会注册一个 `PermissionRequest` 钩子,使审批可以直接在网页端作答。当 Claude 即将就某个工具调用发起询问时,该钩子会把这个审批发布为结构化问题,等待数秒以获取作答,并在收到作答时返回 Claude 自身的 allow/deny 决定。如果无人及时作答,钩子不会输出任何决定,Claude 会显示它通常的提示,因此终端用户只会被这段短暂窗口延迟。可通过 Agent 环境中的 `HERDR_CLAUDE_PERMISSION_WAIT_MS` 调整等待时长。未在网页端作答的审批,其行为与没有这个钩子时完全一致。
+
 Herdr 默认使用 `~/.claude`,设置了 `CLAUDE_CONFIG_DIR` 时使用后者。Claude 配置目录必须已经存在。安装会写入 `hooks/herdr-agent-state.sh`,并向 `settings.json` 添加 Herdr 钩子条目。卸载会移除匹配的钩子条目并删除钩子脚本。
 
 ## Codex
@@ -136,6 +146,10 @@ herdr integration install codex
 ```
 
 Codex 钩子通过与其他集成相同的本地 socket API 上报会话身份。Codex 的状态来自 Herdr 的屏幕清单检测。
+
+它还会注册一个 `PermissionRequest` 钩子,使审批可以直接在网页端作答。当 Codex 即将就命令、文件变更或权限发起询问时,该钩子会把这个审批发布为结构化问题,等待数秒以获取作答,并在收到作答时返回 Codex 自身的 allow/deny 决定。如果无人及时作答,钩子不会输出任何决定,Codex 会显示它通常的提示,因此终端用户只会被这段短暂窗口延迟。可通过 Agent 环境中的 `HERDR_CODEX_PERMISSION_WAIT_MS` 调整等待时长。未在网页端作答的审批,其行为与没有这个钩子时完全一致。
+
+与所有 Codex 钩子一样,它需要先被信任才能运行。Codex 会在首次加载该钩子时请求确认;拒绝后该钩子保持禁用,集成的其他部分照常工作。
 
 Herdr 默认使用 `~/.codex`,设置了 `CODEX_HOME` 时使用后者。Codex 配置目录必须已经存在。安装会写入 `herdr-agent-state.sh`、更新 `hooks.json`,并确保 `config.toml` 中有 `[features] hooks = true`。如果存在已弃用的顶层 `codex_hooks` 标志,它也会一并移除。卸载会从 `hooks.json` 中移除 Herdr 条目并删除钩子脚本,但不改动 `config.toml`。
 

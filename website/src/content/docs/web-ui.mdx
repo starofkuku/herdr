@@ -190,9 +190,35 @@ Local UI state, meaning which screen you are on and how far you have scrolled, i
 
 ## Answering a prompt
 
-When the agent is blocked waiting for input, a **waiting for you** panel appears above the composer. It shows the last part of the pane as text and offers the keys an agent prompt normally accepts: arrow keys, `Enter`, `Esc`, the number keys, and `y` / `n`.
+When the agent is blocked waiting for input, a **waiting for you** panel appears above the composer.
 
-The panel deliberately does not parse the prompt. It cannot tell which option is which, so it does not try; you read the text and press the key, exactly as you would in the terminal.
+There are two forms of this panel, depending on what the agent tells Herdr.
+
+### Options, when the agent publishes them
+
+Some agents use a structured interaction protocol and can report the question they are waiting on, along with the options they offered. For these, the panel shows the question, each option's label and description, and a **Send answer** button; a choice made here is the choice the agent offered, not a guess about its wording.
+
+Which agents do this:
+
+- **Codex** for command, file, and permission approvals, once its Herdr integration is installed.
+- **Claude Code** for tool approvals, the same way.
+- **Pi** for questionnaires, when the `@juicesharp/rpiv-ask-user-question` plugin is installed. Only a single-question dialog appears; a multi-question one, and typing a custom answer, stay in the terminal.
+
+A multi-question request is answered in one call, so an agent cannot act on half an answer.
+
+Because the agent's prompt is written to the embedded terminal, the structured panel and the terminal agree; the panel is simply easier to answer, especially on a phone. An agent that offers a structured panel is still fully answerable in the terminal, and the panel is the convenience rather than the only route.
+
+#### The approval window
+
+An approval is answered while the agent is paused before its own prompt, so there is a short window for the reader to answer before the agent gives up and asks in the terminal instead. Codex and Claude Code wait a few seconds by default; if nobody answers in time, the question is withdrawn and the agent shows its normal prompt, so a terminal user is never left waiting on a panel nobody is looking at. Set `HERDR_CODEX_PERMISSION_WAIT_MS` or `HERDR_CLAUDE_PERMISSION_WAIT_MS` in the agent's environment to change that wait.
+
+A Pi questionnaire is different: the dialog is on screen and waiting either way, so Herdr keeps offering it for much longer (`HERDR_PI_ASK_WAIT_MS`, 120 seconds by default). When that ends the panel is withdrawn and the dialog is left exactly as it was.
+
+### Keys, when the agent only reports state
+
+Agents that do not publish a structured request get a panel that shows the last part of the pane as text and offers the keys an agent prompt normally accepts: arrow keys, `Enter`, `Esc`, the number keys, and `y` / `n`.
+
+This panel deliberately does not parse the prompt. It cannot tell which option is which, so it does not try; you read the text and press the key, exactly as you would in the terminal.
 
 This matters for two reasons:
 
