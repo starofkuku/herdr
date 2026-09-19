@@ -235,6 +235,43 @@ herdr pane report-agent <pane_id> \
 
 `pane get`, `pane list`, `agent get`, and `agent list` include a read-only `agent_session` object when an official integration has reported a native session reference. If no native session reference is stored, the field is omitted.
 
+Publish a structured question an agent is waiting on, and collect the answer:
+
+```bash
+herdr pane report-interaction <pane_id> \
+  --source ID \
+  --request-id ID \
+  --kind approval|question \
+  --title TEXT \
+  [--summary TEXT] \
+  [--question QUESTION_ID=TEXT] \
+  [--option QUESTION_ID=OPTION_ID=LABEL] \
+  [--option-description OPTION_ID=TEXT] \
+  [--multi-select QUESTION_ID] \
+  [--allow-custom QUESTION_ID] \
+  [--seq N] \
+  [--ttl-ms N]
+
+herdr pane clear-interaction <pane_id> --source ID --request-id ID [--seq N]
+
+herdr pane answer-interaction <pane_id> --request-id ID \
+  --answer QUESTION_ID=OPTION_ID[,OPTION_ID...]
+
+herdr pane take-interaction-answer <pane_id> --source ID --request-id ID
+```
+
+Use this when the agent publishes its own question and options, so a client can present the options the agent actually offered instead of leaving the reader to work them out from the rendered screen. The question and option ids are passed through unchanged, so the integration maps them back to its own protocol.
+
+`clear-interaction` withdraws a request that is no longer pending, and only clears the request named by `--request-id`, so a client cannot clear a newer question that replaced the one it saw.
+
+`take-interaction-answer` is how the integration that asked collects the answer. It prints one JSON object:
+
+```json
+{"answers": [{"question_id": "decision", "option_ids": ["allow"]}], "pending": false}
+```
+
+`pending` reports whether the request is still outstanding. An integration that waits for an answer polls this command and keeps waiting while `pending` is `true`; a `false` with no answers means the question was answered elsewhere, withdrawn, or expired, so the wait should end and the decision be handed back rather than held open.
+
 Those commands include `foreground_cwd` when Herdr can resolve the cwd of the foreground process controlling the pane. The existing `cwd` field remains the pane/workspace cwd used for labels and follow-cwd behavior.
 
 `pane get` and `pane list` include `scroll` when terminal scroll metrics are available. `scroll.offset_from_bottom == 0` means the pane is at the bottom of its scrollback.

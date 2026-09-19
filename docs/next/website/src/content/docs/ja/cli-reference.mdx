@@ -221,6 +221,43 @@ herdr pane report-agent <pane_id> \
 
 公式インテグレーションがネイティブセッション参照を報告している場合、`pane get`、`pane list`、`agent get`、`agent list` は読み取り専用の `agent_session` オブジェクトを含みます。ネイティブセッション参照が保存されていない場合、このフィールドは省略されます。
 
+エージェントが待っている構造化された質問を公開し、回答を回収する:
+
+```bash
+herdr pane report-interaction <pane_id> \
+  --source ID \
+  --request-id ID \
+  --kind approval|question \
+  --title TEXT \
+  [--summary TEXT] \
+  [--question QUESTION_ID=TEXT] \
+  [--option QUESTION_ID=OPTION_ID=LABEL] \
+  [--option-description OPTION_ID=TEXT] \
+  [--multi-select QUESTION_ID] \
+  [--allow-custom QUESTION_ID] \
+  [--seq N] \
+  [--ttl-ms N]
+
+herdr pane clear-interaction <pane_id> --source ID --request-id ID [--seq N]
+
+herdr pane answer-interaction <pane_id> --request-id ID \
+  --answer QUESTION_ID=OPTION_ID[,OPTION_ID...]
+
+herdr pane take-interaction-answer <pane_id> --source ID --request-id ID
+```
+
+エージェントが自身の質問と選択肢を公開している場合に使います。これにより、クライアントは描画された画面から読み取るのではなく、エージェントが実際に提示した選択肢を表示できます。質問と選択肢の id はそのまま渡されるため、インテグレーションが自身のプロトコルへ対応付けられます。
+
+`clear-interaction` はすでに保留でなくなったリクエストを取り下げます。`--request-id` で指定したリクエストだけを消すため、クライアントが見たものを置き換えた新しい質問を誤って消すことはありません。
+
+`take-interaction-answer` は、質問を出したインテグレーションが回答を回収する方法です。次の JSON オブジェクトを 1 つ出力します:
+
+```json
+{"answers": [{"question_id": "decision", "option_ids": ["allow"]}], "pending": false}
+```
+
+`pending` はそのリクエストがまだ保留中かどうかを示します。回答を待つインテグレーションはこのコマンドをポーリングし、`pending` が `true` の間は待ち続けます。回答が空で `false` の場合は、別の場所で回答されたか、取り下げられたか、期限切れであることを意味するため、待機を終了して判断を呼び出し元に返します。
+
 これらのコマンドは、ペインを制御しているフォアグラウンドプロセスの cwd を解決できる場合に `foreground_cwd` を含みます。既存の `cwd` フィールドは、ラベルと follow-cwd 挙動に使われるペイン/ワークスペースの cwd のままです。
 
 意味的な状態を奪わずに、表示専用のペインメタデータを報告する:

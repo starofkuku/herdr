@@ -90,6 +90,193 @@ textarea {
   font: inherit;
 }
 
+/* ---- structured interaction ---- */
+
+/*
+ * The panel that shows an agent's own question, with the options it offered.
+ *
+ * Distinct from the terminal panel below it: this one is a form, because the
+ * agent told us what the choices are, and answering it is a tap rather than
+ * reading a key off the screen.
+ */
+.interaction {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.interaction-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.interaction-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--warn);
+}
+
+.interaction-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.interaction-summary {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 10rem;
+  overflow: auto;
+}
+
+.interaction-question {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.interaction-question-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.interaction-chip {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 999px;
+  padding: 0 0.45rem;
+  flex: none;
+}
+
+.interaction-text {
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.interaction-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+/*
+ * One option. Full width and generously tall because this is the tap target on
+ * a phone, where a row of small buttons would be unusable.
+ */
+.interaction-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.6rem 0.7rem;
+  text-align: left;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+}
+
+.interaction-option:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+/* A chosen option stays marked, since the answer is only sent on submit. */
+.interaction-option.selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.interaction-option-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.interaction-option-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.interaction-option-desc {
+  font-size: 0.76rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.interaction-preview {
+  font-size: 0.74rem;
+  color: var(--muted);
+}
+
+.interaction-preview summary {
+  cursor: pointer;
+}
+
+.interaction-preview .markdown {
+  margin-top: 0.4rem;
+}
+
+.interaction-input {
+  width: 100%;
+  min-height: 2.5rem;
+  max-height: 8rem;
+  resize: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 0.55rem 0.7rem;
+  font-size: 16px; /* avoids iOS zoom on focus */
+  line-height: 1.4;
+}
+
+.interaction-input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.interaction-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.interaction-submit {
+  min-height: 2.5rem;
+  padding: 0 1.1rem;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.interaction-submit:disabled {
+  background: var(--border);
+  color: var(--muted);
+}
+
 /* ---- connection badge ---- */
 
 /*

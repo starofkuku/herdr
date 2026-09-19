@@ -245,6 +245,11 @@ impl TerminalState {
         self.interactions.take_answer(source, request_id)
     }
 
+    /// Whether this exact request is still the pane's pending question.
+    pub(crate) fn is_interaction_pending(&self, source: &str, request_id: &str) -> bool {
+        self.interactions.is_pending(source, request_id)
+    }
+
     pub(crate) fn active_interaction(
         &self,
         now: Instant,

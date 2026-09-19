@@ -221,6 +221,43 @@ herdr pane report-agent <pane_id> \
 
 当官方集成上报了原生会话引用时,`pane get`、`pane list`、`agent get` 和 `agent list` 会包含一个只读的 `agent_session` 对象。没有存储原生会话引用时,该字段被省略。
 
+发布 Agent 正在等待的结构化问题,并回收集其作答:
+
+```bash
+herdr pane report-interaction <pane_id> \
+  --source ID \
+  --request-id ID \
+  --kind approval|question \
+  --title TEXT \
+  [--summary TEXT] \
+  [--question QUESTION_ID=TEXT] \
+  [--option QUESTION_ID=OPTION_ID=LABEL] \
+  [--option-description OPTION_ID=TEXT] \
+  [--multi-select QUESTION_ID] \
+  [--allow-custom QUESTION_ID] \
+  [--seq N] \
+  [--ttl-ms N]
+
+herdr pane clear-interaction <pane_id> --source ID --request-id ID [--seq N]
+
+herdr pane answer-interaction <pane_id> --request-id ID \
+  --answer QUESTION_ID=OPTION_ID[,OPTION_ID...]
+
+herdr pane take-interaction-answer <pane_id> --source ID --request-id ID
+```
+
+当 Agent 自己发布问题与选项时使用。这样客户端可以展示 Agent 实际提供的选项,而不必让读者从渲染画面中自行推断。问题与选项 id 会原样传递,以便集成映射回自己的协议。
+
+`clear-interaction` 用于撤回一个不再挂起的问题,并且只清除 `--request-id` 指定的那一个,因此客户端不会误删替换掉它所见到内容的新问题。
+
+`take-interaction-answer` 是提问的集成回收作答的方式。它输出一个 JSON 对象:
+
+```json
+{"answers": [{"question_id": "decision", "option_ids": ["allow"]}], "pending": false}
+```
+
+`pending` 表示该请求是否仍然挂起。等待作答的集成会轮询此命令,并在 `pending` 为 `true` 时继续等待;答案为空且为 `false` 时,表示已在别处作答、已被撤回或已过期,此时应结束等待并把决定交回调用方。
+
 当 Herdr 能解析控制窗格的前台进程的 cwd 时,这些命令会包含 `foreground_cwd`。已有的 `cwd` 字段仍然是用于标签和 follow-cwd 行为的窗格/工作区 cwd。
 
 上报仅用于展示的窗格元数据,而不接管语义状态:

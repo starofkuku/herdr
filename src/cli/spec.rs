@@ -472,6 +472,10 @@ fn pane_command() -> Command {
         )
         .subcommand(report_agent_command())
         .subcommand(report_agent_session_command())
+        .subcommand(report_interaction_command())
+        .subcommand(clear_interaction_command())
+        .subcommand(answer_interaction_command())
+        .subcommand(take_interaction_answer_command())
         .subcommand(release_agent_command())
         .subcommand(report_metadata_command())
 }
@@ -499,6 +503,52 @@ fn report_agent_session_command() -> Command {
         .arg(option("agent-session-id", "ID"))
         .arg(path_option("agent-session-path", "PATH"))
         .arg(option("session-start-source", "SOURCE"))
+}
+
+fn report_interaction_command() -> Command {
+    Command::new("report-interaction")
+        .about("Publish a structured question an agent is waiting on")
+        .arg(required("pane_id", "PANE_ID"))
+        .arg(option("source", "ID"))
+        .arg(option("request-id", "ID"))
+        .arg(option("kind", "approval|question"))
+        .arg(option("title", "TEXT"))
+        .arg(option("summary", "TEXT"))
+        .arg(repeatable_option("question", "QUESTION_ID=TEXT"))
+        .arg(repeatable_option("option", "QUESTION_ID=OPTION_ID=LABEL"))
+        .arg(repeatable_option("option-description", "OPTION_ID=TEXT"))
+        .arg(repeatable_option("multi-select", "QUESTION_ID"))
+        .arg(repeatable_option("allow-custom", "QUESTION_ID"))
+        .arg(option("seq", "N"))
+        .arg(option("ttl-ms", "N"))
+}
+
+fn clear_interaction_command() -> Command {
+    Command::new("clear-interaction")
+        .about("Withdraw a structured question that is no longer pending")
+        .arg(required("pane_id", "PANE_ID"))
+        .arg(option("source", "ID"))
+        .arg(option("request-id", "ID"))
+        .arg(option("seq", "N"))
+}
+
+fn answer_interaction_command() -> Command {
+    Command::new("answer-interaction")
+        .about("Answer a structured question")
+        .arg(required("pane_id", "PANE_ID"))
+        .arg(option("request-id", "ID"))
+        .arg(repeatable_option(
+            "answer",
+            "QUESTION_ID=OPTION_ID[,OPTION_ID...]",
+        ))
+}
+
+fn take_interaction_answer_command() -> Command {
+    Command::new("take-interaction-answer")
+        .about("Collect an answer submitted for a question this integration raised")
+        .arg(required("pane_id", "PANE_ID"))
+        .arg(option("source", "ID"))
+        .arg(option("request-id", "ID"))
 }
 
 fn release_agent_command() -> Command {

@@ -2,6 +2,8 @@
 //
 // Only the fields the UI consumes are declared; the API may return more.
 
+import { parseInteractionRequest, type InteractionRequest } from "./interaction";
+
 /** Agent lifecycle state as reported by herdr. */
 export type AgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 
@@ -18,6 +20,25 @@ export interface AgentRecord {
   foreground_cwd?: string;
   focused?: boolean;
   agent_session?: AgentSessionRecord;
+  interaction_request?: InteractionRequestRecord;
+}
+
+/**
+ * A question the agent is waiting on, when it publishes one.
+ *
+ * Agents with a structured interaction protocol report the options they
+ * offered, so the UI can present them directly rather than leaving the reader to
+ * match screen text against a key. Agents that only report state have no such
+ * field, and the terminal is the only source then.
+ */
+export interface InteractionRequestRecord {
+  source?: string;
+  request_id?: string;
+  /** `question` for a questionnaire, `approval` for a yes/no decision. */
+  kind?: string;
+  title?: string;
+  summary?: string;
+  questions?: unknown;
 }
 
 /**
@@ -68,6 +89,13 @@ export interface AgentView {
   cwd: string;
   /** Local path of the agent's own transcript, when the agent reports one. */
   transcriptPath?: string;
+  /**
+   * The question this agent is waiting on, when it publishes a structured one.
+   *
+   * Absent for agents that only report state, where the terminal is the only
+   * place the prompt exists.
+   */
+  interaction?: InteractionRequest;
 }
 
 function asString(value: unknown): string | undefined {
@@ -125,6 +153,7 @@ export function agentsFromSnapshot(
       project: workspaceLabels.get(workspaceId) ?? workspaceId,
       cwd: asString(agent.foreground_cwd) ?? asString(agent.cwd) ?? "",
       transcriptPath: transcriptPathOf(agent),
+      interaction: parseInteractionRequest(agent.interaction_request) ?? undefined,
     });
   }
   return out;

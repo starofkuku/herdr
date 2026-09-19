@@ -1826,6 +1826,11 @@ impl App {
         // The request is withdrawn once answered, so the client stops showing
         // it. `delivered` reports that the answer reached the pane's record;
         // whether the agent has consumed it yet is the integration's business.
+        //
+        // The answer changes the pane's representation, so subscribers are told:
+        // without this the client that answered keeps showing a question it has
+        // already dealt with until something else happens to refresh it.
+        self.emit_pane_updated(ws_idx, pane_id);
         encode_success(
             id,
             ResponseResult::PaneInteractionAnswered {
@@ -1860,16 +1865,32 @@ impl App {
         else {
             return pane_not_found(id, &params.pane_id);
         };
-        let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
-            return pane_not_found(id, &params.pane_id);
+        // The terminal is borrowed only for the state change; the notifications
+        // below reach into `self` again, so the borrow is scoped to this block.
+        let (answers, cleared, pending) = {
+            let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
+                return pane_not_found(id, &params.pane_id);
+            };
+            let answers = terminal.take_interaction_answer(&source, &request_id);
+            // Only a poll that actually collected an answer completes the
+            // request. An integration polls this method while it waits, so a
+            // poll that finds nothing must be harmless: clearing unconditionally
+            // would let the first empty poll withdraw the question before the
+            // user had a chance to answer it.
+            let cleared = if answers.is_some() {
+                terminal
+                    .clear_interaction(&source, &request_id, None)
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+            // Whether the question is still outstanding after this poll. A
+            // poller needs to tell "not answered yet" from "answered and
+            // collected", and it must stop waiting when the request was
+            // withdrawn or expired rather than hold the agent back forever.
+            let pending = terminal.is_interaction_pending(&source, &request_id);
+            (answers, cleared, pending)
         };
-        let answers = terminal.take_interaction_answer(&source, &request_id);
-        // Taking the answer completes the request, so it is withdrawn here too.
-        // Otherwise the client would keep showing a question that has been
-        // answered and is already being acted on.
-        let cleared = terminal
-            .clear_interaction(&source, &request_id, None)
-            .unwrap_or(false);
         if cleared {
             self.sync_agent_metadata_deadline();
             self.emit_pane_updated(ws_idx, pane_id);
@@ -1878,6 +1899,7 @@ impl App {
             id,
             ResponseResult::PaneInteractionAnswerTaken {
                 answers: answers.unwrap_or_default(),
+                pending,
             },
         )
     }

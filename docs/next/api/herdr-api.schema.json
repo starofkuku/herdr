@@ -9811,6 +9811,10 @@
                   },
                   "type": "array"
                 },
+                "pending": {
+                  "description": "Whether the request is still the pane's pending question.\n\nFalse means it was withdrawn or expired, which is how an integration\nwaiting on an answer learns that nobody is going to provide one and\nit should hand the decision back to its own UI.",
+                  "type": "boolean"
+                },
                 "type": {
                   "const": "pane_interaction_answer_taken",
                   "type": "string"

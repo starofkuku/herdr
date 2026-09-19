@@ -105,6 +105,15 @@ pub(crate) fn remove_legacy_pi_extension_from_omp_dir(dir: &Path) -> io::Result<
     Ok(false)
 }
 
+/// How long Claude may wait for the web UI to answer an approval before it draws
+/// its own prompt.
+///
+/// The hook runs before that prompt, so this is a delay a terminal user pays
+/// when nobody is watching the web UI. It is kept short for that reason, and it
+/// comfortably covers an interested reader because the hook returns as soon as
+/// the request is answered or withdrawn.
+const CLAUDE_PERMISSION_HOOK_TIMEOUT_SEC: u64 = 30;
+
 pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
     let dir = claude_dir()?;
     if !dir.is_dir() {
@@ -143,6 +152,7 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
     remove_hook_commands(hooks, "PostToolUseFailure", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "SubagentStop", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
+    remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("permission"))?;
     remove_hook_commands(hooks, "SessionStart", &hook_path, Some("idle"))?;
     remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
@@ -156,6 +166,19 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
         10,
         Some("*"),
     )?;
+    // The permission hook answers an approval from the web UI and otherwise
+    // leaves Claude's own prompt alone. It runs before that prompt is drawn, so
+    // its timeout is how long the reader has to answer before the terminal takes
+    // over; the script also stops waiting as soon as the request is answered or
+    // withdrawn. The matcher applies to every tool, and the script decides
+    // whether a given request is one it can present.
+    ensure_command_hook(
+        hooks,
+        "PermissionRequest",
+        hook_command(&hook_path, Some("permission")),
+        CLAUDE_PERMISSION_HOOK_TIMEOUT_SEC,
+        Some("*"),
+    )?;
     remove_legacy_bash_hook_file(&hook_path)?;
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
@@ -165,6 +188,15 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
         settings_path,
     })
 }
+
+/// How long Codex may wait for the web UI to answer an approval before it draws
+/// its own prompt.
+///
+/// The hook runs before that prompt, so this is a delay a terminal user pays
+/// when nobody is watching the web UI. It is kept short for that reason, and it
+/// comfortably covers an interested reader because the hook returns as soon as
+/// the request is answered or withdrawn.
+const CODEX_PERMISSION_HOOK_TIMEOUT_SEC: u64 = 30;
 
 pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
     let dir = codex_dir()?;
@@ -195,6 +227,7 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
         "codex hooks file hooks",
     )?;
     remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
+    remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("permission"))?;
     remove_hook_commands(hooks, "SessionStart", &hook_path, Some("idle"))?;
     remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("working"))?;
     remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
@@ -205,6 +238,18 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
         "SessionStart",
         hook_command(&hook_path, Some("session")),
         10,
+        None,
+    )?;
+    // The permission hook answers an approval from the web UI when someone is
+    // there to answer it, and otherwise leaves Codex's own prompt alone. It runs
+    // before that prompt is drawn, so its timeout is how long the reader has to
+    // answer before the terminal takes over; the script also stops waiting as
+    // soon as the request is answered or withdrawn.
+    ensure_command_hook(
+        hooks,
+        "PermissionRequest",
+        hook_command(&hook_path, Some("permission")),
+        CODEX_PERMISSION_HOOK_TIMEOUT_SEC,
         None,
     )?;
     remove_legacy_bash_hook_file(&hook_path)?;
@@ -594,6 +639,8 @@ pub(crate) fn uninstall_claude() -> io::Result<ClaudeUninstallResult> {
             updated_settings |=
                 remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
             updated_settings |=
+                remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("permission"))?;
+            updated_settings |=
                 remove_hook_commands(hooks, "PostToolUse", &hook_path, Some("working"))?;
             updated_settings |=
                 remove_hook_commands(hooks, "PostToolUseFailure", &hook_path, Some("working"))?;
@@ -648,6 +695,8 @@ pub(crate) fn uninstall_codex() -> io::Result<CodexUninstallResult> {
                 remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
             updated_hooks |=
                 remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
+            updated_hooks |=
+                remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("permission"))?;
             updated_hooks |= remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
         }
 

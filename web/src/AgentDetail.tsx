@@ -3,6 +3,8 @@ import type { Subscription, ConnectionState } from "./gateway";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type AgentView } from "./api";
 import { ConversationView } from "./ConversationView";
+import { InteractionPanel } from "./InteractionPanel";
+import type { InteractionAnswer } from "./interaction";
 import { ThemeToggle } from "./ThemeToggle";
 
 /**
@@ -161,6 +163,13 @@ export function AgentDetail({
 
   const paneId = agent?.paneId ?? null;
   const blocked = agent?.status === "blocked";
+  /**
+   * The agent's structured question, when it publishes one.
+   *
+   * Preferred over the terminal panel: the options come from the agent's own
+   * protocol, so answering cannot pick a different option than the one shown.
+   */
+  const interaction = agent?.interaction ?? null;
   const transcriptPath = agent?.transcriptPath ?? null;
   // Read inside the subscription callback, which is created once per pane and
   // would otherwise capture a stale `blocked` value.
@@ -451,6 +460,30 @@ export function AgentDetail({
     [],
   );
 
+  /**
+   * Sends the user's choices back to the agent.
+   *
+   * The server rejects an answer for a request that was superseded or expired,
+   * so a stale panel cannot answer a question the user never saw. The error is
+   * surfaced rather than swallowed.
+   */
+  const answerInteraction = useCallback(
+    async (answers: InteractionAnswer[]) => {
+      if (!paneId || !interaction) return;
+      await client.call("pane.answer_interaction", {
+        pane_id: paneId,
+        request_id: interaction.requestId,
+        answers,
+      });
+      // The request is withdrawn once answered, so drop the panel rather than
+      // leaving a question the user already dealt with on screen. The server
+      // also emits `pane.updated`, but refreshing here means the panel closes
+      // even if that event is missed.
+      onChanged();
+    },
+    [client, paneId, interaction, onChanged],
+  );
+
   const transcript = pages
     .map((page) => (page.endsWith("\n") ? page : `${page}\n`))
     .join("");
@@ -496,7 +529,17 @@ export function AgentDetail({
 
       {error ? <p className="error banner">{error}</p> : null}
 
-      {blocked ? (
+      {/*
+        Two ways to answer, in order of how much the agent told us.
+
+        An agent that publishes a structured request gets the options it
+        actually offered, so answering is one tap. An agent that only reports
+        state falls back to the pane text and a raw key bar: the reader still
+        reads the prompt themselves, but nothing is guessed on their behalf.
+      */}
+      {interaction ? (
+        <InteractionPanel request={interaction} busy={busy} onAnswer={answerInteraction} />
+      ) : blocked ? (
         <div className="blocker">
           <div className="blocker-head">
             <span className="blocker-label">waiting for you</span>

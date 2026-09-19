@@ -167,6 +167,13 @@ pub enum ResponseResult {
     /// Answers the integration collected for a request it raised.
     PaneInteractionAnswerTaken {
         answers: Vec<PaneInteractionAnswer>,
+        /// Whether the request is still the pane's pending question.
+        ///
+        /// False means it was withdrawn or expired, which is how an integration
+        /// waiting on an answer learns that nobody is going to provide one and
+        /// it should hand the decision back to its own UI.
+        #[serde(default, skip_serializing_if = "crate::api::schema::is_false")]
+        pending: bool,
     },
     AgentExplain {
         explain: serde_json::Value,

@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=5
+// HERDR_INTEGRATION_VERSION=6
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -169,6 +169,243 @@ function releaseAgent(): Promise<void> {
   });
 }
 
+/**
+ * Sends one request and returns its decoded response, or undefined on failure.
+ *
+ * `sendRequest` above deliberately ignores the response: reporting state only
+ * needs the write to land. Answering a question needs to read the answer back,
+ * so this variant keeps it. One connection per request, because Herdr serves one
+ * request per connection.
+ */
+function askRequest(request: unknown, timeoutMs: number): Promise<any> {
+  if (!enabled()) {
+    return Promise.resolve(undefined);
+  }
+
+  return new Promise((resolve) => {
+    let done = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const finish = (value: any) => {
+      if (done) return;
+      done = true;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      socket.destroy();
+      resolve(value);
+    };
+
+    const socket = createConnection(socketPath!);
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("error", () => finish(undefined));
+    socket.on("connect", () => socket.write(`${JSON.stringify(request)}\n`));
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) {
+        return;
+      }
+      try {
+        finish(JSON.parse(buffer.slice(0, newline)));
+      } catch {
+        finish(undefined);
+      }
+    });
+    socket.on("end", () => finish(undefined));
+    timeout = setTimeout(() => finish(undefined), timeoutMs);
+    timeout.unref?.();
+  });
+}
+
+/**
+ * The rpiv-ask-user-question plugin's public event contract.
+ *
+ * Stable by its own documented policy: channel names are immutable and payload
+ * changes are append-only, so reading these fields is safe. Herdr only reads
+ * them; it never depends on the plugin internals.
+ */
+const ASK_USER_PROMPT_EVENT = "rpiv:ask-user:prompt";
+const ASK_USER_BLOCKED_EVENT = "rpiv:ask-user:blocked";
+
+/**
+ * How long to keep waiting for an answer before giving the question back.
+ *
+ * The dialog is still on screen the whole time and the user can answer it in
+ * the terminal, so this is only how long Herdr keeps offering to answer it for
+ * them. On timeout the request is withdrawn and the dialog is left untouched.
+ */
+const askUserWaitMs = parseDurationEnv("HERDR_PI_ASK_WAIT_MS", 120000);
+
+/**
+ * Walks the plugin's canvas-free TUI dialog to the chosen row.
+ *
+ * The dialog has no number keys: `routeKey` reacts only to arrows, Enter, Esc,
+ * Tab, Space, and a few control chords. So a choice is delivered by moving the
+ * cursor and pressing Enter, which is exactly what a person would do. The
+ * dialog opens with the first row focused, so the key sequence is derived from
+ * the option's position rather than from any absolute address.
+ */
+function keysForOptionIndex(index: number): string[] {
+  const keys: string[] = [];
+  for (let step = 0; step < index; step += 1) {
+    keys.push("down");
+  }
+  keys.push("enter");
+  return keys;
+}
+
+/**
+ * Publishes a structured question and, if the web UI answers it, delivers that
+ * choice to the TUI dialog.
+ *
+ * The dialog itself is never replaced, so a reader can always answer in the
+ * terminal instead. The request is withdrawn on every exit path, which is what
+ * keeps a panel from outliving the dialog it describes.
+ */
+async function bridgeAskUserQuestion(payload: any, signal: { abort: boolean }): Promise<void> {
+  const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+  if (questions.length !== 1) {
+    // Only a single-question dialog maps onto "pick a row and press Enter". A
+    // multi-question dialog (tabs, checkboxes, per-question custom answers) has
+    // no faithful key sequence, so it is left to the terminal rather than
+    // answered approximately.
+    return;
+  }
+
+  const question = questions[0];
+  const options = Array.isArray(question?.options) ? question.options : [];
+  if (options.length === 0) {
+    return;
+  }
+
+  const requestId = `${source}:ask:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  // The plugin reports the short header separately from the question text, and
+  // omits both previews (only whether one exists), so the options are presented
+  // as label plus description.
+  const reported = await askRequest(
+    {
+      id: `${source}:ask-report:${Date.now()}`,
+      method: "pane.report_interaction",
+      params: {
+        pane_id: paneId,
+        source,
+        request_id: requestId,
+        kind: "question",
+        title: typeof question?.header === "string" ? question.header : undefined,
+        summary: typeof question?.question === "string" ? question.question : undefined,
+        created_unix_ms: Date.now(),
+        seq: nextReportSeq(),
+        ttl_ms: askUserWaitMs + 5000,
+        questions: [
+          {
+            id: "answer",
+            header: typeof question?.header === "string" ? question.header : undefined,
+            question: typeof question?.question === "string" ? question.question : "Choose an option",
+            multi_select: question?.multiSelect === true,
+            // The plugin always offers a custom-answer row, but reaching it means
+            // typing into a multiline editor, which a key sequence cannot fill
+            // reliably. Choosing an option is supported; typing is left to the
+            // terminal.
+            allow_custom: false,
+            options: options.map((option, index) => ({
+              // The index is the stable identity here: the plugin answers with the
+              // option's label, and the label is what the dialog row displays.
+              id: String(index),
+              label: String(option?.label ?? ""),
+              description:
+                typeof option?.description === "string" && option.description.length > 0
+                  ? option.description
+                  : undefined,
+            })),
+          },
+        ],
+      },
+    },
+    2000,
+  );
+
+  if (!reported || reported.error) {
+    return;
+  }
+
+  try {
+    const deadline = Date.now() + askUserWaitMs;
+    while (Date.now() < deadline && !signal.abort) {
+      const polled = await askRequest(
+        {
+          id: `${source}:ask-poll:${Date.now()}`,
+          method: "pane.take_interaction_answer",
+          params: { pane_id: paneId, source, request_id: requestId },
+        },
+        2000,
+      );
+
+      const result = polled?.result;
+      if (result) {
+        for (const answer of Array.isArray(result.answers) ? result.answers : []) {
+          if (answer?.question_id !== "answer") {
+            continue;
+          }
+          for (const optionId of Array.isArray(answer.option_ids) ? answer.option_ids : []) {
+            const index = Number.parseInt(String(optionId), 10);
+            if (!Number.isInteger(index) || index < 0 || index >= options.length) {
+              continue;
+            }
+            await sendRequest({
+              id: `${source}:ask-keys:${Date.now()}`,
+              method: "pane.send_keys",
+              params: { pane_id: paneId, keys: keysForOptionIndex(index) },
+            });
+            return;
+          }
+        }
+        // A poll that collected nothing distinguishes "not answered yet" from
+        // "the question is gone": only the latter ends the wait early.
+        if (result.pending === false) {
+          return;
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  } finally {
+    // Withdraw either way: on success taking the answer already cleared it, and
+    // on timeout this is what stops a panel outliving the dialog. On timeout the
+    // dialog is deliberately left alone, so the user still has it in the
+    // terminal and nothing has been answered on their behalf.
+    await askRequest(
+      {
+        id: `${source}:ask-clear:${Date.now()}`,
+        method: "pane.clear_interaction",
+        params: { pane_id: paneId, source, request_id: requestId },
+      },
+      2000,
+    );
+  }
+}
+
+/**
+ * Whether the question payload has changed since the dialog opened.
+ *
+ * The plugin clears the prompt event on close by re-emitting the same payload,
+ * so an identical payload means "still the same dialog" and a different one
+ * means a new dialog, which supersedes the previous request.
+ */
+function promptSignature(payload: any): string {
+  const questions = Array.isArray(payload?.questions) ? payload.questions : [];
+  return JSON.stringify(
+    questions.map((question) => [
+      question?.question ?? "",
+      question?.header ?? "",
+      (Array.isArray(question?.options) ? question.options : []).map((option) => [
+        option?.label ?? "",
+        option?.description ?? "",
+      ]),
+    ]),
+  );
+}
+
 function shouldReleaseOnSessionShutdown(event: any): boolean {
   // Pi tears down and rebinds extension runtimes for internal lifecycle actions
   // such as /reload, /new, /resume, and /fork. Those do not mean the pane's
@@ -249,6 +486,8 @@ export default function (pi) {
   let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let rootSession = false;
+  let activePromptSignature: string | undefined;
+  let activePrompt: { signature: string; signal: { abort: boolean } } | undefined;
 
   function clearTimer(timer: ReturnType<typeof setTimeout> | undefined) {
     if (timer) {
@@ -337,6 +576,60 @@ export default function (pi) {
     publishState();
   });
 
+  // The ask-user-question plugin publishes the question it is waiting on, so
+  // the web UI can offer the options the agent actually authored instead of a
+  // screen scrape. Herdr mirrors them back to the dialog, which stays on screen
+  // and remains answerable in the terminal the whole time.
+  pi.events.on(ASK_USER_PROMPT_EVENT, (payload) => {
+    if (!rootSession) {
+      return;
+    }
+    // The plugin re-emits the same payload to signal that a dialog closed, so an
+    // unchanged payload means "the dialog this bridge is already tracking". It
+    // must not supersede the request being answered, but it must also not be
+    // remembered past that dialog: the baseline is cleared when the wait ends
+    // (below), so the next dialog publishes even when its text is identical —
+    // the same question asked twice in a turn is two separate dialogs.
+    const signature = promptSignature(payload);
+    if (signature === activePromptSignature) {
+      return;
+    }
+    activePromptSignature = signature;
+    // A dialog that closes while this bridge is waiting — answered or cancelled
+    // in the terminal — must withdraw the panel immediately rather than leave it
+    // offering a question that is gone until the wait happens to expire.
+    const signal = { abort: false };
+    activePrompt?.signal && (activePrompt.signal.abort = true);
+    activePrompt = { signature, signal };
+    void bridgeAskUserQuestion(payload, signal).finally(() => {
+      // Only clear our own dialog's baseline: a newer dialog may already have
+      // replaced it while this wait was finishing.
+      if (activePromptSignature === signature) {
+        activePromptSignature = undefined;
+        activePrompt = undefined;
+      }
+    });
+  });
+
+  pi.events.on(ASK_USER_BLOCKED_EVENT, (data) => {
+    if (!rootSession) {
+      return;
+    }
+    // The plugin brackets the dialog with these events, so `active: false` means
+    // the wait is over: the dialog was answered, cancelled, or errored. Ending
+    // the bridge's wait here is what makes the panel disappear as soon as the
+    // user answers in the terminal, instead of lingering until it times out.
+    const active = data?.active === true;
+    if (!active && activePrompt) {
+      activePrompt.signal.abort = true;
+    }
+    // Precise blocked signal from the plugin, and the one the state machine
+    // above already reads: it knows a question is on screen, which screen-text
+    // detection can only guess at.
+    const event = { active, label: "waiting for your answer" };
+    pi.events.emit("herdr:blocked", event);
+  });
+
   pi.on("session_start", async (event, ctx) => {
     if (ctx?.hasUI !== true) {
       return;
@@ -348,7 +641,6 @@ export default function (pi) {
     agentActive = ctx?.isIdle?.() === false;
     publishState(true);
   });
-
   pi.on("agent_start", (_event, ctx) => {
     if (!rootSession) {
       return;

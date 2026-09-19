@@ -8,6 +8,7 @@ const originalEnvironment = {
   HERDR_ENV: process.env.HERDR_ENV,
   HERDR_OMP_IDLE_DEBOUNCE_MS: process.env.HERDR_OMP_IDLE_DEBOUNCE_MS,
   HERDR_PANE_ID: process.env.HERDR_PANE_ID,
+  HERDR_PI_ASK_WAIT_MS: process.env.HERDR_PI_ASK_WAIT_MS,
   HERDR_SOCKET_PATH: process.env.HERDR_SOCKET_PATH,
 };
 
@@ -377,6 +378,363 @@ function requestState(request: unknown): unknown {
   }
   return request.params.state;
 }
+
+/**
+ * A recording server that answers interaction requests, so the bridge's polling
+ * loop and its key sequence can be exercised end to end.
+ */
+async function startInteractionServer(
+  name: string,
+  options: { answerAfterPolls?: number; optionIds?: string[] } = {},
+): Promise<{ requests: unknown[]; prompts: () => unknown[] }> {
+  const recordingSocketPath = join(tmpdir(), `herdr-${name}-${process.pid}.sock`);
+  socketPath = recordingSocketPath;
+  await rm(recordingSocketPath, { force: true });
+
+  const requests: unknown[] = [];
+  // Live prompts are tracked from the recorded calls so the prompt event can be
+  // emitted without the test having to know the generated request id.
+  const prompts = () =>
+    requests.filter((request) => isRecord(request) && request.method === "pane.report_interaction");
+  let polls = 0;
+
+  const recordingServer = createServer((socket) => {
+    let input = "";
+    socket.setEncoding("utf8");
+    socket.on("data", (chunk) => {
+      input += chunk;
+      const newline = input.indexOf("\n");
+      if (newline === -1) {
+        return;
+      }
+      const request = JSON.parse(input.slice(0, newline));
+      requests.push(request);
+
+      if (request.method === "pane.take_interaction_answer") {
+        polls += 1;
+        if (options.answerAfterPolls !== undefined && polls >= options.answerAfterPolls) {
+          socket.end(
+            `${JSON.stringify({
+              id: request.id,
+              result: {
+                answers: [
+                  { question_id: "answer", option_ids: options.optionIds ?? ["0"] },
+                ],
+                pending: false,
+              },
+            })}\n`,
+          );
+          return;
+        }
+        socket.end(
+          `${JSON.stringify({ id: request.id, result: { answers: [], pending: true } })}\n`,
+        );
+        return;
+      }
+
+      socket.end(`${JSON.stringify({ id: request.id, result: {} })}\n`);
+    });
+  });
+  server = recordingServer;
+  await new Promise<void>((resolve, reject) => {
+    recordingServer.once("error", reject);
+    recordingServer.listen(recordingSocketPath, resolve);
+  });
+  configureIntegrationEnvironment(recordingSocketPath);
+  return { requests, prompts };
+}
+
+function askUserPrompt(questions: unknown[]): unknown {
+  return { questions };
+}
+
+/**
+ * The plugin's event bus, with `emit` wired so a listener re-emitting on the bus
+ * (as the blocked bridge does) reaches the other listeners.
+ */
+function createEventBusHarness() {
+  const eventHandlers = new Map<string, ((data: unknown) => void)[]>();
+  return {
+    emit(event: string, data: unknown) {
+      for (const handler of eventHandlers.get(event) ?? []) {
+        handler(data);
+      }
+    },
+    events: {
+      emit(event: string, data: unknown) {
+        for (const handler of eventHandlers.get(event) ?? []) {
+          handler(data);
+        }
+      },
+      on(event: string, handler: (data: unknown) => void) {
+        const list = eventHandlers.get(event) ?? [];
+        list.push(handler);
+        eventHandlers.set(event, list);
+        return () => {};
+      },
+    },
+  };
+}
+
+async function installPiWithPrompt(
+  requests: unknown[],
+  questions: unknown[],
+  options: { waitMs?: string } = {},
+): Promise<ReturnType<typeof createEventBusHarness>> {
+  // Read at module scope by the extension, so it must be set before the import.
+  if (options.waitMs !== undefined) {
+    process.env.HERDR_PI_ASK_WAIT_MS = options.waitMs;
+  } else {
+    delete process.env.HERDR_PI_ASK_WAIT_MS;
+  }
+  const bus = createEventBusHarness();
+  const handlers = new Map<string, (event: unknown, ctx: unknown) => unknown>();
+  const pi = {
+    on(event: string, handler: (event: unknown, ctx: unknown) => unknown) {
+      handlers.set(event, handler);
+    },
+    events: bus.events,
+  };
+
+  const { default: install } = await importFresh("./pi/herdr-agent-state.ts");
+  install(pi);
+
+  await handlers.get("session_start")?.(
+    { reason: "startup" },
+    {
+      hasUI: true,
+      isIdle: () => true,
+      sessionManager: {
+        getSessionFile: () => undefined,
+        getSessionId: () => undefined,
+      },
+    },
+  );
+
+  bus.emit("rpiv:ask-user:prompt", askUserPrompt(questions));
+  return bus;
+}
+
+function reportCount(requests: unknown[]): number {
+  return requests.filter(
+    (request) => isRecord(request) && request.method === "pane.report_interaction",
+  ).length;
+}
+
+async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline && !predicate()) {
+    await Bun.sleep(5);
+  }
+}
+
+const singleQuestion = [
+  {
+    question: "Which approach?",
+    header: "Approach",
+    multiSelect: false,
+    options: [
+      { label: "Option A", description: "First", hasPreview: false },
+      { label: "Option B", description: "Second", hasPreview: false },
+      { label: "Option C", description: "Third", hasPreview: false },
+    ],
+  },
+];
+
+test("Pi publishes the plugin's question so a client can offer its options", async () => {
+  const { requests } = await startInteractionServer("pi-ask-publish");
+  await installPiWithPrompt(requests, singleQuestion);
+
+  await waitFor(() =>
+    requests.some((request) => isRecord(request) && request.method === "pane.report_interaction"),
+  );
+
+  const reported = requests.find(
+    (request) => isRecord(request) && request.method === "pane.report_interaction",
+  );
+  expect(isRecord(reported)).toBe(true);
+  const params = isRecord(reported) ? reported.params : undefined;
+  expect(isRecord(params)).toBe(true);
+  if (!isRecord(params)) return;
+
+  expect(params.kind).toBe("question");
+  expect(params.title).toBe("Approach");
+  expect(params.summary).toBe("Which approach?");
+  const questions = params.questions as Record<string, unknown>[];
+  expect(questions).toHaveLength(1);
+  expect(questions[0].question).toBe("Which approach?");
+  expect(questions[0].multi_select).toBe(false);
+  // The plugin omits preview content and reports only whether one exists, so no
+  // preview is offered rather than an empty one.
+  expect(questions[0].options).toEqual([
+    { id: "0", label: "Option A", description: "First" },
+    { id: "1", label: "Option B", description: "Second" },
+    { id: "2", label: "Option C", description: "Third" },
+  ]);
+});
+
+test("Pi answers a question by moving the dialog cursor and confirming", async () => {
+  // The dialog has no number keys, so the third option must be reached with two
+  // Down presses and then Enter.
+  const { requests } = await startInteractionServer("pi-ask-answer", {
+    answerAfterPolls: 1,
+    optionIds: ["2"],
+  });
+  await installPiWithPrompt(requests, singleQuestion);
+
+  const sentKeys = () =>
+    requests.find(
+      (request) =>
+        isRecord(request) &&
+        request.method === "pane.send_keys" &&
+        isRecord(request.params) &&
+        Array.isArray(request.params.keys),
+    );
+
+  await waitFor(() => sentKeys() !== undefined);
+
+  const keys = sentKeys();
+  expect(isRecord(keys)).toBe(true);
+  expect(isRecord(keys) ? (keys.params as Record<string, unknown>).keys : undefined).toEqual([
+    "down",
+    "down",
+    "enter",
+  ]);
+});
+
+test("Pi confirms the first option with Enter and no movement", async () => {
+  const { requests } = await startInteractionServer("pi-ask-first", {
+    answerAfterPolls: 1,
+    optionIds: ["0"],
+  });
+  await installPiWithPrompt(requests, singleQuestion);
+
+  const sentKeys = () =>
+    requests.find((request) => isRecord(request) && request.method === "pane.send_keys");
+  await waitFor(() => sentKeys() !== undefined);
+
+  const keys = sentKeys();
+  expect(isRecord(keys) ? (keys.params as Record<string, unknown>).keys : undefined).toEqual([
+    "enter",
+  ]);
+});
+
+test("Pi withdraws the request once it has answered", async () => {
+  const { requests } = await startInteractionServer("pi-ask-clear", {
+    answerAfterPolls: 1,
+    optionIds: ["1"],
+  });
+  await installPiWithPrompt(requests, singleQuestion);
+
+  await waitFor(() =>
+    requests.some((request) => isRecord(request) && request.method === "pane.clear_interaction"),
+  );
+  expect(
+    requests.some((request) => isRecord(request) && request.method === "pane.clear_interaction"),
+  ).toBe(true);
+});
+
+test("Pi publishes an identical question again after the previous wait ended", async () => {
+  // The plugin re-emits the same payload to signal a dialog closed, so an
+  // unchanged payload must not supersede a live request. But the same question
+  // asked twice is two dialogs, so the baseline has to be cleared when the first
+  // wait ends rather than remembered for the whole session.
+  const { requests } = await startInteractionServer("pi-ask-repeat");
+  const bus = await installPiWithPrompt(requests, singleQuestion, { waitMs: "150" });
+
+  await waitFor(() => reportCount(requests) >= 1);
+  // Let the first wait expire, then ask exactly the same question again.
+  await waitFor(() =>
+    requests.some((request) => isRecord(request) && request.method === "pane.clear_interaction"),
+  );
+  bus.emit("rpiv:ask-user:prompt", askUserPrompt(singleQuestion));
+  await waitFor(() => reportCount(requests) >= 2);
+
+  expect(reportCount(requests)).toBeGreaterThanOrEqual(2);
+});
+
+test("Pi withdraws the panel as soon as the dialog ends", async () => {
+  // Answering in the terminal ends the plugin's wait. The panel must go away
+  // then, not when the bridge's own (much longer) timeout happens to expire.
+  const { requests } = await startInteractionServer("pi-ask-close");
+  const bus = await installPiWithPrompt(requests, singleQuestion, { waitMs: "60000" });
+
+  await waitFor(() =>
+    requests.some((request) => isRecord(request) && request.method === "pane.report_interaction"),
+  );
+  bus.emit("rpiv:ask-user:blocked", { active: false });
+
+  await waitFor(() =>
+    requests.some((request) => isRecord(request) && request.method === "pane.clear_interaction"),
+  );
+  expect(
+    requests.some((request) => isRecord(request) && request.method === "pane.clear_interaction"),
+  ).toBe(true);
+});
+
+test("Pi leaves a multi-question dialog to the terminal", async () => {
+  // Tabs and checkboxes have no faithful key sequence, so nothing is published
+  // rather than publishing a question the UI could not answer correctly.
+  const { requests } = await startInteractionServer("pi-ask-multi");
+  await installPiWithPrompt(requests, [
+    singleQuestion[0],
+    { ...singleQuestion[0], question: "Second question?" },
+  ]);
+
+  await Bun.sleep(250);
+  expect(
+    requests.some((request) => isRecord(request) && request.method === "pane.report_interaction"),
+  ).toBe(false);
+});
+
+test("Pi maps the plugin's blocked event onto the blocked state it already reads", async () => {
+  const { requests } = await startInteractionServer("pi-ask-blocked");
+  const bus = await installPiWithPrompt(requests, singleQuestion);
+
+  // The plugin brackets the dialog with these, so this is the order it emits in.
+  bus.emit("rpiv:ask-user:blocked", { active: true });
+
+  await waitFor(() =>
+    requests.some(
+      (request) =>
+        isRecord(request) &&
+        request.method === "pane.report_agent" &&
+        isRecord(request.params) &&
+        request.params.state === "blocked",
+    ),
+  );
+
+  expect(
+    requests.some(
+      (request) =>
+        isRecord(request) &&
+        request.method === "pane.report_agent" &&
+        isRecord(request.params) &&
+        request.params.state === "blocked",
+    ),
+  ).toBe(true);
+
+  // Clearing the plugin's blocked event must not leave the pane blocked.
+  bus.emit("rpiv:ask-user:blocked", { active: false });
+  await waitFor(() =>
+    requests.some(
+      (request) =>
+        isRecord(request) &&
+        request.method === "pane.report_agent" &&
+        isRecord(request.params) &&
+        request.params.state === "idle",
+    ),
+  );
+  expect(
+    requests.some(
+      (request) =>
+        isRecord(request) &&
+        request.method === "pane.report_agent" &&
+        isRecord(request.params) &&
+        request.params.state === "idle",
+    ),
+  ).toBe(true);
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

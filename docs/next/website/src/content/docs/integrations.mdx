@@ -97,6 +97,14 @@ Herdr writes the bundled extension to:
 
 If `PI_CODING_AGENT_DIR` is set, Herdr writes to `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts` instead. The extensions directory must already exist. Uninstall removes only that extension file.
 
+With the [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) plugin installed, the extension also mirrors that plugin's questionnaire into the web UI. The plugin publishes the question it is waiting on through its documented event contract, so the web UI can offer the options the agent actually authored rather than a screen scrape, and a question also reports `blocked` precisely instead of relying on screen text.
+
+Answering is delivered by driving the plugin's own dialog: the extension moves the cursor to the chosen row and presses `Enter`. The dialog stays on screen and remains answerable in the terminal, so both routes work and neither is authoritative.
+
+Two limits are deliberate. The dialog has no number keys — it reacts only to arrows, `Enter`, `Esc`, `Tab`, `Space`, and a few control chords — so a choice is made by moving and confirming rather than by pressing a digit. And only a single-question dialog is mirrored: a multi-question dialog (tabs, checkboxes, per-question custom answers) has no faithful key sequence, so it is left entirely to the terminal rather than answered approximately. Typing a custom answer is likewise left to the terminal.
+
+Herdr keeps offering the question for `HERDR_PI_ASK_WAIT_MS` (120 s by default). If nobody answers by then the panel is withdrawn and the dialog is left untouched.
+
 ## OMP
 
 Install the OMP integration:
@@ -125,6 +133,8 @@ herdr integration install claude
 
 The hook reports Claude Code session identity to the local Herdr socket on session start. Claude Code state comes from Herdr's screen manifest detection.
 
+It also registers a `PermissionRequest` hook, which lets an approval be answered from the web UI. When Claude is about to ask about a tool call, the hook publishes that approval as a structured question, waits a few seconds for an answer, and returns Claude's own allow/deny decision when one arrives. If nobody answers in time the hook produces no decision and Claude shows its normal prompt, so a terminal user is only delayed by that short window. Set `HERDR_CLAUDE_PERMISSION_WAIT_MS` in the agent's environment to change how long it waits. Approvals that are not answered in the web UI behave exactly as they did before the hook existed.
+
 Herdr uses `~/.claude` by default, or `CLAUDE_CONFIG_DIR` when set. The Claude config directory must already exist. Install writes `hooks/herdr-agent-state.sh` and updates `settings.json` with Herdr hook entries. Uninstall removes the matching hook entries and deletes the hook script.
 
 ## Codex
@@ -136,6 +146,10 @@ herdr integration install codex
 ```
 
 The Codex hook reports session identity through the same local socket API used by other integrations. Codex state comes from Herdr's screen manifest detection.
+
+It also registers a `PermissionRequest` hook, which lets an approval be answered from the web UI. When Codex is about to ask about a command, file change, or permission, the hook publishes that approval as a structured question, waits a few seconds for an answer, and returns Codex's own allow/deny decision when one arrives. If nobody answers in time the hook produces no decision and Codex shows its normal prompt, so a terminal user is only delayed by that short window. Set `HERDR_CODEX_PERMISSION_WAIT_MS` in the agent's environment to change how long it waits. Approvals that are not answered in the web UI behave exactly as they did before the hook existed.
+
+Like every Codex hook, it must be trusted before it runs. Codex asks for approval the first time it loads the hook; declining leaves the hook disabled and the integration otherwise working.
 
 Herdr uses `~/.codex` by default, or `CODEX_HOME` when set. The Codex config directory must already exist. Install writes `herdr-agent-state.sh`, updates `hooks.json`, and ensures `[features] hooks = true` in `config.toml`. It also removes the deprecated top-level `codex_hooks` flag when present. Uninstall removes Herdr entries from `hooks.json` and deletes the hook script, but leaves `config.toml` unchanged.
 

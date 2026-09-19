@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=7
+# HERDR_INTEGRATION_VERSION=8
 
 set -eu
 
@@ -14,6 +14,7 @@ cat >"$hook_input_file" 2>/dev/null || true
 
 case "$action" in
   session) ;;
+  permission) ;;
   *) exit 0 ;;
 esac
 
@@ -48,6 +49,38 @@ if hook_input_file:
     except Exception:
         hook_input = {}
 
+
+def call(method, params):
+    """Sends one request and returns its decoded response, or None.
+
+    One connection per request: Herdr serves one request per connection, so a
+    re-used socket would read the previous response. Every failure returns None
+    so the caller degrades instead of leaving a half-written decision on stdout.
+    """
+    request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
+    request = {"id": request_id, "method": method, "params": params}
+    try:
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.settimeout(2.0)
+        client.connect(socket_path)
+        client.sendall((json.dumps(request) + "\n").encode())
+        buffer = b""
+        while b"\n" not in buffer:
+            chunk = client.recv(65536)
+            if not chunk:
+                break
+            buffer += chunk
+        client.close()
+    except Exception:
+        return None
+    if not buffer:
+        return None
+    try:
+        return json.loads(buffer.split(b"\n", 1)[0].decode("utf-8", "replace"))
+    except Exception:
+        return None
+
+
 hook_event_name = str(hook_input.get("hook_event_name") or "")
 is_subagent = bool(hook_input.get("agent_id"))
 if is_subagent:
@@ -57,6 +90,129 @@ if hook_event_name == "SubagentStop":
     # to durable working, but Claude recap/away-summary can emit it after the
     # main turn has already stopped. Never let it revive an idle pane.
     raise SystemExit(0)
+
+
+def summarise(tool_input):
+    """A readable rendering of what is being approved.
+
+    This is the text the reader judges, so the usual single-value cases are
+    shown as-is rather than as escaped JSON.
+    """
+    if isinstance(tool_input, dict):
+        for key in ("command", "cmd", "file_path", "path", "url", "pattern", "query"):
+            value = tool_input.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    try:
+        return json.dumps(tool_input, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        return ""
+
+
+def request_permission():
+    """Publishes the approval as a structured request and waits for an answer.
+
+    The hook runs before Claude draws its own permission prompt, so the wait is
+    bounded: when it ends without an answer the request is withdrawn and nothing
+    is printed, which hands the prompt back to Claude's own UI.
+
+    Returns the decided option id, or None when the user did not decide.
+    """
+    tool_name = str(hook_input.get("tool_name") or "tool")
+    try:
+        wait_ms = int(os.environ.get("HERDR_CLAUDE_PERMISSION_WAIT_MS", "3000"))
+    except Exception:
+        wait_ms = 3000
+    wait_ms = max(0, min(wait_ms, 600_000))
+
+    request_id = f"{source}:permission:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
+    params = {
+        "pane_id": pane_id,
+        "source": source,
+        "request_id": request_id,
+        "kind": "approval",
+        "title": f"Allow {tool_name}?",
+        "summary": summarise(hook_input.get("tool_input")),
+        "created_unix_ms": int(time.time() * 1000),
+        "seq": time.time_ns(),
+        # The request must not outlive the wait: once the hook has exited nobody
+        # can collect an answer, so a lingering panel would offer a choice that
+        # goes nowhere.
+        "ttl_ms": wait_ms + 5_000,
+        "questions": [
+            {
+                "id": "decision",
+                "header": tool_name,
+                "question": f"Allow {tool_name} to run?",
+                # Option ids are ours, so the answer cannot be confused with
+                # anything the agent wrote.
+                "options": [
+                    {"id": "allow", "label": "Allow"},
+                    {"id": "deny", "label": "Deny"},
+                ],
+            }
+        ],
+    }
+    if call("pane.report_interaction", params) is None:
+        return None
+
+    decision = None
+    deadline = time.monotonic() + (wait_ms / 1000.0)
+    try:
+        while decision is None:
+            poll = call(
+                "pane.take_interaction_answer",
+                {"pane_id": pane_id, "source": source, "request_id": request_id},
+            )
+            if poll is not None:
+                result = poll.get("result") or {}
+                for answer in result.get("answers") or []:
+                    if answer.get("question_id") != "decision":
+                        continue
+                    for option_id in answer.get("option_ids") or []:
+                        if option_id in ("allow", "deny"):
+                            decision = option_id
+                            break
+                    if decision:
+                        break
+                # No answer this poll. `pending` distinguishes "the user has not
+                # decided yet" from "the question is gone" (answered elsewhere,
+                # withdrawn, or expired); only the latter ends the wait early.
+                if decision is None and not result.get("pending"):
+                    break
+            if time.monotonic() >= deadline:
+                break
+            if decision is None:
+                time.sleep(0.05)
+    finally:
+        # Withdraw either way: on success taking the answer already cleared it,
+        # and on timeout this is what stops a panel outliving the hook.
+        call(
+            "pane.clear_interaction",
+            {"pane_id": pane_id, "source": source, "request_id": request_id},
+        )
+    return decision
+
+
+if action == "permission":
+    decided = request_permission()
+    if decided is None:
+        # No decision: exit with no output so Claude draws its own permission
+        # prompt, exactly as it would without this hook.
+        raise SystemExit(0)
+    # The decision must be nested under `hookSpecificOutput` as
+    # `decision.behavior`. Claude validates this shape explicitly: a top-level
+    # `decision` is its legacy approve/block field, and a `behavior` outside
+    # `decision` is rejected without taking effect.
+    decision = {"behavior": decided}
+    if decided == "deny":
+        decision["message"] = "Denied in the Herdr web UI."
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PermissionRequest",
+        "decision": decision,
+    }}))
+    raise SystemExit(0)
+
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
 session_id = hook_input.get("session_id")
@@ -66,36 +222,18 @@ agent_session_path = transcript_path if isinstance(transcript_path, str) and tra
 session_start_source = hook_input.get("source") if hook_event_name == "SessionStart" else None
 if not isinstance(session_start_source, str) or not session_start_source:
     session_start_source = None
-if agent_session_id:
-    params = {
-        "pane_id": pane_id,
-        "source": source,
-        "agent": "claude",
-        "seq": report_seq,
-        "agent_session_id": agent_session_id,
-    }
-    if agent_session_path:
-        params["agent_session_path"] = agent_session_path
-    if session_start_source:
-        params["session_start_source"] = session_start_source
-    request = {
-        "id": request_id,
-        "method": "pane.report_agent_session",
-        "params": params,
-    }
-else:
+if not agent_session_id:
     raise SystemExit(0)
-
-try:
-    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    client.settimeout(0.5)
-    client.connect(socket_path)
-    client.sendall((json.dumps(request) + "\n").encode())
-    try:
-        client.recv(4096)
-    except Exception:
-        pass
-    client.close()
-except Exception:
-    pass
+params = {
+    "pane_id": pane_id,
+    "source": source,
+    "agent": "claude",
+    "seq": report_seq,
+    "agent_session_id": agent_session_id,
+}
+if agent_session_path:
+    params["agent_session_path"] = agent_session_path
+if session_start_source:
+    params["session_start_source"] = session_start_source
+call("pane.report_agent_session", params)
 PY

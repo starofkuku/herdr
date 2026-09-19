@@ -1,10 +1,13 @@
 use crate::api::schema::{
-    Method, PaneCurrentParams, PaneDirection, PaneEdgesParams, PaneFocusDirectionParams,
+    Method, PaneAnswerInteractionParams, PaneClearInteractionParams, PaneCurrentParams,
+    PaneDirection, PaneEdgesParams, PaneFocusDirectionParams, PaneInteractionAnswer,
+    PaneInteractionKind, PaneInteractionOption, PaneInteractionQuestion, PaneInteractionRequest,
     PaneLayoutParams, PaneListParams, PaneMoveDestination, PaneMoveParams, PaneNeighborParams,
     PaneProcessInfoParams, PaneReadParams, PaneReleaseAgentParams, PaneRenameParams,
-    PaneReportAgentParams, PaneReportAgentSessionParams, PaneReportMetadataParams,
-    PaneResizeParams, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams,
-    PaneSwapParams, PaneTarget, PaneZoomMode, PaneZoomParams, ReadFormat, ReadSource, Request,
+    PaneReportAgentParams, PaneReportAgentSessionParams, PaneReportInteractionParams,
+    PaneReportMetadataParams, PaneResizeParams, PaneSendInputParams, PaneSendKeysParams,
+    PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneTakeInteractionAnswerParams,
+    PaneTarget, PaneZoomMode, PaneZoomParams, ReadFormat, ReadSource, Request, ResponseResult,
     SplitDirection,
 };
 
@@ -35,6 +38,10 @@ pub(super) fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
         "send-keys" => pane_send_keys(&args[1..]),
         "report-agent" => pane_report_agent(&args[1..]),
         "report-agent-session" => pane_report_agent_session(&args[1..]),
+        "report-interaction" => pane_report_interaction(&args[1..]),
+        "clear-interaction" => pane_clear_interaction(&args[1..]),
+        "answer-interaction" => pane_answer_interaction(&args[1..]),
+        "take-interaction-answer" => pane_take_interaction_answer(&args[1..]),
         "release-agent" => pane_release_agent(&args[1..]),
         "report-metadata" => pane_report_metadata(&args[1..]),
         "run" => pane_run(&args[1..]),
@@ -1222,6 +1229,484 @@ fn pane_release_agent(args: &[String]) -> std::io::Result<i32> {
     }))
 }
 
+/// `--answer QUESTION_ID=OPTION_ID[,OPTION_ID...]`, repeatable.
+///
+/// Returns the raw question and option ids so the integration can map them back
+/// to its own protocol without the CLI inventing any interpretation of its own.
+fn parse_interaction_answers(
+    args: &[String],
+    start: usize,
+) -> std::io::Result<Vec<PaneInteractionAnswer>> {
+    let mut answers: Vec<PaneInteractionAnswer> = Vec::new();
+    let mut index = start;
+    while index < args.len() {
+        if args[index] != "--answer" {
+            eprintln!("unknown option: {}", args[index]);
+            return Err(std::io::Error::other("invalid arguments"));
+        }
+        let Some(value) = args.get(index + 1) else {
+            eprintln!("missing value for --answer");
+            return Err(std::io::Error::other("invalid arguments"));
+        };
+        let Some((question_id, options)) = value.split_once('=') else {
+            eprintln!("--answer expects QUESTION_ID=OPTION_ID[,OPTION_ID...]");
+            return Err(std::io::Error::other("invalid arguments"));
+        };
+        let question_id = question_id.trim();
+        if question_id.is_empty() {
+            eprintln!("--answer is missing a question id");
+            return Err(std::io::Error::other("invalid arguments"));
+        }
+        let option_ids = options
+            .split(',')
+            .map(str::trim)
+            .filter(|option| !option.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        // Answers repeat per question, so merge rather than push a duplicate:
+        // the API takes one entry per question.
+        match answers
+            .iter_mut()
+            .find(|answer| answer.question_id == question_id)
+        {
+            Some(existing) => existing.option_ids.extend(option_ids),
+            None => answers.push(PaneInteractionAnswer {
+                question_id: question_id.to_string(),
+                option_ids,
+                text: None,
+            }),
+        }
+        index += 2;
+    }
+    Ok(answers)
+}
+
+fn pane_report_interaction(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_pane_id) = args.first() else {
+        eprintln!("usage: herdr pane report-interaction <pane_id> --source ID --request-id ID --kind approval|question --title TEXT [--summary TEXT] [--question QUESTION_ID=TEXT] [--option QUESTION_ID=OPTION_ID=LABEL] [--multi-select QUESTION_ID] [--allow-custom QUESTION_ID] [--seq N] [--ttl-ms N]");
+        return Ok(2);
+    };
+    let pane_id = super::normalize_pane_id(raw_pane_id);
+    let mut source = None;
+    let mut request_id = None;
+    let mut kind = None;
+    let mut title = None;
+    let mut summary = None;
+    let mut seq = None;
+    let mut ttl_ms = None;
+    // Questions and their options arrive interleaved, so they are collected as
+    // they are read and assembled in declaration order at the end.
+    let mut question_order: Vec<String> = Vec::new();
+    let mut questions: std::collections::HashMap<String, PaneInteractionQuestion> =
+        std::collections::HashMap::new();
+    let mut last_question: Option<String> = None;
+
+    let ensure_question = |id: &str| -> std::io::Result<String> {
+        let id = id.trim().to_string();
+        if id.is_empty() {
+            eprintln!("question id must not be empty");
+            return Err(std::io::Error::other("invalid arguments"));
+        }
+        Ok(id)
+    };
+
+    let mut index = 1;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        let take_value = |name: &str| -> std::io::Result<String> {
+            match args.get(index + 1) {
+                Some(value) => Ok(value.clone()),
+                None => {
+                    eprintln!("missing value for {name}");
+                    Err(std::io::Error::other("invalid arguments"))
+                }
+            }
+        };
+        match flag {
+            "--source" => {
+                source = Some(take_value("--source")?);
+                index += 2;
+            }
+            "--request-id" => {
+                request_id = Some(take_value("--request-id")?);
+                index += 2;
+            }
+            "--kind" => {
+                let value = take_value("--kind")?;
+                kind = Some(match value.as_str() {
+                    "approval" => PaneInteractionKind::Approval,
+                    "question" => PaneInteractionKind::Question,
+                    other => {
+                        eprintln!("invalid --kind: {other} (expected approval or question)");
+                        return Ok(2);
+                    }
+                });
+                index += 2;
+            }
+            "--title" => {
+                title = Some(take_value("--title")?);
+                index += 2;
+            }
+            "--summary" => {
+                summary = Some(take_value("--summary")?);
+                index += 2;
+            }
+            "--seq" => {
+                let value = take_value("--seq")?;
+                seq = Some(super::parse_u64_flag("--seq", &value)?);
+                index += 2;
+            }
+            "--ttl-ms" => {
+                let value = take_value("--ttl-ms")?;
+                ttl_ms = Some(super::parse_u64_flag("--ttl-ms", &value)?);
+                index += 2;
+            }
+            "--question" => {
+                let value = take_value("--question")?;
+                let Some((id, text)) = value.split_once('=') else {
+                    eprintln!("--question expects QUESTION_ID=TEXT");
+                    return Ok(2);
+                };
+                let id = ensure_question(id)?;
+                if !questions.contains_key(&id) {
+                    question_order.push(id.clone());
+                }
+                questions
+                    .entry(id.clone())
+                    .or_insert_with(|| PaneInteractionQuestion {
+                        id: id.clone(),
+                        header: None,
+                        question: String::new(),
+                        multi_select: false,
+                        allow_custom: false,
+                        options: Vec::new(),
+                    })
+                    .question = text.to_string();
+                last_question = Some(id);
+                index += 2;
+            }
+            "--option" => {
+                let value = take_value("--option")?;
+                // OPTION_ID and LABEL may both contain `=`, so only the first
+                // two separators are significant.
+                let mut parts = value.splitn(3, '=');
+                let (Some(question_id), Some(option_id), Some(label)) =
+                    (parts.next(), parts.next(), parts.next())
+                else {
+                    eprintln!("--option expects QUESTION_ID=OPTION_ID=LABEL");
+                    return Ok(2);
+                };
+                let id = ensure_question(question_id)?;
+                if !questions.contains_key(&id) {
+                    question_order.push(id.clone());
+                }
+                questions
+                    .entry(id.clone())
+                    .or_insert_with(|| PaneInteractionQuestion {
+                        id: id.clone(),
+                        header: None,
+                        question: String::new(),
+                        multi_select: false,
+                        allow_custom: false,
+                        options: Vec::new(),
+                    })
+                    .options
+                    .push(PaneInteractionOption {
+                        id: option_id.to_string(),
+                        label: label.to_string(),
+                        description: None,
+                        preview: None,
+                    });
+                last_question = Some(id);
+                index += 2;
+            }
+            "--option-description" => {
+                let value = take_value("--option-description")?;
+                let Some((option_id, description)) = value.split_once('=') else {
+                    eprintln!("--option-description expects OPTION_ID=TEXT");
+                    return Ok(2);
+                };
+                // Applies to the option most recently declared, which keeps the
+                // flag list flat instead of nesting it in --option.
+                let Some(question_id) = last_question.clone() else {
+                    eprintln!("--option-description must follow an --option");
+                    return Ok(2);
+                };
+                let Some(question) = questions.get_mut(&question_id) else {
+                    eprintln!("unknown question: {question_id}");
+                    return Ok(2);
+                };
+                match question
+                    .options
+                    .iter_mut()
+                    .find(|option| option.id == option_id)
+                {
+                    Some(option) => option.description = Some(description.to_string()),
+                    None => {
+                        eprintln!("unknown option: {option_id}");
+                        return Ok(2);
+                    }
+                }
+                index += 2;
+            }
+            "--multi-select" => {
+                let value = take_value("--multi-select")?;
+                let id = ensure_question(&value)?;
+                let Some(question) = questions.get_mut(&id) else {
+                    eprintln!("--multi-select must follow its --question");
+                    return Ok(2);
+                };
+                question.multi_select = true;
+                index += 2;
+            }
+            "--allow-custom" => {
+                let value = take_value("--allow-custom")?;
+                let id = ensure_question(&value)?;
+                let Some(question) = questions.get_mut(&id) else {
+                    eprintln!("--allow-custom must follow its --question");
+                    return Ok(2);
+                };
+                question.allow_custom = true;
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+
+    let Some(source) = source.filter(|source| !source.trim().is_empty()) else {
+        eprintln!("missing required --source");
+        return Ok(2);
+    };
+    let Some(request_id) = request_id.filter(|value| !value.trim().is_empty()) else {
+        eprintln!("missing required --request-id");
+        return Ok(2);
+    };
+    let Some(kind) = kind else {
+        eprintln!("missing required --kind");
+        return Ok(2);
+    };
+    let questions = question_order
+        .into_iter()
+        .filter_map(|id| questions.remove(&id))
+        .collect::<Vec<_>>();
+    if questions.is_empty() {
+        eprintln!("at least one --question is required");
+        return Ok(2);
+    }
+    let created_unix_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+
+    super::send_ok_request(Method::PaneReportInteraction(PaneReportInteractionParams {
+        pane_id,
+        request: PaneInteractionRequest {
+            source,
+            request_id,
+            kind,
+            title,
+            summary,
+            questions,
+            created_unix_ms,
+        },
+        seq,
+        ttl_ms,
+    }))
+}
+
+fn pane_clear_interaction(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_pane_id) = args.first() else {
+        eprintln!(
+            "usage: herdr pane clear-interaction <pane_id> --source ID --request-id ID [--seq N]"
+        );
+        return Ok(2);
+    };
+    let pane_id = super::normalize_pane_id(raw_pane_id);
+    let mut source = None;
+    let mut request_id = None;
+    let mut seq = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--source" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --source");
+                    return Ok(2);
+                };
+                source = Some(value.clone());
+                index += 2;
+            }
+            "--request-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --request-id");
+                    return Ok(2);
+                };
+                request_id = Some(value.clone());
+                index += 2;
+            }
+            "--seq" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --seq");
+                    return Ok(2);
+                };
+                seq = Some(super::parse_u64_flag("--seq", value)?);
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+    let Some(source) = source.filter(|source| !source.trim().is_empty()) else {
+        eprintln!("missing required --source");
+        return Ok(2);
+    };
+    let Some(request_id) = request_id.filter(|value| !value.trim().is_empty()) else {
+        eprintln!("missing required --request-id");
+        return Ok(2);
+    };
+
+    super::send_ok_request(Method::PaneClearInteraction(PaneClearInteractionParams {
+        pane_id,
+        source,
+        request_id,
+        seq,
+    }))
+}
+
+fn pane_answer_interaction(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_pane_id) = args.first() else {
+        eprintln!("usage: herdr pane answer-interaction <pane_id> --request-id ID --answer QUESTION_ID=OPTION_ID[,OPTION_ID...]");
+        return Ok(2);
+    };
+    let pane_id = super::normalize_pane_id(raw_pane_id);
+    let mut request_id = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--request-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --request-id");
+                    return Ok(2);
+                };
+                request_id = Some(value.clone());
+                index += 2;
+            }
+            "--answer" => break,
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+    let Some(request_id) = request_id.filter(|value| !value.trim().is_empty()) else {
+        eprintln!("missing required --request-id");
+        return Ok(2);
+    };
+    let answers = parse_interaction_answers(args, index)?;
+    if answers.is_empty() {
+        eprintln!("at least one --answer is required");
+        return Ok(2);
+    }
+
+    let response = super::send_request(&Request {
+        id: "cli:request".into(),
+        method: Method::PaneAnswerInteraction(PaneAnswerInteractionParams {
+            pane_id,
+            request_id,
+            answers,
+            wait_ms: None,
+        }),
+    })?;
+    if response.get("error").is_some() {
+        eprintln!("{}", serde_json::to_string(&response).unwrap());
+        return Ok(1);
+    }
+    Ok(0)
+}
+
+/// Collects the answer a client submitted, plus whether the request is still
+/// outstanding.
+///
+/// Prints one JSON object so an integration can poll without parsing prose:
+/// `{"answers": [...], "pending": true}`. `pending` is what tells it to keep
+/// waiting, and a `false` with no answers means the question went away.
+fn pane_take_interaction_answer(args: &[String]) -> std::io::Result<i32> {
+    let Some(raw_pane_id) = args.first() else {
+        eprintln!(
+            "usage: herdr pane take-interaction-answer <pane_id> --source ID --request-id ID"
+        );
+        return Ok(2);
+    };
+    let pane_id = super::normalize_pane_id(raw_pane_id);
+    let mut source = None;
+    let mut request_id = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--source" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --source");
+                    return Ok(2);
+                };
+                source = Some(value.clone());
+                index += 2;
+            }
+            "--request-id" => {
+                let Some(value) = args.get(index + 1) else {
+                    eprintln!("missing value for --request-id");
+                    return Ok(2);
+                };
+                request_id = Some(value.clone());
+                index += 2;
+            }
+            other => {
+                eprintln!("unknown option: {other}");
+                return Ok(2);
+            }
+        }
+    }
+    let Some(source) = source.filter(|source| !source.trim().is_empty()) else {
+        eprintln!("missing required --source");
+        return Ok(2);
+    };
+    let Some(request_id) = request_id.filter(|value| !value.trim().is_empty()) else {
+        eprintln!("missing required --request-id");
+        return Ok(2);
+    };
+
+    let response = super::send_request(&Request {
+        id: "cli:request".into(),
+        method: Method::PaneTakeInteractionAnswer(PaneTakeInteractionAnswerParams {
+            pane_id,
+            source,
+            request_id,
+        }),
+    })?;
+    if response.get("error").is_some() {
+        eprintln!("{}", serde_json::to_string(&response).unwrap());
+        return Ok(1);
+    }
+    // Project the two fields the integration acts on, so the wait loop does not
+    // have to know the shape of the API response.
+    let result = response.get("result").cloned().unwrap_or_default();
+    let projected = match serde_json::from_value::<ResponseResult>(result) {
+        Ok(ResponseResult::PaneInteractionAnswerTaken { answers, pending }) => {
+            serde_json::json!({ "answers": answers, "pending": pending })
+        }
+        _ => {
+            eprintln!("{}", serde_json::to_string(&response).unwrap());
+            return Ok(1);
+        }
+    };
+    println!("{projected}");
+    Ok(0)
+}
+
 fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
         eprintln!("usage: herdr pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--state-label STATUS=TEXT] [--clear-state-labels] [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
@@ -1442,6 +1927,10 @@ fn print_pane_help() {
     eprintln!("  herdr pane send-keys <pane_id> <key> [key ...]");
     eprintln!("  herdr pane report-agent <pane_id> --source ID --agent LABEL --state idle|working|blocked|unknown [--message TEXT] [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
     eprintln!("  herdr pane report-agent-session <pane_id> --source ID --agent LABEL [--seq N] [--agent-session-id ID] [--agent-session-path PATH]");
+    eprintln!("  herdr pane report-interaction <pane_id> --source ID --request-id ID --kind approval|question --title TEXT [--summary TEXT] [--question ID=TEXT] [--option ID=OPTION_ID=LABEL] [--seq N] [--ttl-ms N]");
+    eprintln!("  herdr pane clear-interaction <pane_id> --source ID --request-id ID [--seq N]");
+    eprintln!("  herdr pane answer-interaction <pane_id> --request-id ID --answer QUESTION_ID=OPTION_ID[,OPTION_ID...]");
+    eprintln!("  herdr pane take-interaction-answer <pane_id> --source ID --request-id ID");
     eprintln!("  herdr pane release-agent <pane_id> --source ID --agent LABEL [--seq N]");
     eprintln!("  herdr pane report-metadata <pane_id> --source ID [--agent LABEL] [--applies-to-source ID] [--title TEXT|--clear-title] [--display-agent TEXT|--clear-display-agent] [--state-label STATUS=TEXT] [--clear-state-labels] [--token NAME=VALUE] [--clear-token NAME] [--seq N] [--ttl-ms N]");
     eprintln!("  herdr pane run <pane_id> <command>");
