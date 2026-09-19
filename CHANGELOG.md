@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.26] - 2026-09-20
+
 ### Added
 - The web UI sends files to an agent by pasting, dropping, or choosing them from a new attach button beside the composer. Images are previewed as thumbnails and open full size on click; any other file is shown by name and size and downloads when clicked. Pasted images come from the `paste` event rather than the clipboard API, so this works on a plain-HTTP internal address where `navigator.clipboard` is refused for lacking a secure context. Files wait beside the composer until send, and a multi-file send goes to the pane as one message.
 - Uploaded files are served from `/uploads/<id>.<ext>`, so a conversation can reference them by URL. The id is 32 random bytes, which is what keeps one upload from being found by guessing at another, since this route carries no key: an `<img>` cannot send one. `[web] uploads_dir` chooses where the files live and defaults to an uploads directory inside `web.static_dir`.
