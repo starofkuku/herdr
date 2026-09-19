@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.25] - 2026-09-19
+
 ### Added
 - Web UI conversations have their own address (`#/<session>/<pane>`), so a refresh returns to the conversation you were reading instead of the connect screen, and the browser's Back and Forward buttons move through the app.
 - The web UI reconnects on its own after the connection drops, which is what a phone browser does to a backgrounded tab. The header shows the connection state, and offers a retry control once the automatic attempts have stopped.
