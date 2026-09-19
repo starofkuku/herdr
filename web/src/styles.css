@@ -506,6 +506,8 @@ textarea {
   min-height: 0;
   display: flex;
   align-items: stretch;
+  /* Anchors the floating rail on a coarse pointer. */
+  position: relative;
 }
 
 .conversation {
@@ -547,8 +549,50 @@ textarea {
   position: relative;
 }
 
+/*
+ * On a coarse pointer the rail floats over the transcript instead of taking a
+ * column of its own.
+ *
+ * A phone screen is narrow enough that a 36px column is a visible slice of the
+ * text, and the rail is only used occasionally while reading. Floating gives the
+ * transcript the full width; the rail then dims to a hint so it does not cover
+ * the line starts, and returns to full strength while it is being scrolled or
+ * touched.
+ *
+ * The vertical bounds stay inside the scroll area, so the header and composer
+ * are never covered.
+ */
 .turn-nav--coarse {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 30;
+  /* A finger needs a wider strip to land on than a mouse does. */
   width: 2.25rem;
+  transition: opacity 0.2s ease;
+}
+
+/*
+ * Faded back to a hint.
+ *
+ * `pointer-events: none` matters as much as the opacity. The rail floats over
+ * the transcript, so a see-through strip that still accepted taps would swallow
+ * touches on the left edge of every line, which is where text selection and
+ * link taps start. Dimmed, the rail is purely a position hint; scrolling brings
+ * it back to full strength, and then it can be tapped or scrubbed.
+ */
+.turn-nav--coarse.turn-nav--dimmed {
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+/* While the reader is scrolling or scrubbing the rail is the focus, so it is
+   fully opaque and interactive again. */
+.turn-nav--coarse:not(.turn-nav--dimmed),
+.turn-nav--scrubbing {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* Centred with `margin: auto 0` rather than `justify-content: center`, because

@@ -46,6 +46,14 @@ export const DEFAULT_NAVIGATOR_HEIGHT_PX = 320;
 /** Vertical padding of the rail, excluded from the usable tick space. */
 export const NAVIGATOR_PADDING_PX = 24;
 
+/**
+ * How long the rail stays at full strength after the reader last interacted.
+ *
+ * Long enough to cover a pause mid-scroll without flickering, short enough that
+ * a reader who has settled gets the transcript's width back.
+ */
+export const NAVIGATOR_DIM_DELAY_MS = 1600;
+
 export interface NavigatorLayout {
   /** Centre-to-centre spacing between adjacent ticks, in CSS px. */
   pitch: number;

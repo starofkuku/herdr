@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { DetailClient } from "./AgentDetail";
 import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
 import {
+  NAVIGATOR_DIM_DELAY_MS,
   POINTER_PITCH,
   TOUCH_PITCH,
   navigatorLayout,
@@ -109,10 +110,22 @@ function TurnNavigator({
   turns,
   activeTurn,
   onJump,
+  dimmed,
+  onWake,
 }: {
   turns: ConversationTurn[];
   activeTurn: number | null;
   onJump: (index: number) => void;
+  /**
+   * Faded to a hint while the reader is not using it.
+   *
+   * The rail floats over the transcript, so at full strength it would cover the
+   * start of every line. Dimmed it stays visible as a position hint while the
+   * text underneath stays readable; touching it or scrolling restores it.
+   */
+  dimmed: boolean;
+  /** Called when the reader interacts, so the rail can be restored. */
+  onWake: () => void;
 }) {
   const railRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -206,6 +219,7 @@ function TurnNavigator({
    */
   const onPointerDown = (event: React.PointerEvent) => {
     if (event.pointerType === "mouse") return;
+    onWake();
     const position = positionAtClientY(event.clientY);
     if (position === undefined) return;
     // Keeps the browser from also panning the transcript under the finger, which
@@ -258,9 +272,11 @@ function TurnNavigator({
       ref={railRef}
       className={`turn-nav${coarse ? " turn-nav--coarse" : ""}${
         scrubPosition !== null ? " turn-nav--scrubbing" : ""
-      }`}
+      }${dimmed ? " turn-nav--dimmed" : ""}`}
       aria-label="Jump to a message"
       style={{ "--tick-pitch": `${layout.pitch}px` } as React.CSSProperties}
+      onMouseEnter={onWake}
+      onFocus={onWake}
     >
       {scrubAnchor ? (
         <ScrubLabel
@@ -280,7 +296,10 @@ function TurnNavigator({
               className={`turn-nav__tick${selected ? " turn-nav__tick--active" : ""}`}
               aria-label={`Jump to: ${label.slice(0, 80)}`}
               aria-current={index === anchorIndex ? "true" : undefined}
-              onClick={() => onJump(index)}
+              onClick={() => {
+                onWake();
+                onJump(index);
+              }}
             >
               <span className="turn-nav__bar" />
               {/* Not rendered on touch: a hover-only label can never appear
@@ -704,6 +723,32 @@ export function ConversationView({
     }
   }, [client, paneId, hasMore]);
 
+  /**
+   * Whether the rail has faded back to a hint.
+   *
+   * It floats over the transcript, so it is dimmed unless the reader is doing
+   * something that suggests they want it: scrolling, or touching the rail
+   * itself. `useActiveTurn` updates on every frame of a scroll, so the timer is
+   * restarted rather than merely set, which keeps it up until the scrolling
+   * stops.
+   */
+  const [navigatorDimmed, setNavigatorDimmed] = useState(true);
+  const dimTimer = useRef<number | null>(null);
+  const wakeNavigator = useCallback(() => {
+    setNavigatorDimmed(false);
+    if (dimTimer.current !== null) window.clearTimeout(dimTimer.current);
+    dimTimer.current = window.setTimeout(() => {
+      dimTimer.current = null;
+      setNavigatorDimmed(true);
+    }, NAVIGATOR_DIM_DELAY_MS);
+  }, []);
+  useEffect(
+    () => () => {
+      if (dimTimer.current !== null) window.clearTimeout(dimTimer.current);
+    },
+    [],
+  );
+
   const onScroll = () => {
     const element = scrollRef.current;
     if (!element) return;
@@ -713,6 +758,9 @@ export function ConversationView({
       element.scrollHeight - element.scrollTop - element.clientHeight < 40;
     // Reaching the top pulls in the previous page.
     if (element.scrollTop < 80) void loadOlder();
+    // Scrolling means the reader is looking for a position, so the rail is worth
+    // showing at full strength while it lasts.
+    wakeNavigator();
   };
 
   /**
@@ -778,11 +826,21 @@ export function ConversationView({
     container.scrollTo({ top: Math.max(0, top - margin), behavior: "smooth" });
   }, []);
 
+  // Any touch brings the rail back to full strength, so a reader who wants to
+  // jump can touch the screen and then grab the rail instead of having to scroll
+  // first. While dimmed the rail ignores pointer events, so without this there
+  // would be no way to reach it other than by scrolling.
   return (
-    <div className="conversation-wrap">
+    <div className="conversation-wrap" onTouchStart={wakeNavigator}>
       {/* The rail is a sibling of the scroll container rather than a child, so it
           stays put while the transcript moves under it. */}
-      <TurnNavigator turns={turns} activeTurn={activeTurn} onJump={jumpToTurn} />
+      <TurnNavigator
+        turns={turns}
+        activeTurn={activeTurn}
+        onJump={jumpToTurn}
+        dimmed={navigatorDimmed}
+        onWake={wakeNavigator}
+      />
       <div className="conversation" ref={scrollRef} onScroll={onScroll}>
         <div className="conversation-bar">
           <span className="conversation-title">{label}</span>
