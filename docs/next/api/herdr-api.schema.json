@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "protocol": 20,
+  "protocol": 21,
   "schema_version": 1,
   "schemas": {
     "error_response": {
@@ -849,6 +849,17 @@
                 "null"
               ]
             },
+            "interaction_request": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/event/$defs/PaneInteractionRequest"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A question the agent is currently waiting on, when it publishes one\nthrough a structured protocol. Absent when the agent has not asked\nanything, or only reports state without supplying options."
+            },
             "label": {
               "type": [
                 "string",
@@ -925,6 +936,141 @@
             "focused",
             "agent_status",
             "revision"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionKind": {
+          "description": "What kind of decision an interaction request is asking for.",
+          "oneOf": [
+            {
+              "const": "question",
+              "description": "Choose among options, as a questionnaire.",
+              "type": "string"
+            },
+            {
+              "const": "approval",
+              "description": "Approve or refuse an action the agent wants to take.",
+              "type": "string"
+            }
+          ]
+        },
+        "PaneInteractionOption": {
+          "description": "One selectable answer.",
+          "properties": {
+            "description": {
+              "description": "What the choice means, or what it costs.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Stable identifier to send back. Callers should answer with this rather\nthan `label`, which is presentation text and may be localised.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "preview": {
+              "description": "Markdown shown beside the options, for example an ASCII mockup.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "label"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionQuestion": {
+          "description": "A question an agent is waiting on the user to answer.\n\nAgents that expose a structured interaction protocol publish their questions\nhere instead of leaving the user to read options off the rendered screen. The\npane remains the only writer: an answer is delivered back through the\nintegration that raised the request, never by synthesising terminal input.",
+          "properties": {
+            "allow_custom": {
+              "description": "Whether the user may answer in their own words as well as choose.",
+              "type": "boolean"
+            },
+            "header": {
+              "description": "Short label shown beside the question, for example `Feature type`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier the integration uses to match the answer to the question.",
+              "type": "string"
+            },
+            "multi_select": {
+              "description": "Whether more than one option may be chosen.",
+              "type": "boolean"
+            },
+            "options": {
+              "items": {
+                "$ref": "#/schemas/event/$defs/PaneInteractionOption"
+              },
+              "type": "array"
+            },
+            "question": {
+              "description": "The question text as the agent wrote it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "question",
+            "options"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionRequest": {
+          "description": "A pending interaction request raised by a pane's agent integration.",
+          "properties": {
+            "created_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "$ref": "#/schemas/event/$defs/PaneInteractionKind"
+            },
+            "questions": {
+              "items": {
+                "$ref": "#/schemas/event/$defs/PaneInteractionQuestion"
+              },
+              "type": "array"
+            },
+            "request_id": {
+              "description": "Identifier used to answer or withdraw this exact request.",
+              "type": "string"
+            },
+            "source": {
+              "description": "Integration that raised this, for example `codex:permission-hook`.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "Why the agent is asking, when the protocol supplies a reason.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "description": "Short title, for example `Allow Bash?`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "source",
+            "request_id",
+            "kind",
+            "questions",
+            "created_unix_ms"
           ],
           "type": "object"
         },
@@ -2110,6 +2256,39 @@
           ],
           "type": "string"
         },
+        "PaneAnswerInteractionParams": {
+          "properties": {
+            "answers": {
+              "items": {
+                "$ref": "#/schemas/request/$defs/PaneInteractionAnswer"
+              },
+              "type": "array"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "request_id": {
+              "description": "Identifies the request being answered. Answering a superseded or expired\nrequest is rejected rather than applied to whatever replaced it.",
+              "type": "string"
+            },
+            "wait_ms": {
+              "description": "How many milliseconds to wait for the integration to collect the answer.\nThe answer is handed to the integration, so a caller may wait for it to\nbe delivered or return as soon as it is queued.",
+              "format": "uint64",
+              "maximum": 300000,
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "pane_id",
+            "request_id",
+            "answers"
+          ],
+          "type": "object"
+        },
         "PaneClearAgentAuthorityParams": {
           "properties": {
             "pane_id": {
@@ -2159,6 +2338,33 @@
             "pane_id",
             "source",
             "diagnostic_id"
+          ],
+          "type": "object"
+        },
+        "PaneClearInteractionParams": {
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "source",
+            "request_id"
           ],
           "type": "object"
         },
@@ -2234,6 +2440,118 @@
           },
           "required": [
             "direction"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionAnswer": {
+          "description": "One answer to one question.",
+          "properties": {
+            "option_ids": {
+              "description": "Chosen option ids. Empty when the user typed an answer instead.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "question_id": {
+              "type": "string"
+            },
+            "text": {
+              "description": "Free-form answer, when the question allowed one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "question_id"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionKind": {
+          "description": "What kind of decision an interaction request is asking for.",
+          "oneOf": [
+            {
+              "const": "question",
+              "description": "Choose among options, as a questionnaire.",
+              "type": "string"
+            },
+            {
+              "const": "approval",
+              "description": "Approve or refuse an action the agent wants to take.",
+              "type": "string"
+            }
+          ]
+        },
+        "PaneInteractionOption": {
+          "description": "One selectable answer.",
+          "properties": {
+            "description": {
+              "description": "What the choice means, or what it costs.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Stable identifier to send back. Callers should answer with this rather\nthan `label`, which is presentation text and may be localised.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "preview": {
+              "description": "Markdown shown beside the options, for example an ASCII mockup.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "label"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionQuestion": {
+          "description": "A question an agent is waiting on the user to answer.\n\nAgents that expose a structured interaction protocol publish their questions\nhere instead of leaving the user to read options off the rendered screen. The\npane remains the only writer: an answer is delivered back through the\nintegration that raised the request, never by synthesising terminal input.",
+          "properties": {
+            "allow_custom": {
+              "description": "Whether the user may answer in their own words as well as choose.",
+              "type": "boolean"
+            },
+            "header": {
+              "description": "Short label shown beside the question, for example `Feature type`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier the integration uses to match the answer to the question.",
+              "type": "string"
+            },
+            "multi_select": {
+              "description": "Whether more than one option may be chosen.",
+              "type": "boolean"
+            },
+            "options": {
+              "items": {
+                "$ref": "#/schemas/request/$defs/PaneInteractionOption"
+              },
+              "type": "array"
+            },
+            "question": {
+              "description": "The question text as the agent wrote it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "question",
+            "options"
           ],
           "type": "object"
         },
@@ -2653,6 +2971,77 @@
           ],
           "type": "object"
         },
+        "PaneReportInteractionParams": {
+          "description": "A pending interaction request raised by a pane's agent integration.",
+          "properties": {
+            "created_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "$ref": "#/schemas/request/$defs/PaneInteractionKind"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "questions": {
+              "items": {
+                "$ref": "#/schemas/request/$defs/PaneInteractionQuestion"
+              },
+              "type": "array"
+            },
+            "request_id": {
+              "description": "Identifier used to answer or withdraw this exact request.",
+              "type": "string"
+            },
+            "seq": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "source": {
+              "description": "Integration that raised this, for example `codex:permission-hook`.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "Why the agent is asking, when the protocol supplies a reason.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "description": "Short title, for example `Allow Bash?`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ttl_ms": {
+              "description": "How long the request stays answerable. The integration sets this from the\nagent's own deadline so a request cannot outlive the prompt behind it.",
+              "format": "uint64",
+              "maximum": 86400000,
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "pane_id",
+            "source",
+            "request_id",
+            "kind",
+            "questions",
+            "created_unix_ms"
+          ],
+          "type": "object"
+        },
         "PaneReportMetadataParams": {
           "properties": {
             "agent": {
@@ -2924,6 +3313,27 @@
               ]
             }
           },
+          "type": "object"
+        },
+        "PaneTakeInteractionAnswerParams": {
+          "description": "Params for the integration collecting an answer a client submitted.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "source": {
+              "description": "The integration that raised the request. Together with `request_id` it\naddresses the queued answer.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "source",
+            "request_id"
+          ],
           "type": "object"
         },
         "PaneTarget": {
@@ -5196,6 +5606,74 @@
           "type": "object"
         },
         {
+          "description": "Registers a question the agent is waiting on, so a client can present it\nas structured options instead of leaving the user to read the screen.",
+          "properties": {
+            "method": {
+              "const": "pane.report_interaction",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneReportInteractionParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Withdraws a pending question, for example once the user answered in the\nterminal or the agent moved on.",
+          "properties": {
+            "method": {
+              "const": "pane.clear_interaction",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneClearInteractionParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Delivers the user's answer back to the integration that asked.",
+          "properties": {
+            "method": {
+              "const": "pane.answer_interaction",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneAnswerInteractionParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Collects an answer a client submitted, for the integration that asked.",
+          "properties": {
+            "method": {
+              "const": "pane.take_interaction_answer",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneTakeInteractionAnswerParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "method": {
               "const": "pane.clear_agent_authority",
@@ -5773,6 +6251,17 @@
                 "string",
                 "null"
               ]
+            },
+            "interaction_request": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/PaneInteractionRequest"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The question this agent is waiting on, when it publishes one."
             },
             "name": {
               "type": [
@@ -6872,6 +7361,18 @@
           ],
           "type": "string"
         },
+        "PaneAnswerInteractionResult": {
+          "properties": {
+            "delivered": {
+              "description": "True when the answer reached the pane's record. Whether the agent has\nconsumed it yet is the integration's concern.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "delivered"
+          ],
+          "type": "object"
+        },
         "PaneDiagnosticField": {
           "properties": {
             "key": {
@@ -7091,6 +7592,17 @@
                 "null"
               ]
             },
+            "interaction_request": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/PaneInteractionRequest"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A question the agent is currently waiting on, when it publishes one\nthrough a structured protocol. Absent when the agent has not asked\nanything, or only reports state without supplying options."
+            },
             "label": {
               "type": [
                 "string",
@@ -7167,6 +7679,167 @@
             "focused",
             "agent_status",
             "revision"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionAnswer": {
+          "description": "One answer to one question.",
+          "properties": {
+            "option_ids": {
+              "description": "Chosen option ids. Empty when the user typed an answer instead.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "question_id": {
+              "type": "string"
+            },
+            "text": {
+              "description": "Free-form answer, when the question allowed one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "question_id"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionKind": {
+          "description": "What kind of decision an interaction request is asking for.",
+          "oneOf": [
+            {
+              "const": "question",
+              "description": "Choose among options, as a questionnaire.",
+              "type": "string"
+            },
+            {
+              "const": "approval",
+              "description": "Approve or refuse an action the agent wants to take.",
+              "type": "string"
+            }
+          ]
+        },
+        "PaneInteractionOption": {
+          "description": "One selectable answer.",
+          "properties": {
+            "description": {
+              "description": "What the choice means, or what it costs.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Stable identifier to send back. Callers should answer with this rather\nthan `label`, which is presentation text and may be localised.",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "preview": {
+              "description": "Markdown shown beside the options, for example an ASCII mockup.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "label"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionQuestion": {
+          "description": "A question an agent is waiting on the user to answer.\n\nAgents that expose a structured interaction protocol publish their questions\nhere instead of leaving the user to read options off the rendered screen. The\npane remains the only writer: an answer is delivered back through the\nintegration that raised the request, never by synthesising terminal input.",
+          "properties": {
+            "allow_custom": {
+              "description": "Whether the user may answer in their own words as well as choose.",
+              "type": "boolean"
+            },
+            "header": {
+              "description": "Short label shown beside the question, for example `Feature type`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "description": "Identifier the integration uses to match the answer to the question.",
+              "type": "string"
+            },
+            "multi_select": {
+              "description": "Whether more than one option may be chosen.",
+              "type": "boolean"
+            },
+            "options": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneInteractionOption"
+              },
+              "type": "array"
+            },
+            "question": {
+              "description": "The question text as the agent wrote it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "question",
+            "options"
+          ],
+          "type": "object"
+        },
+        "PaneInteractionRequest": {
+          "description": "A pending interaction request raised by a pane's agent integration.",
+          "properties": {
+            "created_unix_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "$ref": "#/schemas/success_response/$defs/PaneInteractionKind"
+            },
+            "questions": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneInteractionQuestion"
+              },
+              "type": "array"
+            },
+            "request_id": {
+              "description": "Identifier used to answer or withdraw this exact request.",
+              "type": "string"
+            },
+            "source": {
+              "description": "Integration that raised this, for example `codex:permission-hook`.",
+              "type": "string"
+            },
+            "summary": {
+              "description": "Why the agent is asking, when the protocol supplies a reason.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "description": "Short title, for example `Allow Bash?`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "source",
+            "request_id",
+            "kind",
+            "questions",
+            "created_unix_ms"
           ],
           "type": "object"
         },
@@ -9109,6 +9782,43 @@
               "required": [
                 "type",
                 "session"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The answer a client submitted was recorded for the integration.",
+              "properties": {
+                "answer": {
+                  "$ref": "#/schemas/success_response/$defs/PaneAnswerInteractionResult"
+                },
+                "type": {
+                  "const": "pane_interaction_answered",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "answer"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "Answers the integration collected for a request it raised.",
+              "properties": {
+                "answers": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/PaneInteractionAnswer"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "pane_interaction_answer_taken",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "answers"
               ],
               "type": "object"
             },

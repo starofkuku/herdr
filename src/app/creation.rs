@@ -416,6 +416,9 @@ impl App {
             tokens: terminal.metadata_tokens.values(),
             agent_session: terminal_agent_session_info(terminal),
             diagnostics: terminal.active_diagnostics(std::time::Instant::now()),
+            interaction_request: terminal
+                .active_interaction(std::time::Instant::now())
+                .cloned(),
             scroll,
             revision: terminal.revision,
         })

@@ -176,6 +176,20 @@ pub enum Method {
     PaneReportDiagnostic(PaneReportDiagnosticParams),
     #[serde(rename = "pane.clear_diagnostic")]
     PaneClearDiagnostic(PaneClearDiagnosticParams),
+    /// Registers a question the agent is waiting on, so a client can present it
+    /// as structured options instead of leaving the user to read the screen.
+    #[serde(rename = "pane.report_interaction")]
+    PaneReportInteraction(PaneReportInteractionParams),
+    /// Withdraws a pending question, for example once the user answered in the
+    /// terminal or the agent moved on.
+    #[serde(rename = "pane.clear_interaction")]
+    PaneClearInteraction(PaneClearInteractionParams),
+    /// Delivers the user's answer back to the integration that asked.
+    #[serde(rename = "pane.answer_interaction")]
+    PaneAnswerInteraction(PaneAnswerInteractionParams),
+    /// Collects an answer a client submitted, for the integration that asked.
+    #[serde(rename = "pane.take_interaction_answer")]
+    PaneTakeInteractionAnswer(PaneTakeInteractionAnswerParams),
     #[serde(rename = "pane.clear_agent_authority")]
     PaneClearAgentAuthority(PaneClearAgentAuthorityParams),
     #[serde(rename = "pane.release_agent")]

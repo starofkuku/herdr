@@ -972,6 +972,11 @@ impl AppState {
                     .filter_map(|terminal| terminal.next_diagnostic_expiry()),
             )
             .chain(
+                self.terminals
+                    .values()
+                    .filter_map(|terminal| terminal.next_interaction_expiry()),
+            )
+            .chain(
                 self.workspaces
                     .iter()
                     .filter_map(|workspace| workspace.metadata_tokens.next_expiry()),
@@ -1056,7 +1061,8 @@ impl AppState {
                 let terminal = self.terminals.get_mut(&terminal_id)?;
                 let metadata_changed = terminal.metadata_tokens.expire_at(now);
                 let diagnostic_changed = terminal.expire_diagnostics_at(now);
-                (metadata_changed || diagnostic_changed).then(|| {
+                let interaction_changed = terminal.expire_interactions_at(now);
+                (metadata_changed || diagnostic_changed || interaction_changed).then(|| {
                     terminal.revision = terminal.revision.saturating_add(1);
                     (ws_idx, pane_id)
                 })

@@ -7,9 +7,10 @@ use super::integrations::{
     IntegrationInstallResult, IntegrationTarget, IntegrationUninstallResult,
 };
 use super::panes::{
-    LayoutDescription, PaneEdgesResult, PaneFocusDirectionResult, PaneInfo, PaneLayoutSnapshot,
-    PaneMoveResult, PaneNeighborResult, PaneProcessInfo, PaneReadResult, PaneResizeResult,
-    PaneSessionResult, PaneSwapResult, PaneZoomResult,
+    LayoutDescription, PaneAnswerInteractionResult, PaneEdgesResult, PaneFocusDirectionResult,
+    PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneMoveResult, PaneNeighborResult,
+    PaneProcessInfo, PaneReadResult, PaneResizeResult, PaneSessionResult, PaneSwapResult,
+    PaneZoomResult,
 };
 use super::plugins::{
     InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
@@ -158,6 +159,14 @@ pub enum ResponseResult {
     },
     PaneSession {
         session: PaneSessionResult,
+    },
+    /// The answer a client submitted was recorded for the integration.
+    PaneInteractionAnswered {
+        answer: PaneAnswerInteractionResult,
+    },
+    /// Answers the integration collected for a request it raised.
+    PaneInteractionAnswerTaken {
+        answers: Vec<PaneInteractionAnswer>,
     },
     AgentExplain {
         explain: serde_json::Value,

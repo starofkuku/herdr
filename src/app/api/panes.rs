@@ -1,19 +1,20 @@
 use bytes::Bytes;
 
 use crate::api::schema::{
-    EventData, EventEnvelope, EventKind, PaneClearAgentAuthorityParams, PaneClearDiagnosticParams,
+    EventData, EventEnvelope, EventKind, PaneAnswerInteractionParams, PaneAnswerInteractionResult,
+    PaneClearAgentAuthorityParams, PaneClearDiagnosticParams, PaneClearInteractionParams,
     PaneCurrentParams, PaneDirection, PaneEdgesParams, PaneEdgesResult, PaneFocusDirectionParams,
     PaneFocusDirectionReason, PaneFocusDirectionResult, PaneInfo, PaneLayoutPane, PaneLayoutParams,
     PaneLayoutRect, PaneLayoutSnapshot, PaneLayoutSplit, PaneListParams, PaneMoveDestination,
     PaneMoveParams, PaneMoveReason, PaneMoveResult, PaneNeighborParams, PaneNeighborResult,
     PaneProcessInfo, PaneProcessInfoParams, PaneProcessInfoProcess, PaneReadParams, PaneReadResult,
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
-    PaneReportDiagnosticParams, PaneReportMetadataParams, PaneResizeParams, PaneResizeReason,
-    PaneResizeResult, PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams,
-    PaneSessionMessage, PaneSessionPagination, PaneSessionParams, PaneSessionResult,
-    PaneSessionToolCall, PaneSessionTurn, PaneSplitParams, PaneSwapParams, PaneSwapReason,
-    PaneSwapResult, PaneTarget, PaneZoomMode, PaneZoomParams, PaneZoomReason, PaneZoomResult,
-    ReadFormat, ReadSource, ResponseResult,
+    PaneReportDiagnosticParams, PaneReportInteractionParams, PaneReportMetadataParams,
+    PaneResizeParams, PaneResizeReason, PaneResizeResult, PaneSendInputParams, PaneSendKeysParams,
+    PaneSendTextParams, PaneSessionMessage, PaneSessionPagination, PaneSessionParams,
+    PaneSessionResult, PaneSessionToolCall, PaneSessionTurn, PaneSplitParams, PaneSwapParams,
+    PaneSwapReason, PaneSwapResult, PaneTakeInteractionAnswerParams, PaneTarget, PaneZoomMode,
+    PaneZoomParams, PaneZoomReason, PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1663,6 +1664,224 @@ impl App {
         encode_success(id, ResponseResult::Ok {})
     }
 
+    pub(super) fn handle_pane_report_interaction(
+        &mut self,
+        id: String,
+        mut params: PaneReportInteractionParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        if let Err(message) = normalize_interaction_request(&mut params.request) {
+            return encode_error(id, "invalid_pane_interaction", message);
+        }
+        let ttl = match normalize_metadata_ttl(params.ttl_ms) {
+            Ok(ttl) => ttl,
+            Err(message) => return encode_error(id, "invalid_interaction_ttl", message),
+        };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let changed = match terminal.report_interaction(
+            params.request,
+            params.seq,
+            ttl,
+            std::time::Instant::now(),
+        ) {
+            Ok(changed) => changed,
+            Err(crate::terminal::PaneInteractionError::SequenceLimit) => {
+                return encode_error(
+                    id,
+                    "pane_interaction_sequence_limit",
+                    "pane interaction sequence source limit reached",
+                );
+            }
+            Err(_) => false,
+        };
+        self.sync_agent_metadata_deadline();
+        if changed {
+            self.emit_pane_updated(ws_idx, pane_id);
+        }
+        encode_success(id, ResponseResult::Ok {})
+    }
+
+    pub(super) fn handle_pane_clear_interaction(
+        &mut self,
+        id: String,
+        params: PaneClearInteractionParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let source = match normalize_metadata_source(params.source) {
+            Ok(source) => source,
+            Err(message) => return encode_error(id, "invalid_interaction_source", message),
+        };
+        let request_id =
+            match normalize_diagnostic_identifier(&params.request_id, 200, "request_id") {
+                Ok(value) => value,
+                Err(message) => return encode_error(id, "invalid_pane_interaction", message),
+            };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let changed = match terminal.clear_interaction(&source, &request_id, params.seq) {
+            Ok(changed) => changed,
+            Err(crate::terminal::PaneInteractionError::SequenceLimit) => {
+                return encode_error(
+                    id,
+                    "pane_interaction_sequence_limit",
+                    "pane interaction sequence source limit reached",
+                );
+            }
+            Err(_) => false,
+        };
+        self.sync_agent_metadata_deadline();
+        if changed {
+            self.emit_pane_updated(ws_idx, pane_id);
+        }
+        encode_success(id, ResponseResult::Ok {})
+    }
+
+    /// Queues the user's answer for the integration that asked.
+    ///
+    /// The answer is addressed by `request_id`, so a stale answer is rejected
+    /// rather than applied to a question the user never saw.
+    pub(super) fn handle_pane_answer_interaction(
+        &mut self,
+        id: String,
+        params: PaneAnswerInteractionParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        // Collected by the integration through `pane.take_interaction_answer`,
+        // so the answer is stored rather than handed over here: the caller of
+        // this method is a client, and the integration is a different process.
+        match terminal.answer_interaction(
+            &params.request_id,
+            params.answers,
+            std::time::Instant::now(),
+        ) {
+            Ok(_source) => {}
+            Err(crate::terminal::PaneInteractionError::NoPendingRequest) => {
+                return encode_error(
+                    id,
+                    "no_pending_interaction",
+                    "the pane has no pending interaction request",
+                );
+            }
+            Err(crate::terminal::PaneInteractionError::RequestMismatch) => {
+                return encode_error(
+                    id,
+                    "interaction_request_mismatch",
+                    "the answer names a request that is no longer pending",
+                );
+            }
+            Err(crate::terminal::PaneInteractionError::Expired) => {
+                return encode_error(
+                    id,
+                    "interaction_expired",
+                    "the interaction request has expired",
+                );
+            }
+            Err(crate::terminal::PaneInteractionError::SequenceLimit) => {
+                return encode_error(
+                    id,
+                    "pane_interaction_sequence_limit",
+                    "pane interaction sequence source limit reached",
+                );
+            }
+        }
+        // The request is withdrawn once answered, so the client stops showing
+        // it. `delivered` reports that the answer reached the pane's record;
+        // whether the agent has consumed it yet is the integration's business.
+        encode_success(
+            id,
+            ResponseResult::PaneInteractionAnswered {
+                answer: PaneAnswerInteractionResult { delivered: true },
+            },
+        )
+    }
+
+    pub(super) fn handle_pane_take_interaction_answer(
+        &mut self,
+        id: String,
+        params: PaneTakeInteractionAnswerParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let source = match normalize_metadata_source(params.source) {
+            Ok(source) => source,
+            Err(message) => return encode_error(id, "invalid_interaction_source", message),
+        };
+        let request_id =
+            match normalize_diagnostic_identifier(&params.request_id, 200, "request_id") {
+                Ok(value) => value,
+                Err(message) => return encode_error(id, "invalid_pane_interaction", message),
+            };
+        let Some(terminal_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.pane_state(pane_id))
+            .map(|pane| pane.attached_terminal_id.clone())
+        else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let answers = terminal.take_interaction_answer(&source, &request_id);
+        // Taking the answer completes the request, so it is withdrawn here too.
+        // Otherwise the client would keep showing a question that has been
+        // answered and is already being acted on.
+        let cleared = terminal
+            .clear_interaction(&source, &request_id, None)
+            .unwrap_or(false);
+        if cleared {
+            self.sync_agent_metadata_deadline();
+            self.emit_pane_updated(ws_idx, pane_id);
+        }
+        encode_success(
+            id,
+            ResponseResult::PaneInteractionAnswerTaken {
+                answers: answers.unwrap_or_default(),
+            },
+        )
+    }
+
     pub(super) fn handle_pane_clear_agent_authority(
         &mut self,
         id: String,
@@ -1878,6 +2097,50 @@ fn normalize_pane_diagnostic(
         normalize_optional_diagnostic_text(diagnostic.session_id.take(), 512, "session_id")?;
     diagnostic.episode_id =
         normalize_optional_diagnostic_text(diagnostic.episode_id.take(), 512, "episode_id")?;
+    Ok(())
+}
+
+fn normalize_interaction_request(
+    request: &mut crate::api::schema::PaneInteractionRequest,
+) -> Result<(), &'static str> {
+    request.source = normalize_metadata_source(std::mem::take(&mut request.source))?;
+    request.request_id = normalize_diagnostic_identifier(&request.request_id, 200, "request_id")?;
+    request.title = normalize_optional_diagnostic_text(request.title.take(), 120, "title")?;
+    request.summary = normalize_optional_diagnostic_text(request.summary.take(), 2000, "summary")?;
+    if request.questions.is_empty() {
+        return Err("interaction request must carry at least one question");
+    }
+    if request.questions.len() > 8 {
+        return Err("interaction request may contain at most 8 questions");
+    }
+    for question in &mut request.questions {
+        question.id = normalize_diagnostic_identifier(&question.id, 200, "question id")?;
+        question.header =
+            normalize_optional_diagnostic_text(question.header.take(), 40, "question header")?;
+        question.question = normalize_diagnostic_text(&question.question, 2000, "question")?;
+        if question.options.is_empty() {
+            return Err("interaction question must carry at least one option");
+        }
+        if question.options.len() > 12 {
+            return Err("interaction question may contain at most 12 options");
+        }
+        for option in &mut question.options {
+            option.id = normalize_diagnostic_identifier(&option.id, 200, "option id")?;
+            option.label = normalize_diagnostic_text(&option.label, 120, "option label")?;
+            option.description = normalize_optional_diagnostic_text(
+                option.description.take(),
+                1000,
+                "option description",
+            )?;
+            // Previews carry markdown and can be long, so they are bounded far
+            // more loosely than the labels around them.
+            option.preview = normalize_optional_diagnostic_text(
+                option.preview.take(),
+                20_000,
+                "option preview",
+            )?;
+        }
+    }
     Ok(())
 }
 

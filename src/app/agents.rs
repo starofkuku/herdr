@@ -431,6 +431,7 @@ impl App {
             tokens: pane.tokens,
             agent_session: pane.agent_session,
             diagnostics: pane.diagnostics,
+            interaction_request: pane.interaction_request,
             workspace_id: pane.workspace_id,
             tab_id: pane.tab_id,
             pane_id: pane.pane_id,

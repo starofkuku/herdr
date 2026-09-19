@@ -85,6 +85,7 @@ pub struct TerminalState {
     pub agent_metadata: HashMap<String, AgentMetadata>,
     pub metadata_tokens: crate::metadata_tokens::MetadataTokens,
     diagnostics: super::diagnostics::PaneDiagnostics,
+    interactions: super::interactions::PaneInteractions,
     pub persisted_agent_session: Option<crate::agent_resume::PersistedAgentSession>,
     pub terminal_title: Option<String>,
     pub manual_label: Option<String>,
@@ -116,6 +117,7 @@ impl TerminalState {
             agent_metadata: HashMap::new(),
             metadata_tokens: crate::metadata_tokens::MetadataTokens::default(),
             diagnostics: super::diagnostics::PaneDiagnostics::default(),
+            interactions: super::interactions::PaneInteractions::default(),
             persisted_agent_session: None,
             terminal_title: None,
             manual_label: None,
@@ -190,6 +192,76 @@ impl TerminalState {
 
     pub(crate) fn next_diagnostic_expiry(&self) -> Option<Instant> {
         self.diagnostics.next_expiry()
+    }
+
+    /// Registers or replaces the question this pane is waiting on.
+    pub(crate) fn report_interaction(
+        &mut self,
+        request: crate::api::schema::PaneInteractionRequest,
+        seq: Option<u64>,
+        ttl: Option<Duration>,
+        now: Instant,
+    ) -> Result<bool, super::interactions::PaneInteractionError> {
+        let changed = self.interactions.report(request, seq, ttl, now)?;
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(changed)
+    }
+
+    /// Withdraws the pending question, if it is the one named.
+    pub(crate) fn clear_interaction(
+        &mut self,
+        source: &str,
+        request_id: &str,
+        seq: Option<u64>,
+    ) -> Result<bool, super::interactions::PaneInteractionError> {
+        let changed = self.interactions.clear(source, request_id, seq)?;
+        if changed {
+            self.revision = self.revision.saturating_add(1);
+        }
+        Ok(changed)
+    }
+
+    /// Queues the user's answer for the integration to collect.
+    ///
+    /// Returns the source that raised the request, so the caller can tell the
+    /// integration which one to look under.
+    pub(crate) fn answer_interaction(
+        &mut self,
+        request_id: &str,
+        answers: Vec<crate::api::schema::PaneInteractionAnswer>,
+        now: Instant,
+    ) -> Result<String, super::interactions::PaneInteractionError> {
+        self.interactions.answer(request_id, answers, now)
+    }
+
+    /// Takes the answer queued for `(source, request_id)`, clearing it.
+    pub(crate) fn take_interaction_answer(
+        &mut self,
+        source: &str,
+        request_id: &str,
+    ) -> Option<Vec<crate::api::schema::PaneInteractionAnswer>> {
+        self.interactions.take_answer(source, request_id)
+    }
+
+    pub(crate) fn active_interaction(
+        &self,
+        now: Instant,
+    ) -> Option<&crate::api::schema::PaneInteractionRequest> {
+        self.interactions.active(now)
+    }
+
+    pub(crate) fn expire_interactions_at(&mut self, now: Instant) -> bool {
+        let expired = self.interactions.expire_at(now);
+        if expired {
+            self.revision = self.revision.saturating_add(1);
+        }
+        expired
+    }
+
+    pub(crate) fn next_interaction_expiry(&self) -> Option<Instant> {
+        self.interactions.next_expiry()
     }
 
     pub(crate) fn set_terminal_title(&mut self, title: Option<String>) -> TerminalTitleChange {

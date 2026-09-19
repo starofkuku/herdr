@@ -1065,6 +1065,18 @@ impl App {
             Method::PaneClearDiagnostic(params) => {
                 return self.handle_pane_clear_diagnostic(request.id, params);
             }
+            Method::PaneReportInteraction(params) => {
+                return self.handle_pane_report_interaction(request.id, params);
+            }
+            Method::PaneClearInteraction(params) => {
+                return self.handle_pane_clear_interaction(request.id, params);
+            }
+            Method::PaneAnswerInteraction(params) => {
+                return self.handle_pane_answer_interaction(request.id, params);
+            }
+            Method::PaneTakeInteractionAnswer(params) => {
+                return self.handle_pane_take_interaction_answer(request.id, params);
+            }
             Method::PaneClearAgentAuthority(params) => {
                 return self.handle_pane_clear_agent_authority(request.id, params);
             }

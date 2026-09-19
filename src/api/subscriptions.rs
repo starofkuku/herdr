@@ -645,6 +645,7 @@ mod tests {
             tokens: HashMap::new(),
             agent_session: None,
             diagnostics: Vec::new(),
+            interaction_request: None,
             scroll,
             revision: 0,
         }

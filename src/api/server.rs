@@ -372,6 +372,10 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneReportMetadata(_) => "pane.report_metadata",
         Method::PaneReportDiagnostic(_) => "pane.report_diagnostic",
         Method::PaneClearDiagnostic(_) => "pane.clear_diagnostic",
+        Method::PaneReportInteraction(_) => "pane.report_interaction",
+        Method::PaneClearInteraction(_) => "pane.clear_interaction",
+        Method::PaneAnswerInteraction(_) => "pane.answer_interaction",
+        Method::PaneTakeInteractionAnswer(_) => "pane.take_interaction_answer",
         Method::PaneClearAgentAuthority(_) => "pane.clear_agent_authority",
         Method::PaneReleaseAgent(_) => "pane.release_agent",
         Method::PaneClose(_) => "pane.close",
@@ -824,6 +828,7 @@ mod tests {
             tokens: HashMap::new(),
             agent_session: None,
             diagnostics: Vec::new(),
+            interaction_request: None,
             scroll: None,
             revision: 0,
         }

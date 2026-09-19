@@ -430,6 +430,11 @@ pub struct PaneInfo {
     pub agent_session: Option<AgentSessionInfo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagnostics: Vec<PaneDiagnosticInfo>,
+    /// A question the agent is currently waiting on, when it publishes one
+    /// through a structured protocol. Absent when the agent has not asked
+    /// anything, or only reports state without supplying options.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interaction_request: Option<PaneInteractionRequest>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scroll: Option<PaneScrollInfo>,
     pub revision: u64,
@@ -742,4 +747,138 @@ pub struct PaneSessionToolCall {
     /// Text the tool produced, when the transcript records it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+}
+
+/// A question an agent is waiting on the user to answer.
+///
+/// Agents that expose a structured interaction protocol publish their questions
+/// here instead of leaving the user to read options off the rendered screen. The
+/// pane remains the only writer: an answer is delivered back through the
+/// integration that raised the request, never by synthesising terminal input.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneInteractionQuestion {
+    /// Identifier the integration uses to match the answer to the question.
+    pub id: String,
+    /// Short label shown beside the question, for example `Feature type`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header: Option<String>,
+    /// The question text as the agent wrote it.
+    pub question: String,
+    /// Whether more than one option may be chosen.
+    #[serde(default, skip_serializing_if = "crate::api::schema::is_false")]
+    pub multi_select: bool,
+    /// Whether the user may answer in their own words as well as choose.
+    #[serde(default, skip_serializing_if = "crate::api::schema::is_false")]
+    pub allow_custom: bool,
+    pub options: Vec<PaneInteractionOption>,
+}
+
+/// One selectable answer.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneInteractionOption {
+    /// Stable identifier to send back. Callers should answer with this rather
+    /// than `label`, which is presentation text and may be localised.
+    pub id: String,
+    pub label: String,
+    /// What the choice means, or what it costs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Markdown shown beside the options, for example an ASCII mockup.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+}
+
+/// What kind of decision an interaction request is asking for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneInteractionKind {
+    /// Choose among options, as a questionnaire.
+    Question,
+    /// Approve or refuse an action the agent wants to take.
+    Approval,
+}
+
+/// A pending interaction request raised by a pane's agent integration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneInteractionRequest {
+    /// Integration that raised this, for example `codex:permission-hook`.
+    pub source: String,
+    /// Identifier used to answer or withdraw this exact request.
+    pub request_id: String,
+    pub kind: PaneInteractionKind,
+    /// Short title, for example `Allow Bash?`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Why the agent is asking, when the protocol supplies a reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    pub questions: Vec<PaneInteractionQuestion>,
+    pub created_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneReportInteractionParams {
+    pub pane_id: String,
+    #[serde(flatten)]
+    pub request: PaneInteractionRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+    /// How long the request stays answerable. The integration sets this from the
+    /// agent's own deadline so a request cannot outlive the prompt behind it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1, max = 86_400_000))]
+    pub ttl_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneClearInteractionParams {
+    pub pane_id: String,
+    pub source: String,
+    pub request_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+}
+
+/// One answer to one question.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneInteractionAnswer {
+    pub question_id: String,
+    /// Chosen option ids. Empty when the user typed an answer instead.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub option_ids: Vec<String>,
+    /// Free-form answer, when the question allowed one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneAnswerInteractionParams {
+    pub pane_id: String,
+    /// Identifies the request being answered. Answering a superseded or expired
+    /// request is rejected rather than applied to whatever replaced it.
+    pub request_id: String,
+    pub answers: Vec<PaneInteractionAnswer>,
+    /// How many milliseconds to wait for the integration to collect the answer.
+    /// The answer is handed to the integration, so a caller may wait for it to
+    /// be delivered or return as soon as it is queued.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 0, max = 300_000))]
+    pub wait_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneAnswerInteractionResult {
+    /// True when the answer reached the pane's record. Whether the agent has
+    /// consumed it yet is the integration's concern.
+    pub delivered: bool,
+}
+
+/// Params for the integration collecting an answer a client submitted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneTakeInteractionAnswerParams {
+    pub pane_id: String,
+    /// The integration that raised the request. Together with `request_id` it
+    /// addresses the queued answer.
+    pub source: String,
+    pub request_id: String,
 }
