@@ -774,6 +774,7 @@ export function AgentDetail({
           label={agent?.label ?? "agent"}
           sentMessage={sentMessage}
           working={agent?.status === "working"}
+          onPreviewImage={setLightbox}
         />
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>

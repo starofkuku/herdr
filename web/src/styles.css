@@ -1038,6 +1038,43 @@ textarea {
   padding: 0.5rem 0.7rem;
 }
 
+/*
+ * An uploaded image referenced in a message. It is a button because tapping it
+ * opens the image full size, so it carries that affordance rather than reading
+ * as decoration.
+ */
+.message-image {
+  display: block;
+  margin-top: 0.4rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg);
+  cursor: zoom-in;
+  max-width: 100%;
+}
+
+.message-image img {
+  display: block;
+  /*
+   * Bounded so a tall screenshot cannot push the rest of the conversation off
+   * screen. Reading the whole image is what the lightbox is for.
+   */
+  max-height: 16rem;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+.message-image:hover {
+  border-color: var(--accent);
+}
+
+.message-image:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .bubble.agent {
   align-self: stretch;
   border-left: 2px solid var(--border);

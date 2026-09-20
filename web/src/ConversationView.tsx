@@ -10,6 +10,7 @@ import {
   navigatorLayout,
   tickPositionAt,
 } from "./navigator";
+import { splitMessage } from "./attachments";
 import { useActiveTurn } from "./useActiveTurn";
 import {
   loadConversation,
@@ -337,6 +338,54 @@ function Markdown({ text }: { text: string }) {
 }
 
 /**
+ * A message's text, with any uploaded images shown as previews.
+ *
+ * The reference the server writes into the message (`@<path>`) is addressed at
+ * an agent reading the file, so on its own it renders as a raw path. A preview
+ * is what makes the message readable, and tapping one opens the same lightbox
+ * the composer's own attachments use. A message without a previewable upload
+ * takes the plain markdown path untouched, so nothing else changes.
+ */
+function MessageBody({
+  text,
+  onPreviewImage,
+}: {
+  text: string;
+  onPreviewImage?: (url: string) => void;
+}) {
+  const parts = splitMessage(text);
+  // Nothing to preview: render the original so ordinary messages are byte for
+  // byte what they were before.
+  if (parts.every((part) => part.kind === "text")) {
+    return <Markdown text={text} />;
+  }
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.kind === "image" ? (
+          <button
+            key={index}
+            type="button"
+            className="message-image"
+            aria-label={`Preview ${part.attachment.name}`}
+            title="Tap to enlarge"
+            onClick={() => onPreviewImage?.(part.attachment.url)}
+          >
+            <img src={part.attachment.url} alt="" loading="lazy" />
+          </button>
+        ) : part.text.trim() ? (
+          // The prose that surrounded the reference. Whitespace-only runs are
+          // dropped rather than rendered as an empty block, which would leave a
+          // gap where the path used to be.
+          <Markdown key={index} text={part.text} />
+        ) : null,
+      )}
+    </>
+  );
+}
+
+/**
  * The "agent is responding" indicator.
  *
  * Three dots that pulse in sequence. Shown while a turn is still being written,
@@ -358,11 +407,17 @@ function Responding() {
  * Rendered in the same shape as a real turn so the layout does not shift when
  * the agent's own copy arrives and replaces it.
  */
-function PendingTurn({ message }: { message: string }) {
+function PendingTurn({
+  message,
+  onPreviewImage,
+}: {
+  message: string;
+  onPreviewImage?: (url: string) => void;
+}) {
   return (
     <div className="turn pending">
       <div className="bubble user">
-        <Markdown text={message} />
+        <MessageBody text={message} onPreviewImage={onPreviewImage} />
       </div>
       <div className="bubble agent ongoing">
         <div className="bubble-head">
@@ -401,7 +456,15 @@ function ToolCall({
   );
 }
 
-function Turn({ turn, index }: { turn: ConversationTurn; index?: number }) {
+function Turn({
+  turn,
+  index,
+  onPreviewImage,
+}: {
+  turn: ConversationTurn;
+  index?: number;
+  onPreviewImage?: (url: string) => void;
+}) {
   const [showActivity, setShowActivity] = useState(false);
   // Reasoning is thinking out loud, not the answer. It is the bulk of a turn's
   // text for an agent that explains itself, so it starts collapsed; the answer
@@ -422,7 +485,7 @@ function Turn({ turn, index }: { turn: ConversationTurn; index?: number }) {
     <div className="turn" data-turn-index={index}>
       {turn.user_message ? (
         <div className="bubble user">
-          <Markdown text={turn.user_message} />
+          <MessageBody text={turn.user_message} onPreviewImage={onPreviewImage} />
         </div>
       ) : null}
 
@@ -516,6 +579,7 @@ export function ConversationView({
   label,
   sentMessage,
   working = false,
+  onPreviewImage,
 }: {
   client: DetailClient;
   paneId: string;
@@ -530,6 +594,8 @@ export function ConversationView({
   sentMessage?: string | null;
   /** Whether the agent is reported working, which turns on live polling. */
   working?: boolean;
+  /** Opens an uploaded image referenced in a message, full size. */
+  onPreviewImage?: (url: string) => void;
 }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   /**
@@ -882,9 +948,16 @@ export function ConversationView({
 
         <div className="turns">
           {turns.map((turn, index) => (
-            <Turn key={turn.turn_id ?? index} turn={turn} index={index} />
+            <Turn
+              key={turn.turn_id ?? index}
+              turn={turn}
+              index={index}
+              onPreviewImage={onPreviewImage}
+            />
           ))}
-          {pending ? <PendingTurn message={sentMessage ?? ""} /> : null}
+          {pending ? (
+            <PendingTurn message={sentMessage ?? ""} onPreviewImage={onPreviewImage} />
+          ) : null}
         </div>
       </div>
     </div>
