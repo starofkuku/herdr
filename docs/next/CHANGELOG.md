@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+- The web UI shows the agent's todo list above the composer, collapsed to a count, and expands to the tasks themselves. pi's `rpiv-todo` extension records the whole list on every `todo` tool call in the transcript's `details` envelope, newest wins. The transcript parser behind `pane.session` exposes a stable subset of its own types and does not carry that envelope through, so `pane.todos` reads it back from the raw JSONL instead: backwards, in a growing window, because a session reaches tens of megabytes and the newest record sits at the end. An agent that keeps no list renders nothing rather than an empty panel.
+- The web UI shows the subagent runs an agent has started. `pane.subagents` reads the `pi-subagents` extension's own state under the temp directory; each run records the parent session path with the extension stripped, which is what ties a run back to a pane. A bar above the composer shows how many are still running and opens a drawer with a card per run: the task it was given, what it is doing now, and the tool calls it has made. Because the extension prunes finished runs, an empty answer is ordinary and is reported as such rather than as an error, and a run that was visible a moment ago can be gone without that meaning anything went wrong. A file the task description names is shown as the declared target, not as evidence of what the run wrote: the extension records no file effects for a child that only runs commands, so the commands themselves are what the drawer shows.
+
 ## [0.7.26] - 2026-09-20
 
 ### Added
