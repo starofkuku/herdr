@@ -274,6 +274,16 @@ A finger can also press anywhere on the rail and slide up or down to scrub throu
 
 Agents that only report a session id, and plain shells, fall back to the rendered pane.
 
+## Agent todos and subagents
+
+Two things an agent keeps for itself are shown above the composer, and both are read back from what the agent recorded rather than tracked by Herdr.
+
+The **todo list** comes from pi's `rpiv-todo` extension, which writes the whole list into the transcript on every `todo` tool call with the newest record winning. The transcript parser that feeds the conversation view deliberately exposes a stable subset of its own types and does not carry that record through, so the server reads it from the raw session log instead — backwards, in a growing window, because a session reaches tens of megabytes and the newest record sits at the end. The panel is collapsed to a count until you open it, and an agent that keeps no list shows nothing at all rather than an empty panel.
+
+The **subagent runs** an agent has started come from the `pi-subagents` extension's own state in the temp directory. A bar above the composer shows how many are still running; opening it gives a card per run with the task it was given, what it is doing now, and the tool calls it has made. That extension prunes finished runs, so an empty answer is ordinary and is reported as such rather than as an error — a run that was there a moment ago can be gone without that meaning anything went wrong, and the drawer reflects whatever is currently known.
+
+A file named in a task description is shown as the **declared target**, not as evidence of what the run wrote. The extension records no file effects for a child that only runs commands, and a read-only subagent writes through its shell rather than a file tool, so the commands themselves are what the drawer shows. Treat the target as what the parent asked for, not as a list of what changed.
+
 ## Theme
 
 A theme switch sits at the top right of every screen. It toggles between the dark and light palettes, and the choice is remembered in the browser. With no stored choice, the UI follows the operating system's `prefers-color-scheme` setting.
