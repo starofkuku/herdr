@@ -3318,6 +3318,18 @@
           ],
           "type": "object"
         },
+        "PaneSubagentsParams": {
+          "description": "Reads the subagent runs the pane's agent started.\n\nThe runs belong to the agent, not to herdr: they are read back from the\nextension's own state on disk, so an agent that spawns no subagents — or one\nwhose runs have been pruned — answers with an empty list.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "PaneSwapParams": {
           "properties": {
             "direction": {
@@ -3373,6 +3385,18 @@
           "type": "object"
         },
         "PaneTarget": {
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "PaneTodosParams": {
+          "description": "Reads the agent's own todo list for a pane.\n\nThe list belongs to the agent, not to herdr: it is read back from the\ntranscript rather than tracked here, so it says whatever the agent last\nrecorded and nothing more.",
           "properties": {
             "pane_id": {
               "type": "string"
@@ -5553,6 +5577,40 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneSessionParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The agent's own todo list for a pane.",
+          "properties": {
+            "method": {
+              "const": "pane.todos",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneTodosParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The subagent runs the pane's agent started.",
+          "properties": {
+            "method": {
+              "const": "pane.subagents",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneSubagentsParams"
             }
           },
           "required": [
@@ -8598,6 +8656,174 @@
           ],
           "type": "object"
         },
+        "PaneSubagentRun": {
+          "description": "One subagent run.",
+          "properties": {
+            "agent": {
+              "type": "string"
+            },
+            "artifacts": {
+              "description": "Result files the extension wrote for this run.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "current_tool": {
+              "description": "Present only while the run is live.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "current_tool_args": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cwd": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ended_at": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "mode": {
+              "description": "`single` for one child, `workflow` for a run that spawns others.",
+              "type": "string"
+            },
+            "output": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "parent_workflow_run_id": {
+              "description": "The workflow run this one belongs to, when it is a child of one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "run_id": {
+              "type": "string"
+            },
+            "started_at": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "state": {
+              "description": "`running`, `complete`, `failed`, or `stopped`.",
+              "type": "string"
+            },
+            "target": {
+              "description": "A file the task description names, which is a declaration of intent and\nnot evidence of what the run wrote.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "task": {
+              "description": "The task as the parent described it.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tokens": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tool_count": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "tools": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneSubagentToolCall"
+              },
+              "type": "array"
+            },
+            "turn_count": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "run_id",
+            "mode",
+            "state",
+            "agent"
+          ],
+          "type": "object"
+        },
+        "PaneSubagentToolCall": {
+          "description": "One tool invocation a subagent made.",
+          "properties": {
+            "args": {
+              "description": "Arguments as recorded, which for shell tools is the command text.",
+              "type": "string"
+            },
+            "tool": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "tool",
+            "args"
+          ],
+          "type": "object"
+        },
+        "PaneSubagentsResult": {
+          "properties": {
+            "active": {
+              "description": "How many runs are still going, which is all the collapsed view shows.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "runs": {
+              "description": "Empty when nothing is running and nothing recent was retained.",
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneSubagentRun"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "pane_id",
+            "active",
+            "runs"
+          ],
+          "type": "object"
+        },
         "PaneSwapReason": {
           "enum": [
             "no_neighbor",
@@ -8643,6 +8869,48 @@
             "source_pane_id",
             "focused_pane_id",
             "layout"
+          ],
+          "type": "object"
+        },
+        "PaneTodo": {
+          "description": "One task in the agent's list.",
+          "properties": {
+            "id": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "status": {
+              "description": "`pending`, `in_progress`, or `completed`, as the agent recorded it.",
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "subject",
+            "status"
+          ],
+          "type": "object"
+        },
+        "PaneTodosResult": {
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            },
+            "todos": {
+              "description": "Empty when the agent keeps no todo list, which is the common case.",
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneTodo"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "pane_id",
+            "todos"
           ],
           "type": "object"
         },
@@ -9885,6 +10153,40 @@
               "required": [
                 "type",
                 "session"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The agent's own todo list, which may be empty.",
+              "properties": {
+                "todos": {
+                  "$ref": "#/schemas/success_response/$defs/PaneTodosResult"
+                },
+                "type": {
+                  "const": "pane_todos",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "todos"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The subagent runs started by the pane's agent, which may be empty.",
+              "properties": {
+                "subagents": {
+                  "$ref": "#/schemas/success_response/$defs/PaneSubagentsResult"
+                },
+                "type": {
+                  "const": "pane_subagents",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "subagents"
               ],
               "type": "object"
             },

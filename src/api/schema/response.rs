@@ -10,7 +10,7 @@ use super::panes::{
     LayoutDescription, PaneAnswerInteractionResult, PaneEdgesResult, PaneFocusDirectionResult,
     PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneMoveResult, PaneNeighborResult,
     PaneProcessInfo, PaneReadResult, PaneResizeResult, PaneSessionResult, PaneStageUploadResult,
-    PaneSwapResult, PaneZoomResult,
+    PaneSubagentsResult, PaneSwapResult, PaneTodosResult, PaneZoomResult,
 };
 use super::plugins::{
     InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
@@ -159,6 +159,14 @@ pub enum ResponseResult {
     },
     PaneSession {
         session: PaneSessionResult,
+    },
+    /// The agent's own todo list, which may be empty.
+    PaneTodos {
+        todos: PaneTodosResult,
+    },
+    /// The subagent runs started by the pane's agent, which may be empty.
+    PaneSubagents {
+        subagents: PaneSubagentsResult,
     },
     /// An uploaded file was written and is now addressable.
     PaneUploadStaged {

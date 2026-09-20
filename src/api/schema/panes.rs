@@ -660,6 +660,104 @@ pub struct PaneSessionParams {
     pub max_bytes: Option<u64>,
 }
 
+/// Reads the agent's own todo list for a pane.
+///
+/// The list belongs to the agent, not to herdr: it is read back from the
+/// transcript rather than tracked here, so it says whatever the agent last
+/// recorded and nothing more.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneTodosParams {
+    pub pane_id: String,
+}
+
+/// One task in the agent's list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneTodo {
+    pub id: u64,
+    pub subject: String,
+    /// `pending`, `in_progress`, or `completed`, as the agent recorded it.
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneTodosResult {
+    pub pane_id: String,
+    /// Empty when the agent keeps no todo list, which is the common case.
+    pub todos: Vec<PaneTodo>,
+}
+
+/// Reads the subagent runs the pane's agent started.
+///
+/// The runs belong to the agent, not to herdr: they are read back from the
+/// extension's own state on disk, so an agent that spawns no subagents — or one
+/// whose runs have been pruned — answers with an empty list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSubagentsParams {
+    pub pane_id: String,
+}
+
+/// One tool invocation a subagent made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSubagentToolCall {
+    pub tool: String,
+    /// Arguments as recorded, which for shell tools is the command text.
+    pub args: String,
+}
+
+/// One subagent run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSubagentRun {
+    pub run_id: String,
+    /// `single` for one child, `workflow` for a run that spawns others.
+    pub mode: String,
+    /// `running`, `complete`, `failed`, or `stopped`.
+    pub state: String,
+    pub agent: String,
+    /// The task as the parent described it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task: Option<String>,
+    /// A file the task description names, which is a declaration of intent and
+    /// not evidence of what the run wrote.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_count: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<u64>,
+    /// Present only while the run is live.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_tool_args: Option<String>,
+    /// The workflow run this one belongs to, when it is a child of one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_workflow_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<PaneSubagentToolCall>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output: Vec<String>,
+    /// Result files the extension wrote for this run.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub artifacts: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSubagentsResult {
+    pub pane_id: String,
+    /// How many runs are still going, which is all the collapsed view shows.
+    pub active: u64,
+    /// Empty when nothing is running and nothing recent was retained.
+    pub runs: Vec<PaneSubagentRun>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneSessionResult {
     pub pane_id: String,

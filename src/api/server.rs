@@ -383,6 +383,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneSendInput(_) => "pane.send_input",
         Method::PaneRead(_) => "pane.read",
         Method::PaneSession(_) => "pane.session",
+        Method::PaneTodos(_) => "pane.todos",
+        Method::PaneSubagents(_) => "pane.subagents",
         Method::PaneReportAgent(_) => "pane.report_agent",
         Method::PaneReportAgentSession(_) => "pane.report_agent_session",
         Method::PaneReportMetadata(_) => "pane.report_metadata",

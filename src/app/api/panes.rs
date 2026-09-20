@@ -1327,6 +1327,125 @@ impl App {
         )
     }
 
+    /// The agent's own todo list for a pane.
+    ///
+    /// An agent with no transcript, or one that has never used the todo tool,
+    /// has no list. That is reported as an empty list rather than an error,
+    /// because it is the ordinary state and not a failure to answer.
+    pub(super) fn handle_pane_todos(
+        &mut self,
+        id: String,
+        params: crate::api::schema::PaneTodosParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+
+        let todos = match self.pane_transcript(ws_idx, pane_id) {
+            Some((path, _agent)) => {
+                match crate::app::todos::read(std::path::Path::new(&path)) {
+                    Ok(todos) => todos.unwrap_or_default(),
+                    Err(err) => {
+                        // Worth a line: presenting an unreadable transcript as
+                        // "no todos" would read as the agent having finished.
+                        tracing::warn!(
+                            path = %path,
+                            err = %err,
+                            "could not read the pane's todo list"
+                        );
+                        Vec::new()
+                    }
+                }
+            }
+            None => Vec::new(),
+        };
+
+        encode_success(
+            id,
+            ResponseResult::PaneTodos {
+                todos: crate::api::schema::PaneTodosResult {
+                    pane_id: public_pane_id,
+                    todos: todos
+                        .into_iter()
+                        .map(|todo| crate::api::schema::PaneTodo {
+                            id: todo.id,
+                            subject: todo.subject,
+                            status: todo.status,
+                        })
+                        .collect(),
+                },
+            },
+        )
+    }
+
+    /// The subagent runs started by the pane's agent.
+    ///
+    /// An agent with no transcript, or one that spawns no subagents, has none.
+    /// That is reported as an empty list rather than an error, because it is
+    /// the ordinary state and not a failure to answer. The extension also
+    /// prunes finished runs, so a run that was visible a moment ago can be gone
+    /// without that meaning anything went wrong.
+    pub(super) fn handle_pane_subagents(
+        &mut self,
+        id: String,
+        params: crate::api::schema::PaneSubagentsParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+
+        let (active, runs) = match self.pane_transcript(ws_idx, pane_id) {
+            Some((path, _agent)) => crate::app::subagents::snapshot(&path),
+            None => (0, Vec::new()),
+        };
+
+        encode_success(
+            id,
+            ResponseResult::PaneSubagents {
+                subagents: crate::api::schema::PaneSubagentsResult {
+                    pane_id: public_pane_id,
+                    active: active as u64,
+                    runs: runs
+                        .into_iter()
+                        .map(|run| crate::api::schema::PaneSubagentRun {
+                            run_id: run.run_id,
+                            mode: run.mode,
+                            state: run.state,
+                            agent: run.agent,
+                            task: run.task,
+                            target: run.target,
+                            cwd: run.cwd,
+                            started_at: run.started_at,
+                            ended_at: run.ended_at,
+                            turn_count: run.turn_count,
+                            tool_count: run.tool_count,
+                            tokens: run.tokens,
+                            current_tool: run.current_tool,
+                            current_tool_args: run.current_tool_args,
+                            parent_workflow_run_id: run.parent_workflow_run_id,
+                            tools: run
+                                .tools
+                                .into_iter()
+                                .map(|call| crate::api::schema::PaneSubagentToolCall {
+                                    tool: call.tool,
+                                    args: call.args,
+                                })
+                                .collect(),
+                            output: run.output,
+                            artifacts: run.artifacts,
+                        })
+                        .collect(),
+                },
+            },
+        )
+    }
+
     /// The pane's transcript path and agent label, when the agent reported a
     /// path-shaped session reference.
     fn pane_transcript(&self, ws_idx: usize, pane_id: PaneId) -> Option<(String, String)> {

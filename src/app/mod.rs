@@ -19,9 +19,11 @@ mod session;
 pub(crate) mod session_cache;
 mod session_link;
 pub mod state;
+mod subagents;
 mod terminal_targets;
 mod terminal_titles;
 mod theme_sync;
+mod todos;
 mod worktrees;
 
 use std::collections::{HashMap, HashSet};

@@ -166,6 +166,12 @@ pub enum Method {
     /// Parsed agent transcript for a pane, as opposed to its rendered screen.
     #[serde(rename = "pane.session")]
     PaneSession(PaneSessionParams),
+    /// The agent's own todo list for a pane.
+    #[serde(rename = "pane.todos")]
+    PaneTodos(PaneTodosParams),
+    /// The subagent runs the pane's agent started.
+    #[serde(rename = "pane.subagents")]
+    PaneSubagents(PaneSubagentsParams),
     #[serde(rename = "pane.report_agent")]
     PaneReportAgent(PaneReportAgentParams),
     #[serde(rename = "pane.report_agent_session")]

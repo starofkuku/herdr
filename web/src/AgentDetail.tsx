@@ -6,6 +6,10 @@ import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
 import { PendingUploads } from "./PendingUploads";
+import { TodoPanel } from "./TodoPanel";
+import { SubagentBar, SubagentDrawer } from "./SubagentBar";
+import { SUBAGENT_POLL_MS, loadSubagents, type SubagentRun } from "./subagents";
+import { TODO_POLL_MS, loadTodos, type TodoItem } from "./todos";
 import { ThemeToggle } from "./ThemeToggle";
 import {
   fileToBase64,
@@ -186,6 +190,12 @@ export function AgentDetail({
    * sending, and the message that accompanies it is still being typed.
    */
   const [uploads, setUploads] = useState<StagedUpload[]>([]);
+  const [todos, setTodos] = useState<TodoItem[]>([]);
+  const [subagents, setSubagents] = useState<{ active: number; runs: SubagentRun[] }>({
+    active: 0,
+    runs: [],
+  });
+  const [drawerOpen, setDrawerOpen] = useState(false);
   /** True while files are being decoded, so the composer cannot send mid-add. */
   const [preparing, setPreparing] = useState(false);
   /** Highlights the pane while a drag is over it. */
@@ -691,6 +701,44 @@ export function AgentDetail({
     field.style.height = `${field.scrollHeight + border}px`;
   }, [draft]);
 
+  // The list belongs to the agent and is read back from its transcript, so it
+  // is refreshed on a slow timer while the agent runs and left alone once it
+  // settles. An agent that keeps no list simply returns nothing to show.
+  useEffect(() => {
+    if (!paneId) return;
+    let cancelled = false;
+    const tick = () => {
+      void loadTodos(client, paneId).then((next) => {
+        if (!cancelled) setTodos(next);
+      });
+    };
+    tick();
+    const timer = agent?.status === "working" ? setInterval(tick, TODO_POLL_MS) : undefined;
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) clearInterval(timer);
+    };
+  }, [client, paneId, agent?.status]);
+
+  // Subagent runs come from the extension's own state, which it prunes once a
+  // run settles, so this refreshes on the same slow timer and simply finds
+  // nothing when the runs are gone.
+  useEffect(() => {
+    if (!paneId) return;
+    let cancelled = false;
+    const tick = () => {
+      void loadSubagents(client, paneId).then((next) => {
+        if (!cancelled) setSubagents(next);
+      });
+    };
+    tick();
+    const timer = agent?.status === "working" ? setInterval(tick, SUBAGENT_POLL_MS) : undefined;
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) clearInterval(timer);
+    };
+  }, [client, paneId, agent?.status]);
+
   // A running agent can always be interrupted, whether or not this page started
   // the turn. The state comes from detection rather than from the send, so
   // opening an agent someone else started still offers the stop control. A
@@ -783,6 +831,17 @@ export function AgentDetail({
           <pre>{transcript || "waiting for output…"}</pre>
         </div>
       )}
+
+      {/*
+        The todo list sits directly above the composer, the same place the CLI
+        puts it, so it stays visible while reading without displacing the input.
+      */}
+      <TodoPanel todos={todos} />
+      <SubagentBar
+        active={subagents.active}
+        runs={subagents.runs}
+        onOpen={() => setDrawerOpen(true)}
+      />
 
       <form
         className="composer"
@@ -888,6 +947,10 @@ export function AgentDetail({
         >
           <img src={lightbox} alt="" />
         </div>
+      ) : null}
+
+      {drawerOpen && subagents.runs.length > 0 ? (
+        <SubagentDrawer runs={subagents.runs} onClose={() => setDrawerOpen(false)} />
       ) : null}
     </div>
   );

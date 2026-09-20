@@ -1050,6 +1050,10 @@ impl App {
             Method::PaneRename(params) => return self.handle_pane_rename(request.id, params),
             Method::PaneRead(params) => return self.handle_pane_read(request.id, params),
             Method::PaneSession(params) => return self.handle_pane_session(request.id, params),
+            Method::PaneTodos(params) => return self.handle_pane_todos(request.id, params),
+            Method::PaneSubagents(params) => {
+                return self.handle_pane_subagents(request.id, params);
+            }
             Method::PaneReportAgent(params) => {
                 return self.handle_pane_report_agent(request.id, params);
             }

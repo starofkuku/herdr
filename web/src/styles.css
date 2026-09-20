@@ -1479,6 +1479,102 @@ textarea {
 }
 
 /*
+ * The agent's todo list, pinned above the composer the way the CLI pins it
+ * above its input. Collapsed it is a single line, which is what is usually
+ * wanted: it says how far along the agent is without taking the screen the
+ * conversation needs. Nothing renders when the agent keeps no list.
+ */
+.todos {
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+
+.todos-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.35rem 0.75rem;
+  background: none;
+  border: 0;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+}
+
+.todos-caret {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.todos-title {
+  font-weight: 600;
+}
+
+.todos-count {
+  color: var(--muted);
+}
+
+/*
+ * A live dot while a task is in flight, so a collapsed head still reads as
+ * running rather than as a finished count.
+ */
+.todos-running {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--running);
+  align-self: center;
+}
+
+.todos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.75rem 0.5rem;
+  max-height: 40vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.todos-item {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.15rem 0;
+  line-height: 1.4;
+}
+
+.todos-mark {
+  flex: none;
+  width: 0.9rem;
+  color: var(--muted);
+}
+
+/* Completed work recedes: it is history, not what is being watched. */
+.todos-item.completed .todos-mark {
+  color: var(--running);
+}
+
+.todos-item.completed .todos-subject {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.todos-item.in_progress .todos-mark {
+  color: var(--accent);
+}
+
+.todos-item.in_progress .todos-subject {
+  font-weight: 600;
+}
+
+.todos-subject {
+  min-width: 0;
+  word-break: break-word;
+}
+
+/*
  * The composer stacks the pending files above the input row. It is a column so
  * attachments sit above the field; `.composer-row` holds the row that used to
  * be the whole composer.
@@ -1887,4 +1983,272 @@ textarea {
        than stretch them across the pane. */
     align-items: flex-end;
   }
+}
+
+/* ---- subagents ---- */
+
+/*
+ * The subagent indicator, sitting beside the todo list above the composer. It
+ * is one line collapsed, because on a phone the count is the whole story; the
+ * drawer is where the detail lives.
+ */
+.subagent-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.35rem 0.75rem;
+  background: var(--surface);
+  border: 0;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.8rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.subagent-bar.live {
+  color: var(--running);
+}
+
+/* A dot that pulses only while something is actually running. */
+.subagent-glyph {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.subagent-glyph.spinning {
+  background: var(--running);
+  animation: subagent-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes subagent-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.subagent-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The drawer: a panel over the conversation, dismissed by tapping outside. */
+.subagent-drawer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.subagent-drawer__scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  border: 0;
+  cursor: pointer;
+}
+
+.subagent-drawer__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(30rem, 92vw);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px color-mix(in srgb, var(--bg) 60%, transparent);
+}
+
+.subagent-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.subagent-drawer__title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.subagent-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.6rem 0.75rem 1.5rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.run-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.6rem;
+  background: var(--surface-2);
+}
+
+.run-card.running {
+  border-color: color-mix(in srgb, var(--running) 55%, var(--border));
+}
+
+.run-card__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+
+.run-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: none;
+}
+
+.run-dot.running {
+  background: var(--running);
+}
+
+.run-dot.complete,
+.run-dot.completed {
+  background: var(--accent);
+}
+
+.run-dot.failed {
+  background: var(--danger);
+}
+
+.run-agent {
+  font-weight: 600;
+}
+
+.run-state {
+  color: var(--muted);
+}
+
+.run-metric {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.run-task {
+  margin: 0.4rem 0 0.2rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.run-target {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin: 0.2rem 0;
+  font-size: 0.72rem;
+}
+
+.run-target__label {
+  color: var(--muted);
+  flex: none;
+}
+
+.run-target code {
+  word-break: break-all;
+}
+
+.run-activity {
+  margin: 0.35rem 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.run-children {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0 0 0 0.5rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.74rem;
+}
+
+.run-children li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0;
+  color: var(--muted);
+}
+
+.run-detail-toggle {
+  margin-top: 0.4rem;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+
+.run-detail {
+  margin-top: 0.3rem;
+}
+
+.run-output p {
+  margin: 0.15rem 0;
+  font-size: 0.74rem;
+  color: var(--muted);
+  word-break: break-word;
+}
+
+.run-tools {
+  list-style: none;
+  margin: 0.3rem 0 0;
+  padding: 0;
+}
+
+.run-tools li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: baseline;
+  padding: 0.15rem 0;
+  font-size: 0.72rem;
+}
+
+.run-tool-name {
+  flex: none;
+  color: var(--accent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.run-tools code {
+  min-width: 0;
+  word-break: break-all;
+  color: var(--muted);
+}
+
+.run-artifacts {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.run-artifacts li {
+  word-break: break-all;
 }
