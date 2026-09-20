@@ -1487,6 +1487,32 @@ textarea {
   /* Height is driven by a measured `scrollHeight`, so the box must not also be
      free to resize itself or the two fight. */
   overflow-y: auto;
+  /*
+   * The field only scrolls once `max-height` caps it. The browser's default
+   * scrollbar draws OS arrow buttons that read as a stray control sitting
+   * beside the text, so the thumb is restyled slim and buttonless. These two
+   * properties cover Firefox; the pseudo-elements below cover WebKit and Blink.
+   */
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.composer textarea::-webkit-scrollbar {
+  width: 8px;
+}
+
+.composer textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.composer textarea::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+/* The arrow buttons are the part that read as a stray widget. */
+.composer textarea::-webkit-scrollbar-button {
+  display: none;
 }
 
 .composer textarea:focus {

@@ -682,7 +682,13 @@ export function AgentDetail({
     const field = composerRef.current;
     if (!field) return;
     field.style.height = "auto";
-    field.style.height = `${field.scrollHeight}px`;
+    // `scrollHeight` covers the content box plus padding but never the border,
+    // and the field is `border-box`. Leaving the border out of the sum makes
+    // the computed height two pixels short, which is enough to pin a scrollbar
+    // to the field even when it holds a single line — and the scrollbar keeps
+    // `scrollHeight` where it was, so the field never recovers on its own.
+    const border = field.offsetHeight - field.clientHeight;
+    field.style.height = `${field.scrollHeight + border}px`;
   }, [draft]);
 
   // A running agent can always be interrupted, whether or not this page started
