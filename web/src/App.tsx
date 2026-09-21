@@ -336,10 +336,16 @@ export default function App() {
       <AgentDetail
         client={client}
         agent={agent}
+        agents={agents}
         connection={state}
         onRetry={retry}
         onBack={() => {
           const target = { view: "agents" as const, session: session ?? "" };
+          navigate(target);
+          setRoute(target);
+        }}
+        onSelectAgent={(paneId) => {
+          const target = { view: "detail" as const, session: session ?? "", paneId };
           navigate(target);
           setRoute(target);
         }}

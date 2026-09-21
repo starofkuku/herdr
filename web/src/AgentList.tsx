@@ -1,3 +1,4 @@
+import { AgentIcon } from "./AgentIcon";
 import { shortenPath, statusLabel, type AgentView } from "./api";
 import { ConnectionBadge } from "./ConnectionBadge";
 import type { ConnectionState } from "./gateway";
@@ -94,6 +95,7 @@ export function AgentList({
                         <span
                           className={`row-title ${agent.status === "working" ? "working" : ""}`}
                         >
+                          <AgentIcon agent={agent.agent} />
                           {agent.label}
                         </span>
                         <span className="row-sub">{shortenPath(agent.cwd)}</span>

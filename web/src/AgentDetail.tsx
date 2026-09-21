@@ -5,6 +5,9 @@ import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type Agent
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
+import { FileUp, Square } from "lucide-react";
+import { AgentIcon } from "./AgentIcon";
+import { AgentSwitcher } from "./AgentSwitcher";
 import { PendingUploads } from "./PendingUploads";
 import { TodoPanel } from "./TodoPanel";
 import { SubagentBar, SubagentDrawer } from "./SubagentBar";
@@ -146,15 +149,19 @@ export function AgentDetail({
   onBack,
   client,
   onChanged,
+  agents,
   connection,
   onRetry,
+  onSelectAgent,
 }: {
   agent: AgentView | null;
+  agents: AgentView[];
   onBack: () => void;
   client: DetailClient;
   onChanged: () => void;
   connection: ConnectionState;
   onRetry: () => void;
+  onSelectAgent: (paneId: string) => void;
 }) {
   // Oldest page first, so prepending older pages does not disturb scroll.
   const [pages, setPages] = useState<string[]>([]);
@@ -773,6 +780,16 @@ export function AgentDetail({
             </span>
           ) : null}
         </div>
+        {/*
+          The agent behind this pane, next to the controls that act on it. An
+          agent with no mark renders nothing and the cluster closes up.
+        */}
+        <AgentIcon agent={agent?.agent} size={18} />
+        <AgentSwitcher
+          agents={agents}
+          current={agent?.paneId ?? null}
+          onSelect={onSelectAgent}
+        />
         <ThemeToggle />
         <ConnectionBadge state={connection} onRetry={onRetry} />
         <span className={`dot ${agent?.status ?? "unknown"}`} aria-label={statusLabel(agent?.status ?? "unknown")} />
@@ -871,56 +888,64 @@ export function AgentDetail({
           onPreview={setLightbox}
         />
         <div className="composer-row">
-          <button
-            type="button"
-            className="attach"
-            disabled={busy || preparing}
-            aria-label="Attach files"
-            title="Attach files"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <span className="attach-glyph" aria-hidden="true" />
-          </button>
           {/*
-            Hidden rather than styled away: a visible control would be a second
-            way to do the same thing, and the button above is the affordance.
+            The field and the attach button share one box so the button can float
+            on the field's own corner: attaching belongs to the message being
+            written, and the row's own end is the send action.
           */}
-          <input
-            ref={fileInputRef}
-            className="attach-input"
-            type="file"
-            multiple
-            onChange={(event) => {
-              const files = Array.from(event.target.files ?? []);
-              // Cleared so choosing the same file twice still fires a change.
-              event.target.value = "";
-              void addFiles(files);
-            }}
-          />
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Send a message…"
-            rows={1}
-            ref={composerRef}
-            onPaste={(event) => {
-              const files = Array.from(event.clipboardData?.files ?? []);
-              if (files.length === 0) return;
-              // Only intercepted when the clipboard actually holds files, so
-              // pasting text keeps its default behaviour. The clipboard is read
-              // from the event rather than `navigator.clipboard`, which needs a
-              // secure context this UI does not have on a LAN address.
-              event.preventDefault();
-              void addFiles(files);
-            }}
-            onKeyDown={(event) => {
-              // Enter sends, Shift+Enter inserts a newline.
-              if (event.key === "Enter" && !event.shiftKey) {
+          <div className="composer-field">
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Send a message…"
+              rows={1}
+              ref={composerRef}
+              onPaste={(event) => {
+                const files = Array.from(event.clipboardData?.files ?? []);
+                if (files.length === 0) return;
+                // Only intercepted when the clipboard actually holds files, so
+                // pasting text keeps its default behaviour. The clipboard is read
+                // from the event rather than `navigator.clipboard`, which needs a
+                // secure context this UI does not have on a LAN address.
                 event.preventDefault();
-                void send();
-              }
-            }}
-          />
+                void addFiles(files);
+              }}
+              onKeyDown={(event) => {
+                // Enter breaks the line and Ctrl/Cmd+Enter sends, so a message can
+                // be laid out without the newline key submitting it early.
+                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  void send();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="attach"
+              disabled={busy || preparing}
+              aria-label="Attach files"
+              title="Attach files"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <FileUp size={18} aria-hidden="true" />
+            </button>
+            {/*
+              Hidden rather than styled away: a visible control would be a second
+              way to do the same thing, and the button above is the affordance.
+            */}
+            <input
+              ref={fileInputRef}
+              className="attach-input"
+              type="file"
+              multiple
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                // Cleared so choosing the same file twice still fires a change.
+                event.target.value = "";
+                void addFiles(files);
+              }}
+            />
+          </div>
           {canStop ? (
             <button
               type="button"
@@ -930,7 +955,7 @@ export function AgentDetail({
               title="Stop the agent (sends Esc)"
               onClick={() => void interrupt()}
             >
-              <span className="stop-glyph" aria-hidden="true" />
+              <Square size={16} strokeWidth={0} fill="currentColor" aria-hidden="true" />
             </button>
           ) : (
             <button

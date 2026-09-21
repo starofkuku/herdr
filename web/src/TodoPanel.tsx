@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Circle, CircleCheck, LoaderCircle } from "lucide-react";
 import { isOpen, todoProgress, type TodoItem } from "./todos";
 
 /**
@@ -57,13 +58,13 @@ export function TodoPanel({ todos }: { todos: TodoItem[] }) {
 }
 
 /**
- * The glyph for one task.
+ * The mark for one task.
  *
- * A filled dot for the task in flight, a hollow one for the rest, and a tick
- * once it is done — the same reading order as the list, so the marks scan as
- * progress rather than as three unrelated symbols.
+ * A ring for the rest, a spinner for the task in flight, and a tick once it is
+ * done — the same reading order as the list, so the marks scan as progress
+ * rather than as three unrelated symbols.
  */
-function mark(todo: TodoItem): string {
-  if (!isOpen(todo)) return "✓";
-  return todo.status === "in_progress" ? "●" : "○";
+function mark(todo: TodoItem) {
+  if (!isOpen(todo)) return <CircleCheck size={14} />;
+  return todo.status === "in_progress" ? <LoaderCircle size={14} /> : <Circle size={14} />;
 }

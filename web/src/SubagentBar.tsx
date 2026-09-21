@@ -1,3 +1,4 @@
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import {
   activity,
@@ -38,7 +39,7 @@ export function SubagentBar({
           : `${runs.length} subagents, open details`
       }
     >
-      <span className={`subagent-glyph${active > 0 ? " spinning" : ""}`} aria-hidden="true" />
+      <LoaderCircle size={14} className={active > 0 ? "spinner" : undefined} aria-hidden="true" />
       <span className="subagent-label">
         {active > 0 ? `${active} 个子 agent 工作中` : `${runs.length} 个子 agent`}
       </span>
