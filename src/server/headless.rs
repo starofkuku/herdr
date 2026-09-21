@@ -1483,9 +1483,19 @@ impl HeadlessServer {
         extension: &str,
         data: &[u8],
     ) -> std::io::Result<String> {
-        let staged = crate::server::clipboard_image::stage(client_id, extension, data)?;
-        if let Some(client) = self.clients.get_mut(&client_id) {
-            client.staged_clipboard_files.push(staged.path);
+        let staged = crate::server::clipboard_image::stage(
+            self.app.uploads_dir.as_deref(),
+            client_id,
+            extension,
+            data,
+        )?;
+        // Only a staged temp file is this client's to remove on disconnect. One
+        // written to the served directory belongs to the conversation, which
+        // keeps referring to it long after the client that pasted it is gone.
+        if !staged.served {
+            if let Some(client) = self.clients.get_mut(&client_id) {
+                client.staged_clipboard_files.push(staged.path);
+            }
         }
         info!(client_id, bytes = data.len(), path = %staged.paste_text, "staged client clipboard image");
         Ok(staged.paste_text)

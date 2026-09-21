@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- An image pasted into the terminal shows up in the web UI's conversation view. Herdr staged pasted images in a temp directory that no route serves, so a reader in the browser saw an unreachable path where the image should have been. When the web UI is configured the paste now goes to the same served directory an uploaded file goes to and is named the same way, because that route carries no key and the staging directory's name — a client id and a timestamp — would be enumerable enough to expose every paste to anyone on the network. The page needed no change: it already recognises the 32-hex name. A served paste is not deleted when the client that pasted it disconnects, unlike a staged one, because the conversation keeps referring to it. Without a web UI there is nowhere to serve a paste from, so it still goes to the staging directory, which the next paste sweeps.
+
 ## [0.7.28] - 2026-09-21
 
 ### Added

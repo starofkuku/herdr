@@ -10,6 +10,12 @@ const STAGED_CLIPBOARD_IMAGE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 6
 pub(crate) struct StagedClipboardImage {
     pub(crate) path: PathBuf,
     pub(crate) paste_text: String,
+    /// True when the file was written to the served uploads directory.
+    ///
+    /// A served file belongs to the conversation, which keeps referring to it
+    /// after the client that pasted it has gone, so it is not this client's to
+    /// clean up on disconnect the way a staged temp file is.
+    pub(crate) served: bool,
 }
 
 /// How an agent consumes an image that Herdr staged on the remote host.
@@ -62,12 +68,36 @@ pub(crate) fn remote_image_paste_text(agent: Agent, path: &str) -> Option<String
     }
 }
 
+/// Stages a pasted image and reports the path to paste.
+///
+/// `served_dir` is the directory the web UI serves from, when there is one. A
+/// pasted image goes there rather than to a temp directory so that reading the
+/// conversation in a browser shows the image instead of a path no URL maps to.
+/// It is named the way an uploaded file is named for the same reason: the route
+/// that serves it carries no key, so the name is what keeps one file from being
+/// found by guessing at another, and the name the staging directory used — a
+/// client id and a timestamp — would be enumerable enough to give that away.
+///
+/// Without a web UI there is nowhere to serve it from, and the file is only
+/// needed until the agent reads it, so it goes to a staging directory that the
+/// next paste sweeps.
 pub(crate) fn stage(
+    served_dir: Option<&Path>,
     client_id: u64,
     extension: &str,
     data: &[u8],
 ) -> io::Result<StagedClipboardImage> {
     let extension = sanitize_extension(extension);
+
+    if let Some(dir) = served_dir {
+        let staged = crate::server::uploads::stage(dir, extension, data)?;
+        return Ok(StagedClipboardImage {
+            paste_text: staged.path.to_string_lossy().into_owned(),
+            path: staged.path,
+            served: true,
+        });
+    }
+
     let dir = ensure_staging_dir()?;
     cleanup_stale(&dir);
 
@@ -92,6 +122,7 @@ pub(crate) fn stage(
         return Ok(StagedClipboardImage {
             paste_text: path.to_string_lossy().into_owned(),
             path,
+            served: false,
         });
     }
 

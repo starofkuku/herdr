@@ -205,6 +205,8 @@ Images show as thumbnails and open full size when clicked. Any other file shows 
 
 The agent receives a **path**, not the file itself, because that is what an agent running on the host can read. Herdr shapes that path for the pane's agent: pi gets an `@path` mention while most other agents take a bare path.
 
+An image you paste into the terminal shows up in the conversation the same way. Herdr used to stage those in a temp directory that no route serves, so the browser rendered an unreachable path where the image belonged; when the web UI is configured a paste is written to the same served directory an upload goes to and is named the same way. It is kept when the client that pasted it disconnects, unlike a staged one, because the conversation keeps referring to it.
+
 Files are served from `/uploads/<id>.<ext>`. That route takes no key, because an `<img>` cannot send one; the id is 32 random bytes, so one upload cannot be found by guessing at another. Anyone who has the exact URL can read the file, so treat it as unlisted rather than private.
 
 Non-image files download instead of rendering. Types a browser would execute in this origin — `.html`, `.svg`, `.js`, and similar — are forced to download as well, since a page running there could read the gateway key. An `.svg` therefore downloads rather than previews.
