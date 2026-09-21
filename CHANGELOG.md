@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.30] - 2026-09-21
+
+### Fixed
+- The web UI's notification settings take effect. The panel wrote to a section the config loader did not read, so every value came back as its default: a switch could not be left on, and each save reported `partial` with `unknown config section [notification]`. The loader names every section it reads and keeps a separate list of known keys, so adding a field to the config struct is not enough on its own — the two places that read the file have to name it too.
+
 ## [0.7.29] - 2026-09-21
 
 ### Added
