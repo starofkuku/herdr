@@ -466,10 +466,12 @@ function Turn({
   onPreviewImage?: (url: string) => void;
 }) {
   const [showActivity, setShowActivity] = useState(false);
-  // Reasoning is thinking out loud, not the answer. It is the bulk of a turn's
-  // text for an agent that explains itself, so it starts collapsed; the answer
-  // and any errors stay visible.
-  const [showReasoning, setShowReasoning] = useState(false);
+  // Reasoning is thinking out loud. It is the bulk of a turn's text for an agent
+  // that explains itself, and for some agents it is where the turn's substance
+  // lands: their plain text is only connective narration, so hiding this by
+  // default leaves the reader with fragments and no answer. It starts expanded
+  // to match what the terminal shows, and collapses on request.
+  const [showReasoning, setShowReasoning] = useState(true);
   const tools = turn.tool_calls ?? [];
   const allMessages = (turn.agent_messages ?? []).filter((message) => (message.text ?? "").trim());
   const messages = allMessages.filter((message) => !message.is_reasoning);
