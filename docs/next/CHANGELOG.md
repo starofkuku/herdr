@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Added
+- The sidebar footer shows the server's version in the gap between `new` and `menu`. It is read where the frame is built rather than sent over the handshake, because the frame is rendered on the server and the version worth showing is the one the server is running — on a remote session that is not the client's own. A preview version carries its channel and build id and can outgrow the gap, so it falls back to the base version and shows nothing rather than a clipped fragment that would read as a different version.
+- The web UI switches between the agents of a session from the conversation header, without going back to the list first, and shows an agent's own mark in the list and in the header. A session's panes are often the same agent running in different directories, so the switcher shows the directory under each name: the name alone repeats. Marks come from `simple-icons` where that set carries the brand and are held in the source for the two it does not, because a mark guessed from a similar name would put one product's logo on another. An agent with no mark renders nothing.
+- The web UI shows the version of the page itself on the sessions screen, and the agent's own session id under the conversation title. The page is served from disk and updated apart from the server, so its version is not the server's, and the session id is the value that follows a conversation across the panes it is resumed in.
+
+### Changed
+- The web composer sends on `Ctrl`/`Cmd`+`Enter` and breaks the line on `Enter`. A message that spans lines no longer has to be fought into one keystroke, and the newline key no longer submits the half-written message it was meant to separate. The attach button now floats inside the field's right edge instead of taking a column in the row, and the agent's mark moved from beside the composer to the header.
+- Web UI icons are drawn with `lucide` rather than hand-written CSS shapes and text characters, so the interface reads as one stroked set instead of a mix of outlines, solid silhouettes, and `✓`/`●`/`○` glyphs.
+
+### Fixed
+- The web UI's todo panel no longer shows work the agent has already put away. `rpiv-todo` hides a task as soon as the turn it was finished in ends and disappears entirely once nothing is left, but the panel reported the raw record, so a finished list stayed on screen as though it were live. A task is now visible only until that turn ends, which is the same boundary the agent's own overlay reads.
+- A web UI turn no longer reads as fragments with no answer. An agent that explains itself puts a turn's substance in reasoning and leaves its plain text as connective narration, so a collapsed reasoning block hid the answer behind a few one-line remarks; it now starts expanded and collapses on request.
+- `pane.subagents` finds a pane's runs again. The extension records the parent session path with its `.jsonl` extension stripped and the transcript records it with the extension kept, so an exact comparison matched nothing and every pane reported no runs and no active subagents.
+- The web composer's controls stay against the field. Wrapping the textarea in a field made that field take the row's free space, so the textarea's existing width cap left a hole inside a full-width box and pushed the buttons — and the attach button floating on that box — to the far end of the row.
+
 ## [0.7.27] - 2026-09-20
 
 ### Added

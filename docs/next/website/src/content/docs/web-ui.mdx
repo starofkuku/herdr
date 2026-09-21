@@ -175,7 +175,7 @@ The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every
 
 **Agents.** The agents in the selected session, grouped by workspace and showing each one's current state. A running agent is tinted green — its name, its status dot, and the border of the panel it is in — so activity is visible while scanning the list instead of only in the small status pill. Tap an agent to open it.
 
-**Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below.
+**Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below. Its header carries the agent's own mark, the id of the session its conversation belongs to, and a switcher for the other agents in the same session.
 
 ## The agent console
 
@@ -183,7 +183,7 @@ Output is plain text taken from the pane, so it uses normal browser scrolling, t
 
 While an agent is working, new output appears as it is produced, and the view stays at the newest turn. Scrolling up to read back pauses that, so incoming output does not pull the view away from what you are reading; returning to the bottom resumes it. Scrolling to the top loads earlier output a page at a time, so a long conversation can be read back without loading it all at once. A `start of history` marker shows when there is nothing older to load.
 
-The composer sends a message to the agent. `Enter` sends and `Shift+Enter` inserts a newline.
+The composer sends a message to the agent. `Ctrl`/`Cmd`+`Enter` sends and `Enter` breaks the line, so a message that spans lines is not submitted by the key meant to separate them.
 
 A sent message appears in the conversation straight away, with an **agent is responding** indicator under it. The agent's own transcript is the real record, so it only contains the message once the agent has written the turn; when it does, the placeholder is replaced by the recorded turn rather than shown twice.
 
@@ -197,7 +197,7 @@ Three ways to send a file, all of which stage it beside the composer until you s
 
 - **Paste** an image with `Ctrl+V` (or `Cmd+V`).
 - **Drop** files anywhere on the conversation.
-- Use the **attach button** beside the composer to choose files.
+- Use the **attach button** inside the composer field to choose files. It floats on the field's right edge, leaving the row's own end to the send action.
 
 Pasting reads the `paste` event rather than the clipboard API. The clipboard API needs a secure context, which a plain-HTTP address on a private network is not, so it is refused there; the `paste` event is driven by your own keystroke and needs no permission.
 
@@ -258,7 +258,7 @@ Agents that publish their native session file — pi, Claude Code, and Codex, wh
 
 The transcript is parsed on the server from the agent's own session log, so it reflects what the agent recorded rather than what its TUI happens to be painting. Deep links into that conversation are available through the pane right-click menu; see [codex-trace links](/docs/configuration/#codex-trace-links).
 
-Each turn shows the answer and any errors, with the agent's thinking and its tool calls collapsed behind a label you can expand. Thinking is usually far longer than the answer, so it stays out of the way until you want it.
+Each turn shows the agent's thinking, then the answer and any errors, with the tool calls collapsed behind a label you can expand. Thinking starts expanded because for some agents it is where a turn's substance lands and the plain text is only connective narration, which is also what a turn looks like when it is kept out of the way. It collapses on request.
 
 A working agent's transcript is polled while it runs. The server does not emit an event when a pane's output grows — only when a pane's title, metadata, or diagnostics change — so a view driven purely by events stops updating the moment the agent starts writing. Polling is what keeps the newest turn appearing as it is produced; it stops when the agent leaves the working state.
 
@@ -278,7 +278,7 @@ Agents that only report a session id, and plain shells, fall back to the rendere
 
 Two things an agent keeps for itself are shown above the composer, and both are read back from what the agent recorded rather than tracked by Herdr.
 
-The **todo list** comes from pi's `rpiv-todo` extension, which writes the whole list into the transcript on every `todo` tool call with the newest record winning. The transcript parser that feeds the conversation view deliberately exposes a stable subset of its own types and does not carry that record through, so the server reads it from the raw session log instead — backwards, in a growing window, because a session reaches tens of megabytes and the newest record sits at the end. The panel is collapsed to a count until you open it, and an agent that keeps no list shows nothing at all rather than an empty panel.
+The **todo list** comes from pi's `rpiv-todo` extension, which writes the whole list into the transcript on every `todo` tool call with the newest record winning. A task stays visible only until the turn it was finished in ends, which is when that extension puts it away and disappears itself once nothing is left, so a finished list is shown as empty rather than as live work. The transcript parser that feeds the conversation view deliberately exposes a stable subset of its own types and does not carry that record through, so the server reads it from the raw session log instead — backwards, in a growing window, because a session reaches tens of megabytes and the newest record sits at the end. The panel is collapsed to a count until you open it, and an agent that keeps no list shows nothing at all rather than an empty panel.
 
 The **subagent runs** an agent has started come from the `pi-subagents` extension's own state in the temp directory. A bar above the composer shows how many are still running; opening it gives a card per run with the task it was given, what it is doing now, and the tool calls it has made. That extension prunes finished runs, so an empty answer is ordinary and is reported as such rather than as an error — a run that was there a moment ago can be gone without that meaning anything went wrong, and the drawer reflects whatever is currently known.
 
