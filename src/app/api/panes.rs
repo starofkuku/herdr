@@ -1331,7 +1331,9 @@ impl App {
     ///
     /// An agent with no transcript, or one that has never used the todo tool,
     /// has no list. That is reported as an empty list rather than an error,
-    /// because it is the ordinary state and not a failure to answer.
+    /// because it is the ordinary state and not a failure to answer. The list
+    /// is the one the agent is showing for itself, so a task it has already
+    /// finished and put away is left out.
     pub(super) fn handle_pane_todos(
         &mut self,
         id: String,

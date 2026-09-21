@@ -6,12 +6,19 @@
 //! exposes a stable subset of its own types and does not carry that envelope
 //! through, so the list is read here from the raw JSONL instead.
 //!
+//! The record alone is not what the agent shows. `rpiv-todo` puts a task away as
+//! soon as the turn it was finished in ends: at the start of the next turn every
+//! task that is already finished is hidden, and the overlay disappears once
+//! nothing is left. Reporting the raw record instead would keep showing a list
+//! the agent itself has already put away.
+//!
 //! Sessions reach tens of megabytes and the newest record sits at the end, so
 //! the file is read backwards rather than parsed whole. The window grows instead
 //! of being fixed because a single record can outgrow one chunk: the leading
 //! fragment of any window that does not start at the start of the file is
 //! discarded, and a wider window is guaranteed to cover that line in full.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::Path;
@@ -28,10 +35,12 @@ pub(crate) struct Todo {
 const WINDOW_START: u64 = 64 * 1024;
 const WINDOW_MAX: u64 = 8 * 1024 * 1024;
 
-/// Reads the agent's current todo list from its transcript.
+/// Reads the todo list the agent is currently showing for itself.
 ///
 /// `Ok(None)` means the transcript holds no todo record at all, which is the
-/// normal case for an agent that has never used the tool.
+/// normal case for an agent that has never used the tool. `Ok(Some(empty))`
+/// means every task has been put away, which is the state the overlay hides
+/// itself in.
 pub(crate) fn read(path: &Path) -> io::Result<Option<Vec<Todo>>> {
     let mut file = File::open(path)?;
     let len = file.metadata()?.len();
@@ -51,17 +60,133 @@ pub(crate) fn read(path: &Path) -> io::Result<Option<Vec<Todo>>> {
             lines.remove(0);
         }
 
-        for line in lines.iter().rev() {
-            if let Some(todos) = tasks_from_line(line) {
-                return Ok(Some(todos));
-            }
-        }
+        let Scan {
+            records,
+            turn_start,
+        } = scan(&lines);
+        let exhausted = start == 0 || window >= WINDOW_MAX;
 
-        if start == 0 || window >= WINDOW_MAX {
-            return Ok(None);
-        }
-        window = (window * 4).min(WINDOW_MAX);
+        let Some((newest_at, newest)) = records.first() else {
+            if exhausted {
+                return Ok(None);
+            }
+            window = (window * 4).min(WINDOW_MAX);
+            continue;
+        };
+
+        // Which tasks are put away depends on where this turn began, so the
+        // window is grown until the boundary is in reach rather than guessed at.
+        let Some(turn_start) = turn_start else {
+            if exhausted {
+                return Ok(Some(newest.clone()));
+            }
+            window = (window * 4).min(WINDOW_MAX);
+            continue;
+        };
+
+        let hidden = hidden_tasks(&records, *newest_at, turn_start);
+        return Ok(Some(
+            newest
+                .iter()
+                .filter(|todo| !hidden.contains(&todo.id))
+                .cloned()
+                .collect(),
+        ));
     }
+}
+
+/// Reads one window's records and its turn boundary.
+struct Scan {
+    /// Todo records in the window, newest first, with their line indices.
+    records: Vec<(usize, Vec<Todo>)>,
+    /// Line index of the newest user turn, when the window reaches one.
+    turn_start: Option<usize>,
+}
+
+/// One pass over a window, collecting every record and the newest turn start.
+///
+/// Records and turn starts interleave, and a turn can write its list several
+/// times, so which record describes the start of the turn is not known until
+/// both indices are: the caller resolves that with `hidden_tasks`.
+fn scan(lines: &[&str]) -> Scan {
+    let mut records = Vec::new();
+    let mut turn_start = None;
+
+    for (index, line) in lines.iter().enumerate().rev() {
+        if let Some(todos) = tasks_from_line(line) {
+            records.push((index, todos));
+        } else if turn_start.is_none() && is_user_turn(line) {
+            turn_start = Some(index);
+        }
+    }
+
+    Scan {
+        records,
+        turn_start,
+    }
+}
+
+/// The ids the agent's overlay is already hiding.
+///
+/// A record written before this turn began is the list as the turn found it, so
+/// every task already finished in it belongs to a turn that has ended. When the
+/// newest record is itself older than the turn, the turn has not written yet
+/// and that record is the one the boundary reads.
+fn hidden_tasks(
+    records: &[(usize, Vec<Todo>)],
+    newest_at: usize,
+    turn_start: usize,
+) -> HashSet<u64> {
+    let boundary = if newest_at < turn_start {
+        records.first()
+    } else {
+        records.iter().find(|(index, _)| *index < turn_start)
+    };
+
+    match boundary {
+        Some((_, todos)) => todos
+            .iter()
+            .filter(|todo| todo.status == "completed")
+            .map(|todo| todo.id)
+            .collect(),
+        None => HashSet::new(),
+    }
+}
+
+/// True when the line is the user's own turn rather than an injected record.
+///
+/// Tool results and hook output also arrive as user messages; those carry a
+/// `<`-prefixed wrapper, so plain text is what marks a turn.
+fn is_user_turn(line: &str) -> bool {
+    if !line.contains("\"user\"") {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return false;
+    };
+
+    let message = value.get("message");
+    if message.and_then(|m| m.get("role")).and_then(|r| r.as_str()) != Some("user") {
+        return false;
+    }
+
+    match message.and_then(|m| m.get("content")) {
+        Some(serde_json::Value::String(text)) => is_user_text(text),
+        Some(serde_json::Value::Array(parts)) => parts.iter().any(|part| {
+            part.get("type").and_then(|t| t.as_str()) == Some("text")
+                && part
+                    .get("text")
+                    .and_then(|t| t.as_str())
+                    .is_some_and(is_user_text)
+        }),
+        _ => false,
+    }
+}
+
+/// True when the text is something the user typed rather than injected context.
+fn is_user_text(text: &str) -> bool {
+    let trimmed = text.trim_start();
+    !trimmed.is_empty() && !trimmed.starts_with('<')
 }
 
 /// The task list one transcript line carries, when it carries one.
@@ -146,18 +271,108 @@ mod tests {
 
     #[test]
     fn the_newest_record_wins() {
+        // The transcript ends on the record, so the turn is still open and the
+        // newest record is the live one.
         let path = scratch(
             "newest",
             &[
                 todo_line(r#"[{"id":1,"subject":"old","status":"pending"}]"#),
                 subject_line(),
                 todo_line(r#"[{"id":1,"subject":"new","status":"completed"}]"#),
-                subject_line(),
             ],
         );
         let todos = read(&path).expect("read").expect("a record");
         assert_eq!(todos[0].subject, "new");
         assert_eq!(todos[0].status, "completed");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_task_finished_in_an_ended_turn_is_put_away() {
+        // The observed bug: every task was finished, the turn closed and the
+        // overlay went with it, but the raw record still listed the work.
+        let path = scratch(
+            "put-away",
+            &[
+                subject_line(),
+                todo_line(r#"[{"id":1,"subject":"done","status":"completed"}]"#),
+                subject_line(),
+            ],
+        );
+        let todos = read(&path).expect("read").expect("a record");
+        assert!(todos.is_empty(), "a finished turn leaves nothing shown");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_task_finished_during_this_turn_is_still_shown() {
+        // It was pending when the turn began, so the turn it was finished in has
+        // not ended and the overlay has not put it away yet.
+        let path = scratch(
+            "finished-now",
+            &[
+                todo_line(r#"[{"id":1,"subject":"a","status":"pending"}]"#),
+                subject_line(),
+                todo_line(r#"[{"id":1,"subject":"a","status":"completed"}]"#),
+            ],
+        );
+        let todos = read(&path).expect("read").expect("a record");
+        assert_eq!(todos.len(), 1);
+        assert_eq!(todos[0].status, "completed");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn only_the_tasks_finished_before_this_turn_are_put_away() {
+        // The mixed case is the whole point of the boundary: the finished task
+        // from the earlier turn goes, the one finished now and the open one stay.
+        let path = scratch(
+            "mixed",
+            &[
+                todo_line(
+                    r#"[{"id":1,"subject":"a","status":"pending"},{"id":2,"subject":"b","status":"completed"}]"#,
+                ),
+                subject_line(),
+                todo_line(
+                    r#"[{"id":1,"subject":"a","status":"completed"},{"id":2,"subject":"b","status":"completed"},{"id":3,"subject":"c","status":"in_progress"}]"#,
+                ),
+            ],
+        );
+        let todos = read(&path).expect("read").expect("a record");
+        let ids: Vec<u64> = todos.iter().map(|todo| todo.id).collect();
+        assert_eq!(ids, vec![1, 3]);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn a_transcript_without_a_turn_reports_the_record_as_it_stands() {
+        // Nothing says where a turn began, so there is no boundary to read and
+        // the record is reported whole rather than guessed at.
+        let path = scratch(
+            "no-turn",
+            &[todo_line(
+                r#"[{"id":1,"subject":"a","status":"completed"}]"#,
+            )],
+        );
+        let todos = read(&path).expect("read").expect("a record");
+        assert_eq!(todos.len(), 1);
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn injected_user_records_do_not_start_a_turn() {
+        // Hook and tool output is delivered as a user message. Reading it as a
+        // turn boundary would put the task away one turn too early.
+        let path = scratch(
+            "injected",
+            &[
+                subject_line(),
+                r#"{"type":"message","message":{"role":"user","content":[{"type":"text","text":"<hook>noise</hook>"}]}}"#.to_string(),
+                todo_line(r#"[{"id":1,"subject":"a","status":"completed"}]"#),
+            ],
+        );
+        let todos = read(&path).expect("read").expect("a record");
+        assert_eq!(todos.len(), 1, "the injected record is not a turn start");
         std::fs::remove_file(&path).ok();
     }
 
