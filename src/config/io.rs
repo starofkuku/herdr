@@ -9,6 +9,7 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "codex_trace",
     "experimental",
     "keys",
+    "notification",
     "onboarding",
     "remote",
     "session",
@@ -341,6 +342,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.codex_trace = section,
+    );
+    load_live_section(
+        table,
+        "notification",
+        "notification config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.notification = section,
     );
 
     Ok(LoadedConfig {
@@ -722,6 +731,32 @@ resume_agents_on_restore = true
         assert!(loaded.config.session.resume_agents_on_restore);
         assert!(loaded.diagnostics.is_empty());
         assert!(loaded.invalid_sections.is_empty());
+    }
+
+    /// A section the loader does not know is dropped with a diagnostic.
+    ///
+    /// A field added to `Config` is not enough on its own: the loader names every
+    /// section it reads, and a section only one of the two knows about reads as
+    /// configured while behaving as unset.
+    #[test]
+    fn load_live_config_parses_notification_section() {
+        let loaded = load_live_config_from_str(
+            r#"
+[notification.feishu]
+enabled = true
+url = "https://example.invalid/hook"
+secret = "s3cret"
+delay_seconds = 2
+"#,
+        )
+        .expect("notification section should load");
+
+        assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+        let feishu = &loaded.config.notification.feishu;
+        assert!(feishu.enabled, "enabled was dropped");
+        assert_eq!(feishu.url, "https://example.invalid/hook");
+        assert_eq!(feishu.secret, "s3cret");
+        assert_eq!(feishu.delay_seconds, 2);
     }
 
     #[test]
