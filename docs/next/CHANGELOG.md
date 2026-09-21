@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [0.7.28] - 2026-09-21
+
 ### Added
 - The sidebar footer shows the server's version in the gap between `new` and `menu`. It is read where the frame is built rather than sent over the handshake, because the frame is rendered on the server and the version worth showing is the one the server is running — on a remote session that is not the client's own. A preview version carries its channel and build id and can outgrow the gap, so it falls back to the base version and shows nothing rather than a clipped fragment that would read as a different version.
 - The web UI switches between the agents of a session from the conversation header, without going back to the list first, and shows an agent's own mark in the list and in the header. A session's panes are often the same agent running in different directories, so the switcher shows the directory under each name: the name alone repeats. Marks come from `simple-icons` where that set carries the brand and are held in the source for the two it does not, because a mark guessed from a similar name would put one product's logo on another. An agent with no mark renders nothing.
