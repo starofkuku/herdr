@@ -1233,6 +1233,35 @@ fn render_workspace_list(
         );
 
         let menu_rect = app.global_launcher_rect();
+
+        // The server's version, in the gap between the two controls.
+        //
+        // Read here rather than sent to the client because the frame is built on
+        // the server: the version worth showing is the one the server is running,
+        // which on a remote session is not the client's own. A preview version
+        // carries its channel and build id and can outgrow the gap, so it falls
+        // back to the base version, and shows nothing at all rather than a
+        // clipped fragment that reads as a different version.
+        let gap = Rect {
+            x: new_rect.right(),
+            y: new_rect.y,
+            width: menu_rect.x.saturating_sub(new_rect.right()),
+            height: new_rect.height,
+        };
+        let full = crate::build_info::version();
+        let label = if gap.width as usize >= full.chars().count() {
+            full
+        } else {
+            crate::build_info::BASE_VERSION.to_string()
+        };
+        if gap.width as usize >= label.chars().count() {
+            frame.render_widget(
+                Paragraph::new(Span::styled(label, Style::default().fg(p.overlay0)))
+                    .alignment(Alignment::Center),
+                gap,
+            );
+        }
+
         let menu_line = if app.global_menu_attention_badge_visible() {
             Line::from(vec![
                 Span::styled(
