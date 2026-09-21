@@ -1,3 +1,4 @@
+import { File } from "lucide-react";
 import { formatBytes, type StagedUpload } from "./upload";
 
 /**
@@ -53,7 +54,9 @@ export function PendingUploads({
                 )}
               </button>
             ) : (
-              <span className="pending-file-glyph" aria-hidden="true" />
+              <span className="pending-file" aria-hidden="true">
+                <File size={20} />
+              </span>
             )}
             <span className="pending-meta">
               <span className="pending-name" title={upload.file.name}>

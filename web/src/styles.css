@@ -1993,22 +1993,23 @@ textarea {
   );
 }
 
-.pending-file-glyph {
+/*
+ * The tile that stands in for a thumbnail on a file the browser cannot preview.
+ *
+ * The box is what matters: it holds the slot an image thumbnail would occupy, so
+ * the row does not jump between an entry that has a preview and one that does
+ * not. The mark inside says the slot is a file rather than a broken image.
+ */
+.pending-file {
   flex: none;
   width: 2.5rem;
   height: 2.5rem;
+  display: grid;
+  place-items: center;
   border-radius: 6px;
-  /*
-   * A page with a folded corner, drawn with gradients so the control needs no
-   * icon asset. A plain bordered square reads as a broken image placeholder,
-   * which is the opposite of what a deliberately non-previewable file should
-   * look like.
-   */
-  background-image:
-    linear-gradient(135deg, transparent 0 45%, var(--border) 45% 50%, transparent 50%),
-    linear-gradient(135deg, var(--surface-2) 0 48%, transparent 48%);
-  background-color: var(--bg);
   border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--muted);
 }
 
 .pending-meta {
@@ -2173,16 +2174,6 @@ textarea {
 @keyframes subagent-spin {
   to {
     transform: rotate(360deg);
-  }
-}
-
-@keyframes subagent-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
   }
 }
 
