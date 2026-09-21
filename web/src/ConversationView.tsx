@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDown } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DetailClient } from "./AgentDetail";
@@ -632,6 +633,14 @@ export function ConversationView({
    */
   const pinnedToBottom = useRef(true);
   /**
+   * Whether the newest output is far enough off screen to offer a jump to it.
+   *
+   * State rather than a ref because it decides whether a control is drawn. The
+   * threshold is wider than the follow one: following resumes almost immediately,
+   * but a control that appears on a few pixels of scroll would flicker.
+   */
+  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  /**
    * Newest turn id at the moment a message was sent.
    *
    * The optimistic echo is dropped once the transcript moves past this point.
@@ -822,8 +831,9 @@ export function ConversationView({
     if (!element) return;
     // Distance from the bottom, tolerant of sub-pixel rounding and of the
     // scrollbar itself so sitting at the end still counts as pinned.
-    pinnedToBottom.current =
-      element.scrollHeight - element.scrollTop - element.clientHeight < 40;
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    pinnedToBottom.current = distance < 40;
+    setAwayFromBottom(distance > 120);
     // Reaching the top pulls in the previous page.
     if (element.scrollTop < 80) void loadOlder();
     // Scrolling means the reader is looking for a position, so the rail is worth
@@ -909,6 +919,30 @@ export function ConversationView({
         dimmed={navigatorDimmed}
         onWake={wakeNavigator}
       />
+      {/*
+        Jump to the newest turn.
+
+        A sibling of the scroll container, like the rail, so it stays put while
+        the transcript moves under it. Only drawn once the newest output is off
+        screen, so it never covers text that is already in view.
+      */}
+      {awayFromBottom ? (
+        <button
+          type="button"
+          className="jump-to-latest"
+          aria-label="Jump to the newest output"
+          title="Jump to the newest output"
+          onClick={() => {
+            const element = scrollRef.current;
+            if (!element) return;
+            element.scrollTop = element.scrollHeight;
+            pinnedToBottom.current = true;
+            setAwayFromBottom(false);
+          }}
+        >
+          <ArrowDown size={18} aria-hidden="true" />
+        </button>
+      ) : null}
       <div className="conversation" ref={scrollRef} onScroll={onScroll}>
         <div className="conversation-bar">
           <span className="conversation-title">{label}</span>

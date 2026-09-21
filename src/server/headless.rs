@@ -1765,6 +1765,27 @@ impl HeadlessServer {
             prev_agent_label,
         );
 
+        // Every state change reaches here, but only some are worth announcing, so
+        // the two cases are logged apart: the one that pushes at info, because
+        // "did it send?" should not need a filter change to answer, and the one
+        // that does not at debug, because it is the common case and the answer
+        // only matters while working out why nothing was sent.
+        match &fields {
+            Some(fields) => tracing::info!(
+                pane = ?pane_id,
+                from = ?prev_state,
+                to = ?next_state,
+                event = fields.event,
+                "feishu push queued"
+            ),
+            None => tracing::debug!(
+                pane = ?pane_id,
+                from = ?prev_state,
+                to = ?next_state,
+                "feishu push skipped: nothing worth announcing"
+            ),
+        }
+
         // Every change clears whatever was waiting, announced or not.
         self.app.pending_push = fields.map(|fields| crate::server::feishu::PendingPush {
             url: feishu.url.clone(),
@@ -2377,6 +2398,17 @@ impl HeadlessServer {
                 {
                     self.app.emit_pane_state_update(&update);
                     self.forward_pane_state_update_notifications_to_clients(&update);
+                    self.push_state_change(
+                        update.pane_id,
+                        update.previous_state,
+                        update.state,
+                        update.previous_agent_label.as_deref(),
+                        self.active_tab_suppresses_notifications(
+                            self.app
+                                .state
+                                .pane_is_in_active_tab(update.ws_idx, update.pane_id),
+                        ),
+                    );
                 }
 
                 self.app.handle_internal_event(ev);
@@ -3531,6 +3563,18 @@ impl HeadlessServer {
                 new_state,
                 prev_agent_label.as_deref(),
                 agent_label.as_deref(),
+            );
+
+            // Beside the terminal notification rather than inside the toast
+            // branch below: that branch is gated on `delay_seconds == 0`, and a
+            // push has its own delay. Leaving it out here sent the terminal
+            // notification and nothing else.
+            self.push_state_change(
+                *pane_id,
+                *prev_state,
+                new_state,
+                prev_agent_label.as_deref(),
+                suppress_active_tab_notifications,
             );
 
             if !forwarded_toast_from_state

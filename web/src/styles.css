@@ -1480,6 +1480,40 @@ textarea {
   display: flex;
   flex-direction: column;
   height: 100dvh;
+  /* The jump control is positioned against this box. */
+  position: relative;
+}
+
+/*
+ * Jump to the newest output.
+ *
+ * Anchored to the bottom-right of the conversation area, above the composer and
+ * the panels that sit over it, so it does not move when output arrives. Offset
+ * from the bottom rather than placed in flow: appearing in flow would shift the
+ * transcript the reader is looking at, which is the one thing this control
+ * should not do.
+ */
+.jump-to-latest {
+  position: absolute;
+  right: 1rem;
+  /* Just above the composer, inside the conversation area's own box. */
+  bottom: 1rem;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
+  cursor: pointer;
+}
+
+.jump-to-latest:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .transcript {
@@ -1771,22 +1805,33 @@ textarea {
  * The attach button matches the send and stop buttons, so the three read as one
  * row of controls rather than one that is a different size.
  */
+/**
+ * The attach control.
+ *
+ * No circle of its own: it sits inside the field, so a ring around it would read
+ * as a second input rather than as a control on the one it is in. The mark alone
+ * is the affordance, and it still takes the full tap target on a touch screen.
+ */
 .composer button.attach {
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 6px;
   flex: none;
   display: grid;
   place-items: center;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
+  background: none;
   color: var(--muted);
   padding: 0;
 }
 
 .composer button.attach:hover:not(:disabled) {
-  border-color: var(--accent);
+  background: var(--surface);
   color: var(--text);
+}
+
+.composer button.attach:disabled {
+  opacity: 0.4;
 }
 
 /*
@@ -1806,21 +1851,21 @@ textarea {
 
 .composer-field textarea {
   flex: 1;
-  /* Room for the floating button, so the last line never runs under it. */
-  padding-right: 2.6rem;
+  /* Room for the floating mark, so the last line never runs under it. */
+  padding-right: 2.2rem;
 }
 
 /*
- * The attach button floats inside the field's right edge, centred on the field's
+ * The attach control floats inside the field's right edge, centred on the field's
  * height: attaching belongs to the message being written, and the row's own end
  * is the send action.
  *
- * Centred with auto margins rather than a transform, so the button lands on whole
- * pixels and the glyph inside stays crisp.
+ * Centred with auto margins rather than a transform, so the mark lands on whole
+ * pixels and stays crisp.
  */
 .composer button.attach {
   position: absolute;
-  right: 0.3rem;
+  right: 0.2rem;
   top: 0;
   bottom: 0;
   margin: auto 0;

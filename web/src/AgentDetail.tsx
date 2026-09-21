@@ -5,7 +5,7 @@ import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type Agent
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
-import { FileUp, Square } from "lucide-react";
+import { Plus, Square } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { PendingUploads } from "./PendingUploads";
@@ -941,7 +941,7 @@ export function AgentDetail({
               title="Attach files"
               onClick={() => fileInputRef.current?.click()}
             >
-              <FileUp size={18} aria-hidden="true" />
+              <Plus size={18} aria-hidden="true" />
             </button>
             {/*
               Hidden rather than styled away: a visible control would be a second

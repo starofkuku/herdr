@@ -157,7 +157,10 @@ fn accepted(answer: &str) -> Outcome {
 /// Sends the push off the event loop.
 pub(crate) fn push_in_background(url: String, secret: String, push: Push) {
     std::thread::spawn(move || match send(&url, &secret, &push) {
-        Outcome::Sent => tracing::debug!("feishu push delivered"),
+        // Info rather than debug: the default filter is `herdr=info`, so a
+        // delivered push would otherwise leave no trace at all, and "did it
+        // send?" is the question this line exists to answer.
+        Outcome::Sent => tracing::info!(title = %push.title, "feishu push delivered"),
         Outcome::Rejected { code, message } => {
             tracing::warn!(code, message = %message, "feishu push rejected")
         }

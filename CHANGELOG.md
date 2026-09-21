@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.7.31] - 2026-09-21
+
+### Added
+- The web UI conversation has a control that jumps to the newest output, shown once the newest turn is off screen. It is a sibling of the scroll container rather than a row in the column, so it appears without shifting the text a reader is looking at, and it disappears again the moment they arrive at the bottom.
+
+### Fixed
+- A Feishu push is sent for every state change the terminal notification covers. The push was hooked on the two event paths that carry a state change, but a change can also arrive on the path an API request takes, and that path is the one that raises the terminal notification unconditionally — so a change reaching the server that way notified the terminal and nothing else. Both remaining paths are hooked now.
+- A delivered Feishu push is visible in the log. It was recorded at debug while the default filter is `herdr=info`, so a push that worked left no trace and only a failure said anything; the question "did it send?" could not be answered from the log at all. Delivery is now recorded at info with the title, and a change too small to announce is recorded at debug.
+
+### Changed
+- The web UI's attach control is a plus rather than a circle around an upload glyph, and the button no longer draws a ring of its own: it sits inside the field, where a ring reads as a second input rather than as a control on the one it is in.
+
 ## [0.7.30] - 2026-09-21
 
 ### Fixed
