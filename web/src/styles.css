@@ -2118,7 +2118,7 @@ textarea {
   }
 
   .composer-row input,
-  .composer textarea,
+  .composer-field,
   .composer button[type="submit"] {
     max-width: 52rem;
   }
