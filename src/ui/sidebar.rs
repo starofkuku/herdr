@@ -853,6 +853,7 @@ pub(crate) fn workspace_drop_indicator_row(
 pub(super) fn render_sidebar(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
+    remote_session: bool,
     frame: &mut Frame,
     area: Rect,
 ) {
@@ -873,7 +874,14 @@ pub(super) fn render_sidebar(
 
     let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
 
-    render_workspace_list(app, terminal_runtimes, frame, ws_area, is_navigating);
+    render_workspace_list(
+        app,
+        terminal_runtimes,
+        remote_session,
+        frame,
+        ws_area,
+        is_navigating,
+    );
     render_agent_detail(app, terminal_runtimes, frame, detail_area);
     render_sidebar_toggle(app, frame, area, false, p);
 }
@@ -1051,9 +1059,34 @@ fn resolved_token_spans(
     spans
 }
 
+/// The footer's middle: the version, which session this is, and where the
+/// reader sits.
+///
+/// A function of its own because the gap is narrow and a preview version carries
+/// its channel and build id: past the gap it falls back to the base version, and
+/// past that it shows nothing rather than a clipped fragment that would read as
+/// a different version. `None` means there was no room.
+fn footer_label(gap_width: u16, remote_session: bool) -> Option<String> {
+    let reach = if remote_session { "remote" } else { "local" };
+    // Read from the server's own environment, so it is the session this frame is
+    // really being rendered for rather than a guess from the socket path.
+    let session = crate::session::active_name()
+        .map(|name| format!(" {name}"))
+        .unwrap_or_default();
+
+    let full = format!("{}{session} · {reach}", crate::build_info::version());
+    if gap_width as usize >= full.chars().count() {
+        return Some(full);
+    }
+
+    let base = format!("{}{session} · {reach}", crate::build_info::BASE_VERSION);
+    (gap_width as usize >= base.chars().count()).then_some(base)
+}
+
 fn render_workspace_list(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
+    remote_session: bool,
     frame: &mut Frame,
     area: Rect,
     is_navigating: bool,
@@ -1248,13 +1281,7 @@ fn render_workspace_list(
             width: menu_rect.x.saturating_sub(new_rect.right()),
             height: new_rect.height,
         };
-        let full = crate::build_info::version();
-        let label = if gap.width as usize >= full.chars().count() {
-            full
-        } else {
-            crate::build_info::BASE_VERSION.to_string()
-        };
-        if gap.width as usize >= label.chars().count() {
+        if let Some(label) = footer_label(gap.width, remote_session) {
             frame.render_widget(
                 Paragraph::new(Span::styled(label, Style::default().fg(p.overlay0)))
                     .alignment(Alignment::Center),
@@ -1460,7 +1487,7 @@ mod tests {
         let area = Rect::new(0, 0, 26, 20);
         let mut terminal = Terminal::new(TestBackend::new(26, 20)).unwrap();
         terminal
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), false, frame, area))
             .unwrap();
         let buffer = terminal.backend().buffer();
         let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
@@ -1490,7 +1517,7 @@ mod tests {
         let area = Rect::new(0, 0, 18, 20);
         let mut terminal = Terminal::new(TestBackend::new(18, 20)).unwrap();
         terminal
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), false, frame, area))
             .unwrap();
         let buffer = terminal.backend().buffer();
         let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
@@ -1521,7 +1548,7 @@ mod tests {
         let area = Rect::new(0, 0, 10, 12);
         let mut renderer = Terminal::new(TestBackend::new(10, 12)).unwrap();
         renderer
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), false, frame, area))
             .unwrap();
         let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
         let body = agent_panel_body_rect(agent_area, false);
@@ -1987,6 +2014,27 @@ mod tests {
         );
     }
 
+    /// The footer names the session and whether the reader is remote.
+    ///
+    /// Asserted on the label rather than on a rendered buffer: the footer's rect
+    /// comes from the view geometry, so a test that renders into its own area
+    /// cannot reach it, and the failure would say nothing about the label.
+    #[test]
+    fn footer_label_names_the_session_and_the_reader() {
+        let local = footer_label(80, false).expect("room for the whole label");
+        let remote = footer_label(80, true).expect("room for the whole label");
+
+        assert!(local.contains(crate::build_info::BASE_VERSION), "{local:?}");
+        assert!(local.ends_with("· local"), "{local:?}");
+        assert!(remote.ends_with("· remote"), "{remote:?}");
+    }
+
+    /// A gap too narrow for even the base version shows nothing.
+    #[test]
+    fn footer_label_yields_nothing_when_there_is_no_room() {
+        assert_eq!(footer_label(3, false), None);
+    }
+
     #[test]
     fn workspace_list_truncates_cjk_branch_without_panic() {
         let mut app = crate::app::state::AppState::test_new();
@@ -2007,7 +2055,7 @@ mod tests {
 
         terminal
             .draw(|frame| {
-                render_workspace_list(&app, &runtimes, frame, Rect::new(0, 0, 15, 6), false)
+                render_workspace_list(&app, &runtimes, false, frame, Rect::new(0, 0, 15, 6), false)
             })
             .expect("workspace list should render");
     }

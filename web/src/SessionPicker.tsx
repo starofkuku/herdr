@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import type { SessionSummary } from "./gateway";
+import type { GatewayClient, SessionSummary } from "./gateway";
+import { NotificationPanel } from "./NotificationPanel";
 import { ThemeToggle } from "./ThemeToggle";
 import { WEB_UI_VERSION } from "./version";
 
@@ -7,6 +8,8 @@ interface SessionPickerProps {
   sessions: SessionSummary[];
   connected: boolean;
   detail?: string;
+  /** Used by the notification settings, which are read from and written to the server. */
+  client: GatewayClient;
   onSelect: (name: string) => void;
   onRefresh: () => void;
   onDisconnect: () => void;
@@ -28,12 +31,14 @@ export function SessionPicker({
   sessions,
   connected,
   detail,
+  client,
   onSelect,
   onRefresh,
   onDisconnect,
 }: SessionPickerProps) {
   const [newName, setNewName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const create = (event: FormEvent) => {
     event.preventDefault();
@@ -53,6 +58,16 @@ export function SessionPicker({
         <span className="topbar-spacer" />
         <button type="button" className="ghost" onClick={onRefresh} disabled={!connected}>
           refresh
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setSettingsOpen(true)}
+          disabled={!connected}
+          aria-label="Notification settings"
+          title="Notification settings"
+        >
+          ⚙
         </button>
         <button type="button" className="ghost" onClick={onDisconnect}>
           disconnect
@@ -107,6 +122,9 @@ export function SessionPicker({
         Opening a session that is not running starts its server. Multiple clients can attach to the
         same session and share one state.
       </p>
+      {settingsOpen ? (
+        <NotificationPanel client={client} onClose={() => setSettingsOpen(false)} />
+      ) : null}
     </div>
   );
 }

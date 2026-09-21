@@ -315,6 +315,7 @@ export default function App() {
         sessions={sessions}
         connected={state === "ready"}
         detail={detail}
+        client={client}
         onSelect={(name) => {
           navigate({ view: "agents", session: name });
           setRoute({ view: "agents", session: name });

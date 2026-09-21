@@ -707,6 +707,7 @@ mod tests {
             ratatui::layout::Rect::new(0, 0, 106, 20),
             false,
             crate::kitty_graphics::HostCellSize::default(),
+            false,
         );
         let links =
             crate::server::render_stream::visible_hyperlinks(&app.state, &app.terminal_runtimes);

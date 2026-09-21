@@ -1562,6 +1562,8 @@ pub struct AppState {
     pub local_sound_playback: bool,
     pub bell: BellConfig,
     pub toast_config: ToastConfig,
+    /// Channels that leave this machine, as opposed to what the screen shows.
+    pub notification_config: crate::config::NotificationConfig,
     /// Base URL of a codex-trace instance, when configured.
     ///
     /// Derived from config at startup; `None` hides the link-copying menu action.
@@ -2028,6 +2030,7 @@ impl AppState {
             local_sound_playback: false,
             bell: BellConfig::default(),
             toast_config: ToastConfig::default(),
+            notification_config: crate::config::NotificationConfig::default(),
             codex_trace_url: None,
             keybinds: Keybinds::default(),
             spinner_tick: 0,

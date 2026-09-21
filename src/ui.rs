@@ -420,12 +420,14 @@ fn compute_mobile_view(
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn render(app: &AppState, frame: &mut Frame) {
     let terminal_runtimes = TerminalRuntimeRegistry::new();
-    render_with_runtime_registry(app, &terminal_runtimes, frame);
+    render_with_runtime_registry(app, &terminal_runtimes, false, frame);
 }
 
 pub fn render_with_runtime_registry(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
+    // Whether the client this frame is for reached the server from elsewhere.
+    remote_session: bool,
     frame: &mut Frame,
 ) {
     let sidebar_area = app.view.sidebar_rect;
@@ -438,7 +440,7 @@ pub fn render_with_runtime_registry(
         if app.sidebar_collapsed {
             render_sidebar_collapsed(app, frame, sidebar_area);
         } else {
-            render_sidebar(app, terminal_runtimes, frame, sidebar_area);
+            render_sidebar(app, terminal_runtimes, remote_session, frame, sidebar_area);
         }
     }
     if app.view.layout != ViewLayout::Mobile {

@@ -76,6 +76,37 @@ pub enum ReadFormat {
     Ansi,
 }
 
+/// Which notification settings to write.
+///
+/// Every field is optional and only the ones present are written, so a client
+/// toggling one switch cannot clobber the rest. The surface is deliberately this
+/// small: these are the settings a reader would reasonably want from a phone,
+/// and the keys left out decide where files land and what an agent can run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema, Default)]
+pub struct ConfigNotificationSetParams {
+    /// One of `off`, `herdr`, `terminal`, `system`. A string rather than the enum
+    /// because the enum has no JSON schema, and the value is validated when it is
+    /// parsed on the way in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toast_delivery: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub toast_delay_seconds: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bell_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feishu_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feishu_url: Option<String>,
+    /// A new signing key. Absent leaves the stored one alone, which is what lets
+    /// the field be shown empty while a secret is in fact configured.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feishu_secret: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feishu_delay_seconds: Option<u64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct NotificationShowParams {
     pub title: String,

@@ -6,6 +6,70 @@ use crate::layout::PaneId;
 use crate::protocol;
 use crate::terminal::TerminalRuntimeRegistry;
 
+/// A state change worth telling someone about, in the parts a channel needs.
+///
+/// Built once and rendered per channel: the toast already had to decide whether
+/// a transition is worth announcing, and a second decision written beside it
+/// would drift from this one.
+pub(crate) struct StateChangeNotification {
+    /// The workspace the change happened in.
+    pub(crate) project: String,
+    pub(crate) agent: String,
+    /// `needs attention` and friends, already worded.
+    pub(crate) event: &'static str,
+    /// Workspace, tab, and pane, as the toast words it.
+    pub(crate) context: String,
+    /// Whether a person is being waited on, which colours the push card.
+    pub(crate) attention: bool,
+}
+
+/// Resolves a state change into the parts a channel reports.
+///
+/// Deliberately the same traversal and the same "is this worth announcing" call
+/// the toast uses, so a push cannot fire for something the toast would swallow.
+/// `None` at every step that has no pane, no agent, or nothing to announce.
+pub(crate) fn state_change_notification(
+    state: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    pane_id: PaneId,
+    suppress_active_tab_notifications: bool,
+    prev_state: AgentState,
+    new_state: AgentState,
+    previous_agent_label: Option<&str>,
+) -> Option<StateChangeNotification> {
+    state
+        .workspaces
+        .iter()
+        .enumerate()
+        .find_map(|(ws_idx, ws)| {
+            ws.tabs.iter().find_map(|tab| {
+                let pane = tab.panes.get(&pane_id)?;
+                let agent_label = state
+                    .terminals
+                    .get(&pane.attached_terminal_id)
+                    .and_then(|terminal| terminal.effective_agent_label())?;
+                let kind = app::actions::notification_toast_for_state_change_with_agent_labels(
+                    suppress_active_tab_notifications,
+                    prev_state,
+                    new_state,
+                    previous_agent_label,
+                    Some(agent_label),
+                )?;
+                let workspace_label = ws.display_name_from(&state.terminals, terminal_runtimes);
+                // Resolved before the label is moved into the struct below.
+                let context =
+                    app::actions::notification_context(ws, &workspace_label, ws_idx, pane_id);
+                Some(StateChangeNotification {
+                    project: workspace_label,
+                    agent: agent_label.to_owned(),
+                    event: toast_event_text(kind),
+                    context,
+                    attention: kind == app::state::ToastKind::NeedsAttention,
+                })
+            })
+        })
+}
+
 pub(crate) fn should_forward_toast_to_clients(delivery: config::ToastDelivery) -> bool {
     toast_notify_kind(delivery).is_some()
 }

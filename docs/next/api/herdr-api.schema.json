@@ -1580,6 +1580,66 @@
           ],
           "type": "object"
         },
+        "ConfigNotificationSetParams": {
+          "description": "Which notification settings to write.\n\nEvery field is optional and only the ones present are written, so a client\ntoggling one switch cannot clobber the rest. The surface is deliberately this\nsmall: these are the settings a reader would reasonably want from a phone,\nand the keys left out decide where files land and what an agent can run.",
+          "properties": {
+            "bell_enabled": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "feishu_delay_seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "feishu_enabled": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "feishu_secret": {
+              "description": "A new signing key. Absent leaves the stored one alone, which is what lets\nthe field be shown empty while a secret is in fact configured.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "feishu_url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "sound_enabled": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "toast_delay_seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "toast_delivery": {
+              "description": "One of `off`, `herdr`, `terminal`, `system`. A string rather than the enum\nbecause the enum has no JSON schema, and the value is validated when it is\nparsed on the way in.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
         "EmptyParams": {
           "type": "object"
         },
@@ -4707,6 +4767,38 @@
         {
           "properties": {
             "method": {
+              "const": "config.notification.get",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "config.notification.set",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ConfigNotificationSetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "notification.show",
               "type": "string"
             },
@@ -7461,6 +7553,51 @@
               "type": "object"
             }
           ]
+        },
+        "NotificationConfigInfo": {
+          "description": "The notification settings a client may read.\n\n`feishu_secret_set` is a boolean rather than the secret: the value exists on\nthis host alone, and reading it back would put it in a browser.",
+          "properties": {
+            "bell_enabled": {
+              "type": "boolean"
+            },
+            "feishu_delay_seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "feishu_enabled": {
+              "type": "boolean"
+            },
+            "feishu_secret_set": {
+              "type": "boolean"
+            },
+            "feishu_url": {
+              "type": "string"
+            },
+            "sound_enabled": {
+              "type": "boolean"
+            },
+            "toast_delay_seconds": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "toast_delivery": {
+              "description": "The configured delivery mode, worded the way the config file words it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "toast_delivery",
+            "toast_delay_seconds",
+            "bell_enabled",
+            "sound_enabled",
+            "feishu_enabled",
+            "feishu_url",
+            "feishu_secret_set",
+            "feishu_delay_seconds"
+          ],
+          "type": "object"
         },
         "NotificationShowReason": {
           "enum": [
@@ -10671,6 +10808,23 @@
                 "type",
                 "status",
                 "diagnostics"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "config": {
+                  "$ref": "#/schemas/success_response/$defs/NotificationConfigInfo",
+                  "description": "The whole notification surface this server allows a client to edit,\nand nothing else: the other keys decide where files land and which\nkeys do what, and a page that can write them is a page that can\nredirect what an agent produces."
+                },
+                "type": {
+                  "const": "notification_config",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "config"
               ],
               "type": "object"
             },

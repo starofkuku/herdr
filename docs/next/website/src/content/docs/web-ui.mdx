@@ -183,7 +183,7 @@ Output is plain text taken from the pane, so it uses normal browser scrolling, t
 
 While an agent is working, new output appears as it is produced, and the view stays at the newest turn. Scrolling up to read back pauses that, so incoming output does not pull the view away from what you are reading; returning to the bottom resumes it. Scrolling to the top loads earlier output a page at a time, so a long conversation can be read back without loading it all at once. A `start of history` marker shows when there is nothing older to load.
 
-The composer sends a message to the agent. `Ctrl`/`Cmd`+`Enter` sends and `Enter` breaks the line, so a message that spans lines is not submitted by the key meant to separate them.
+The composer sends a message to the agent on `Enter`. `Ctrl`/`Cmd`+`Enter` breaks the line instead, for a message that needs to span lines before it is sent.
 
 A sent message appears in the conversation straight away, with an **agent is responding** indicator under it. The agent's own transcript is the real record, so it only contains the message once the agent has written the turn; when it does, the placeholder is replaced by the recorded turn rather than shown twice.
 
@@ -285,6 +285,45 @@ The **todo list** comes from pi's `rpiv-todo` extension, which writes the whole 
 The **subagent runs** an agent has started come from the `pi-subagents` extension's own state in the temp directory. A bar above the composer shows how many are still running; opening it gives a card per run with the task it was given, what it is doing now, and the tool calls it has made. That extension prunes finished runs, so an empty answer is ordinary and is reported as such rather than as an error — a run that was there a moment ago can be gone without that meaning anything went wrong, and the drawer reflects whatever is currently known.
 
 A file named in a task description is shown as the **declared target**, not as evidence of what the run wrote. The extension records no file effects for a child that only runs commands, and a read-only subagent writes through its shell rather than a file tool, so the commands themselves are what the drawer shows. Treat the target as what the parent asked for, not as a list of what changed.
+
+## Notification settings
+
+The gear on the sessions screen opens the notification settings. Everything it
+saves is written to the same config file the CLI edits, so a change made in the
+browser shows up there and the other way around.
+
+It covers the screen-side settings — the toast delivery mode and its delay, the
+terminal bell, and sound — and the Feishu push described below. No other key is
+reachable from the page: settings like `web.static_dir` decide where files land,
+and a page that can write them is a page that can redirect what an agent
+produces.
+
+The signing secret is the one field that cannot be read back. The server reports
+only whether one is set, and the field starts empty. It is sent only when you
+type a new one, so saving another setting cannot clear a key that is already
+there.
+
+## Pushing to Feishu
+
+A Feishu custom-bot webhook sends agent notifications to a chat room, so they
+arrive when nobody is at the terminal. It is off by default and configured under
+`notification.feishu`: the webhook URL, an optional signing key, and its own
+delay.
+
+The delay is separate from `ui.toast.delay_seconds`. They are read in different
+places, and the interface's pacing should not decide how quickly a phone is told:
+a state that holds for the delay is the one that is pushed, so a brief flicker is
+not.
+
+The push fires on the same state changes the screen notification does — an agent
+that needs attention, or one that finished — and is independent of which toast
+delivery mode is selected.
+
+Two things about the endpoint are worth knowing when reading a failure. Feishu
+answers a rejected message with HTTP 200, so the status code says nothing: the
+server reads `code` in the body instead, and logs it with the message. And a
+wrong signing key and a clock more than an hour off produce the same code and the
+same wording, so the log names both.
 
 ## Theme
 

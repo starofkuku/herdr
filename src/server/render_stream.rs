@@ -280,6 +280,8 @@ pub(crate) fn render_virtual(
         area,
         resize_panes,
         crate::kitty_graphics::HostCellSize::default(),
+        // No client is behind this call, so there is no locality to report.
+        false,
     )
 }
 
@@ -289,6 +291,10 @@ pub(crate) fn render_virtual_with_runtime_registry(
     area: Rect,
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
+    // Whether the client this frame is for reached the server from elsewhere.
+    // A per-client fact: one server serves local and remote clients at once, so
+    // it cannot live on `AppState` without one client overwriting another's.
+    remote_session: bool,
 ) -> (ratatui::buffer::Buffer, Option<CursorState>) {
     let pre_compute_suppresses_focused_terminal_cursor =
         focused_terminal_suppresses_host_cursor(app_state, terminal_runtimes);
@@ -305,7 +311,12 @@ pub(crate) fn render_virtual_with_runtime_registry(
 
     terminal
         .draw(|frame| {
-            crate::ui::render_with_runtime_registry(app_state, terminal_runtimes, frame);
+            crate::ui::render_with_runtime_registry(
+                app_state,
+                terminal_runtimes,
+                remote_session,
+                frame,
+            );
         })
         .expect("render to TestBackend should never fail");
 

@@ -328,6 +328,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::ServerReloadConfig(_) => "server.reload_config",
         Method::ServerAgentManifests(_) => "server.agent_manifests",
         Method::ServerReloadAgentManifests(_) => "server.reload_agent_manifests",
+        Method::ConfigNotificationGet(_) => "config.notification.get",
+        Method::ConfigNotificationSet(_) => "config.notification.set",
         Method::NotificationShow(_) => "notification.show",
         Method::ClientWindowTitleSet(_) => "client.window_title.set",
         Method::ClientWindowTitleClear(_) => "client.window_title.clear",

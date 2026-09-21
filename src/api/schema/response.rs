@@ -266,7 +266,31 @@ pub enum ResponseResult {
         status: crate::config::ConfigReloadStatus,
         diagnostics: Vec<String>,
     },
+    NotificationConfig {
+        /// The whole notification surface this server allows a client to edit,
+        /// and nothing else: the other keys decide where files land and which
+        /// keys do what, and a page that can write them is a page that can
+        /// redirect what an agent produces.
+        config: NotificationConfigInfo,
+    },
     Ok {},
+}
+
+/// The notification settings a client may read.
+///
+/// `feishu_secret_set` is a boolean rather than the secret: the value exists on
+/// this host alone, and reading it back would put it in a browser.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct NotificationConfigInfo {
+    /// The configured delivery mode, worded the way the config file words it.
+    pub toast_delivery: String,
+    pub toast_delay_seconds: u64,
+    pub bell_enabled: bool,
+    pub sound_enabled: bool,
+    pub feishu_enabled: bool,
+    pub feishu_url: String,
+    pub feishu_secret_set: bool,
+    pub feishu_delay_seconds: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

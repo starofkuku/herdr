@@ -2,8 +2,21 @@
 
 ## Unreleased
 
+## [0.7.29] - 2026-09-21
+
 ### Added
 - An image pasted into the terminal shows up in the web UI's conversation view. Herdr staged pasted images in a temp directory that no route serves, so a reader in the browser saw an unreachable path where the image should have been. When the web UI is configured the paste now goes to the same served directory an uploaded file goes to and is named the same way, because that route carries no key and the staging directory's name — a client id and a timestamp — would be enumerable enough to expose every paste to anyone on the network. The page needed no change: it already recognises the 32-hex name. A served paste is not deleted when the client that pasted it disconnects, unlike a staged one, because the conversation keeps referring to it. Without a web UI there is nowhere to serve a paste from, so it still goes to the staging directory, which the next paste sweeps.
+- Agent notifications can be pushed to a Feishu (Lark) custom-bot webhook, so they arrive when nobody is at the terminal. Configured under `notification.feishu` with the webhook URL, an optional signing key, and its own `delay_seconds`; the push fires on the same state changes the screen notification does — an agent that needs attention, or one that finished — and is independent of the selected toast delivery mode. The delay is deliberately not `ui.toast.delay_seconds`: the two are read in different places, and a setting made for the interface should not decide how quickly a phone is told. A state that holds for the delay is the one that is pushed, so a brief flicker is not. Two properties of the endpoint shape the failure path: Feishu answers a rejected message with HTTP 200, so the status code says nothing and the `code` in the body is what decides success; and a wrong signing key and a clock more than an hour off share one code and one wording, so the log names both causes.
+- The web UI has a notification settings panel, opened from the gear on the sessions screen. It edits the same config file the CLI edits, so a change made in the browser shows up in the CLI and the other way around. It exposes the screen-side settings and the Feishu push, and nothing else: keys like `web.static_dir` decide where files land, and a page that can write them is a page that can redirect what an agent produces. The signing secret is the one field that cannot be read back — the server reports only whether one is set, and the field is sent only when a new value is typed, so saving another setting cannot clear a key that is already there.
+- `config.notification.get` and `config.notification.set` expose those settings to any client. Both are open-ended in effect but closed in surface: the setter takes named optional fields and writes them one at a time, so a client toggling a single switch cannot clobber the rest, and every string is written as a quoted TOML value so a key containing a space or a `#` cannot corrupt the document.
+- The sidebar footer shows the server's version, which session it is, and whether the client reading it is local or remote. The session name comes from the server's own environment and the locality is read per client, because one server can serve local and remote clients at once and a shared field would let one overwrite the other's.
+
+### Fixed
+- A long inline code span no longer puts a horizontal scrollbar under the whole conversation. Paths and commands have no space to break at, and the message body let the overflow reach the conversation container, which scrolls on that axis; prose now breaks inside a word when it has to, while code blocks keep their own scroll so their content still reads as written.
+- The web UI no longer enters the mobile layout on a desktop window. The narrow layout is the default and the wide one is a `min-width: 50rem` upgrade, so a window under 800px wide rendered the phone arrangement.
+
+### Changed
+- The web UI's notification settings also cover the toast delivery mode and delay, the terminal bell, and sound, so the settings a reader would want from a phone are all reachable there rather than only in the CLI.
 
 ## [0.7.28] - 2026-09-21
 

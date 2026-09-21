@@ -20,9 +20,9 @@ pub use self::{
     },
     model::{
         validated_sidebar_bounds, AgentPanelSortConfig, BellConfig, Config, ConfigReloadReport,
-        ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, ShellModeConfig,
-        SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig, ToastDelivery,
-        ToastHerdrPosition, UpdateChannelConfig, WebConfig, MAX_TOAST_DELAY_SECONDS,
+        ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, NotificationConfig,
+        ShellModeConfig, SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig,
+        ToastDelivery, ToastHerdrPosition, UpdateChannelConfig, WebConfig, MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SpaceSidebarToken,

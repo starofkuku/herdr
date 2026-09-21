@@ -109,6 +109,12 @@ pub struct App {
     pub(crate) last_terminal_size: Option<(u16, u16)>,
     pub(crate) config_diagnostic_deadline: Option<Instant>,
     pub(crate) toast_deadline: Option<Instant>,
+    /// A push waiting out `notification.feishu.delay_seconds`.
+    ///
+    /// Kept on the app rather than in the pusher so the deadline rides the event
+    /// loop's existing wakeup, the way the toast's does.
+    pub(crate) pending_push: Option<crate::server::feishu::PendingPush>,
+    pub(crate) push_deadline: Option<Instant>,
     pub(crate) copy_feedback_deadline: Option<Instant>,
     pub(crate) last_api_notification_at: Option<Instant>,
     pub(crate) last_git_remote_status_refresh: Instant,
@@ -660,6 +666,7 @@ impl App {
             local_sound_playback: true,
             bell: config.ui.bell,
             toast_config: config.ui.toast.clone(),
+            notification_config: config.notification.clone(),
             codex_trace_url: config.codex_trace.url.clone(),
             keybinds: config.keybinds(),
             spinner_tick: 0,
@@ -726,6 +733,8 @@ impl App {
         Self {
             config_diagnostic_deadline: None,
             toast_deadline: None,
+            pending_push: None,
+            push_deadline: None,
             copy_feedback_deadline: None,
             last_api_notification_at: None,
             state,
@@ -1078,6 +1087,8 @@ impl App {
                     crate::ui::render_with_runtime_registry(
                         &self.state,
                         &self.terminal_runtimes,
+                        // A locally rendered pane is this process's own view.
+                        false,
                         frame,
                     );
                 })?;
@@ -1470,6 +1481,7 @@ impl App {
                 }
                 self.state.bell = config.ui.bell;
                 self.state.toast_config = config.ui.toast.clone();
+                self.state.notification_config = config.notification.clone();
             }
         }
 
@@ -2501,6 +2513,129 @@ mod tests {
             Some(crate::terminal_theme::HostAppearance::Dark)
         );
         assert_eq!(app.state.theme_name, "catppuccin");
+    }
+
+    /// Writes notification settings and reads the file back.
+    ///
+    /// Asserted on the file rather than on `AppState`, because the point is what
+    /// lands on disk: the write is a line edit on the existing document, and the
+    /// reading side is a separate reload.
+    fn save_notification_settings_probe(
+        name: &str,
+        params: crate::api::schema::ConfigNotificationSetParams,
+    ) -> String {
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path(name);
+        // `temp_config_path` names a file inside a directory that does not exist
+        // yet; the save path creates it, but this test writes the starting
+        // document first.
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        std::fs::write(&path, "[theme]\nname = \"catppuccin\"\n").unwrap();
+
+        let mut app = test_app();
+        app.save_notification_settings(params);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+        content
+    }
+
+    #[test]
+    fn notification_settings_write_only_the_keys_given() {
+        let content = save_notification_settings_probe(
+            "notification-write-one-key",
+            crate::api::schema::ConfigNotificationSetParams {
+                feishu_enabled: Some(true),
+                ..Default::default()
+            },
+        );
+
+        assert!(content.contains("enabled = true"), "{content}");
+        // The pre-existing document survives the edit, which is what lets this
+        // share a file with a hand-edit.
+        assert!(content.contains("name = \"catppuccin\""), "{content}");
+    }
+
+    /// An absent secret leaves whatever is stored alone.
+    ///
+    /// This is what lets the page show an empty field while a key is configured:
+    /// saving any other setting must not clear it.
+    #[test]
+    fn a_save_without_a_secret_keeps_the_stored_one() {
+        let content = save_notification_settings_probe(
+            "notification-secret-untouched",
+            crate::api::schema::ConfigNotificationSetParams {
+                feishu_url: Some("https://example.invalid/hook".to_owned()),
+                ..Default::default()
+            },
+        );
+
+        assert!(
+            content.contains("https://example.invalid/hook"),
+            "{content}"
+        );
+        assert!(!content.contains("secret"), "{content}");
+    }
+
+    /// A signing key is written as a quoted TOML string.
+    ///
+    /// The writer edits lines rather than re-serializing, so it takes the value
+    /// as given. A Feishu key looks like `Et36pfib8cVkoAZTM3aE9c`: bare, its `_`
+    /// is fine but nothing stops a key from holding a character that is not, and
+    /// an unquoted value with a space or a `#` either fails to parse or is cut
+    /// short at the comment.
+    #[test]
+    fn a_secret_is_written_as_a_quoted_string() {
+        let content = save_notification_settings_probe(
+            "notification-secret-set",
+            crate::api::schema::ConfigNotificationSetParams {
+                feishu_secret: Some("Et36pfib8cVkoAZTM3aE9c".to_owned()),
+                ..Default::default()
+            },
+        );
+
+        assert!(
+            content.contains("secret = \"Et36pfib8cVkoAZTM3aE9c\""),
+            "{content}"
+        );
+    }
+
+    #[test]
+    fn a_value_that_would_break_the_document_is_escaped() {
+        let content = save_notification_settings_probe(
+            "notification-value-escaped",
+            crate::api::schema::ConfigNotificationSetParams {
+                feishu_url: Some("https://example.invalid/hook?a=1 # not a comment".to_owned()),
+                ..Default::default()
+            },
+        );
+
+        // The document must still parse, which is the property that matters: a
+        // `#` inside an unquoted value would cut the rest of the line off.
+        assert!(
+            content.parse::<toml::Value>().is_ok(),
+            "written document does not parse: {content}"
+        );
+    }
+
+    /// An unknown delivery mode is dropped rather than written.
+    ///
+    /// Writing it would save a value the next read rejects, turning a typo into a
+    /// config error rather than a no-op.
+    #[test]
+    fn an_unknown_delivery_mode_is_not_written() {
+        let content = save_notification_settings_probe(
+            "notification-bad-delivery",
+            crate::api::schema::ConfigNotificationSetParams {
+                toast_delivery: Some("shout".to_owned()),
+                ..Default::default()
+            },
+        );
+
+        assert!(!content.contains("shout"), "{content}");
+        assert!(!content.contains("delivery"), "{content}");
     }
 
     #[test]

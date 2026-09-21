@@ -307,6 +307,36 @@ pub struct Config {
     pub remote: RemoteConfig,
     pub web: WebConfig,
     pub codex_trace: CodexTraceConfig,
+    pub notification: NotificationConfig,
+}
+
+/// Notification channels that reach outside this machine.
+///
+/// Separate from `ui.toast`, which decides what the screen shows. A channel here
+/// leaves the machine, so it has its own switch and its own pacing rather than
+/// inheriting a setting made for the interface.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct NotificationConfig {
+    pub feishu: FeishuConfig,
+}
+
+/// A Feishu (Lark) custom-bot webhook.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct FeishuConfig {
+    /// Off by default: enabling it sends agent activity to a chat room.
+    pub enabled: bool,
+    /// The bot's incoming-webhook URL. Empty means there is nowhere to push.
+    pub url: String,
+    /// The bot's signing key. Empty sends the request unsigned.
+    pub secret: String,
+    /// How long a state must hold before it is pushed.
+    ///
+    /// Its own value rather than `ui.toast.delay_seconds`: the two channels are
+    /// read in different places, and the interface's pacing should not silently
+    /// decide how quickly a phone is told.
+    pub delay_seconds: u64,
 }
 
 /// Link target for opening a conversation in codex-trace.

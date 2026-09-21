@@ -58,7 +58,8 @@ use crate::server::clients::{
 };
 use crate::server::keybindings::{app_keybindings, apply_keybindings};
 use crate::server::notifications::{
-    should_forward_toast_to_clients, toast_message_from_state_change, toast_notify_kind,
+    should_forward_toast_to_clients, state_change_notification, toast_message_from_state_change,
+    toast_notify_kind,
 };
 use crate::server::socket_paths::{
     client_socket_path, prepare_socket_path, restrict_socket_permissions,
@@ -1729,6 +1730,81 @@ impl HeadlessServer {
         })
     }
 
+    /// Queues or sends a push for a state change.
+    ///
+    /// Independent of the toast in both directions: its own switch decides
+    /// whether it happens, and its own `delay_seconds` decides when. A change
+    /// that arrives while a push is waiting replaces it, so only the state that
+    /// settled is reported — that is the whole point of the delay, and it is why
+    /// the pending entry is cleared on every change rather than only on the ones
+    /// worth announcing.
+    fn push_state_change(
+        &mut self,
+        pane_id: crate::layout::PaneId,
+        prev_state: crate::detect::AgentState,
+        next_state: crate::detect::AgentState,
+        prev_agent_label: Option<&str>,
+        suppress_active_tab_notifications: bool,
+    ) {
+        let feishu = self.app.state.notification_config.feishu.clone();
+        if !feishu.enabled || feishu.url.is_empty() {
+            // Nothing is enabled, so nothing is pending: a switch turned off
+            // mid-wait must not leave a push to fire later.
+            self.app.pending_push = None;
+            self.app.push_deadline = None;
+            return;
+        }
+
+        let fields = state_change_notification(
+            &self.app.state,
+            &self.app.terminal_runtimes,
+            pane_id,
+            suppress_active_tab_notifications,
+            prev_state,
+            next_state,
+            prev_agent_label,
+        );
+
+        // Every change clears whatever was waiting, announced or not.
+        self.app.pending_push = fields.map(|fields| crate::server::feishu::PendingPush {
+            url: feishu.url.clone(),
+            secret: feishu.secret.clone(),
+            push: crate::server::feishu::Push {
+                title: format!("{} {}", fields.agent, fields.event),
+                project: fields.project,
+                agent: fields.agent,
+                state: fields.event.to_owned(),
+                summary: fields.context,
+                attention: fields.attention,
+            },
+        });
+
+        if self.app.pending_push.is_none() {
+            self.app.push_deadline = None;
+            return;
+        }
+
+        if feishu.delay_seconds == 0 {
+            self.flush_pending_push();
+            return;
+        }
+
+        // Waiting rather than sleeping: the event loop already wakes on the
+        // toast's deadline, so this rides the same mechanism instead of adding a
+        // timer that could outlive the state it was armed for.
+        self.app.push_deadline =
+            Some(std::time::Instant::now() + std::time::Duration::from_secs(feishu.delay_seconds));
+    }
+
+    /// Sends whatever push has been waiting.
+    fn flush_pending_push(&mut self) {
+        self.app.push_deadline = None;
+        let Some(pending) = self.app.pending_push.take() else {
+            return;
+        };
+        crate::server::feishu::push_in_background(pending.url, pending.secret, pending.push);
+    }
+
     fn forward_immediate_agent_notification_for_state_change(
         &mut self,
         suppress_active_tab_notifications: bool,
@@ -2125,6 +2201,17 @@ impl HeadlessServer {
                     );
                 }
 
+                // The push is its own outlet. Gating it on the toast's delivery
+                // mode would leave it dead under the default, where nothing is
+                // forwarded at all.
+                self.push_state_change(
+                    pane_id_val,
+                    prev_state,
+                    next_state,
+                    prev_agent_label.as_deref(),
+                    suppress_active_tab_notifications,
+                );
+
                 true
             }
             AppEvent::HookStateReported {
@@ -2224,6 +2311,15 @@ impl HeadlessServer {
                         msg,
                     );
                 }
+
+                // Same outlet as the other state-change path.
+                self.push_state_change(
+                    pane_id_val,
+                    prev_state,
+                    next_state,
+                    prev_agent_label.as_deref(),
+                    suppress_active_tab_notifications,
+                );
 
                 true
             }
@@ -3775,6 +3871,7 @@ impl HeadlessServer {
                 area,
                 resize_panes,
                 crate::kitty_graphics::HostCellSize::default(),
+                false,
             );
             crate::render_prof::duration_since("full_render.render_virtual", render_started);
             self.app.full_redraw_pending = false;
@@ -3791,6 +3888,12 @@ impl HeadlessServer {
         for (client_id, (cols, rows), cell_size, is_foreground, mode) in render_targets {
             let area = Rect::new(0, 0, cols, rows);
             let is_app_client = matches!(mode, ClientConnectionMode::App);
+            // The frame belongs to this client, so its locality is this client's
+            // fact rather than the server's. Read before the state borrow below.
+            let remote_session = self
+                .clients
+                .get(&client_id)
+                .is_some_and(|client| client.remote_session);
             let mut frame = match mode {
                 ClientConnectionMode::App => {
                     let render_started = crate::render_prof::timer();
@@ -3802,6 +3905,7 @@ impl HeadlessServer {
                                 area,
                                 is_foreground,
                                 cell_size,
+                                remote_session,
                             )
                         } else {
                             crate::server::render_stream::render_virtual_with_runtime_registry(
@@ -3810,6 +3914,7 @@ impl HeadlessServer {
                                 area,
                                 is_foreground,
                                 crate::kitty_graphics::HostCellSize::default(),
+                                remote_session,
                             )
                         };
                     crate::render_prof::duration_since(
@@ -4072,6 +4177,18 @@ impl HeadlessServer {
         {
             self.app.toast_deadline = None;
             self.app.state.toast = None;
+            changed = true;
+        }
+
+        // The push keeps its own clock: `notification.feishu.delay_seconds` is
+        // not `ui.toast.delay_seconds`, so the two expire independently even
+        // though they share this wakeup.
+        if self
+            .app
+            .push_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.flush_pending_push();
             changed = true;
         }
 
@@ -4774,6 +4891,7 @@ mod tests {
             Rect::new(0, 0, 100, 30),
             true,
             crate::kitty_graphics::HostCellSize::default(),
+            false,
         );
         let rendered = buffer
             .content

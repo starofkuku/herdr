@@ -914,6 +914,25 @@ impl App {
                 };
                 return serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
             }
+            Method::ConfigNotificationGet(_) => SuccessResponse {
+                id: request.id,
+                result: ResponseResult::NotificationConfig {
+                    config: notification_config_info(&self.state),
+                },
+            },
+            Method::ConfigNotificationSet(params) => {
+                self.save_notification_settings(params);
+                // The write lands on disk; reloading is what applies it, and it is
+                // the same path the settings screen already takes.
+                let report = self.reload_config();
+                SuccessResponse {
+                    id: request.id,
+                    result: ResponseResult::ConfigReload {
+                        status: report.status,
+                        diagnostics: report.diagnostics,
+                    },
+                }
+            }
             Method::ServerReloadConfig(_) => {
                 let report = self.reload_config();
                 SuccessResponse {
@@ -2148,5 +2167,31 @@ mod tests {
             app.state.toast.as_ref().map(|toast| toast.context.as_str()),
             Some("__herdr_original__ · 1")
         );
+    }
+}
+
+/// The notification settings a client may read.
+///
+/// The secret is reported as a flag rather than a value: it exists on this host
+/// alone, and handing it back would put it in a browser.
+fn notification_config_info(
+    state: &crate::app::state::AppState,
+) -> crate::api::schema::NotificationConfigInfo {
+    let feishu = &state.notification_config.feishu;
+    crate::api::schema::NotificationConfigInfo {
+        toast_delivery: match state.toast_config.delivery {
+            crate::config::ToastDelivery::Off => "off",
+            crate::config::ToastDelivery::Herdr => "herdr",
+            crate::config::ToastDelivery::Terminal => "terminal",
+            crate::config::ToastDelivery::System => "system",
+        }
+        .to_owned(),
+        toast_delay_seconds: state.toast_config.delay_seconds,
+        bell_enabled: state.bell.enabled,
+        sound_enabled: state.sound.enabled,
+        feishu_enabled: feishu.enabled,
+        feishu_url: feishu.url.clone(),
+        feishu_secret_set: !feishu.secret.is_empty(),
+        feishu_delay_seconds: feishu.delay_seconds,
     }
 }

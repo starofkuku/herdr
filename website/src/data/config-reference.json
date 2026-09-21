@@ -699,34 +699,28 @@
       "title": "Notifications",
       "keys": [
         {
-          "key": "ui.toast.delivery",
-          "type": "enum",
-          "default": "\"off\"",
-          "description": "Popup notification delivery. off disables popups, herdr shows in-app toasts, terminal asks the outer terminal for a desktop notification, system asks the OS notification service directly.",
-          "values": [
-            "off",
-            "herdr",
-            "terminal",
-            "system"
-          ]
-        },
-        {
-          "key": "ui.toast.delay_seconds",
+          "key": "notification.feishu.delay_seconds",
           "type": "integer",
-          "default": "1",
-          "description": "Seconds to wait before sending finished or needs-input agent notifications. Herdr notifies only if the pane is still in the same state when the delay expires. 0 is instant; valid values are 0 through 3600."
+          "default": "0",
+          "description": "Seconds a state must hold before it is pushed. Separate from ui.toast.delay_seconds so the interface's pacing does not decide how quickly a phone is told. 0 is immediate."
         },
         {
-          "key": "ui.toast.herdr.position",
-          "type": "enum",
-          "default": "\"bottom-right\"",
-          "description": "In-app toast position, relative to the full Herdr frame.",
-          "values": [
-            "top-left",
-            "top-right",
-            "bottom-left",
-            "bottom-right"
-          ]
+          "key": "notification.feishu.enabled",
+          "type": "boolean",
+          "default": "false",
+          "description": "Push agent notifications to a Feishu custom-bot webhook. Off by default: enabling it sends agent activity to a chat room."
+        },
+        {
+          "key": "notification.feishu.secret",
+          "type": "string",
+          "default": "unset",
+          "description": "The bot's signing key. Empty sends the request unsigned; a bot configured for signature verification needs it."
+        },
+        {
+          "key": "notification.feishu.url",
+          "type": "string",
+          "default": "unset",
+          "description": "The bot's incoming-webhook URL. Empty means there is nowhere to push."
         },
         {
           "key": "ui.toast.clipboard.enabled",
@@ -745,6 +739,36 @@
             "top-right",
             "bottom-left",
             "bottom-center",
+            "bottom-right"
+          ]
+        },
+        {
+          "key": "ui.toast.delay_seconds",
+          "type": "integer",
+          "default": "1",
+          "description": "Seconds to wait before sending finished or needs-input agent notifications. Herdr notifies only if the pane is still in the same state when the delay expires. 0 is instant; valid values are 0 through 3600."
+        },
+        {
+          "key": "ui.toast.delivery",
+          "type": "enum",
+          "default": "\"off\"",
+          "description": "Popup notification delivery. off disables popups, herdr shows in-app toasts, terminal asks the outer terminal for a desktop notification, system asks the OS notification service directly.",
+          "values": [
+            "off",
+            "herdr",
+            "terminal",
+            "system"
+          ]
+        },
+        {
+          "key": "ui.toast.herdr.position",
+          "type": "enum",
+          "default": "\"bottom-right\"",
+          "description": "In-app toast position, relative to the full Herdr frame.",
+          "values": [
+            "top-left",
+            "top-right",
+            "bottom-left",
             "bottom-right"
           ]
         }

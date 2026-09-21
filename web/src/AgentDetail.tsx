@@ -911,12 +911,26 @@ export function AgentDetail({
                 void addFiles(files);
               }}
               onKeyDown={(event) => {
-                // Enter breaks the line and Ctrl/Cmd+Enter sends, so a message can
-                // be laid out without the newline key submitting it early.
-                if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                  event.preventDefault();
-                  void send();
+                if (event.key !== "Enter") return;
+                event.preventDefault();
+
+                // Ctrl/Cmd+Enter breaks the line, so a message can be laid out
+                // before it is sent. The browser has no default newline for that
+                // combination, so the break is inserted here: `setRangeText`
+                // leaves the caret after it and fires the input event React
+                // reads, which keeps the field controlled.
+                if (event.ctrlKey || event.metaKey) {
+                  const field = event.currentTarget;
+                  field.setRangeText(
+                    "\n",
+                    field.selectionStart,
+                    field.selectionEnd,
+                    "end",
+                  );
+                  return;
                 }
+
+                void send();
               }}
             />
             <button

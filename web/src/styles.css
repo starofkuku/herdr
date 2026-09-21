@@ -1921,6 +1921,113 @@ textarea {
   vertical-align: -0.15em;
 }
 
+/* ---- notification settings ---- */
+
+/*
+ * A modal over the sessions screen, following the same shape as the subagent
+ * drawer: a dimmed backdrop and one panel, dismissed by its own close button.
+ */
+.notification-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.notification-panel__panel {
+  width: min(34rem, 100%);
+  max-height: min(80vh, 40rem);
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 18px 44px rgb(0 0 0 / 0.35);
+}
+
+.notification-panel__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.notification-panel__title {
+  flex: 1;
+  font-weight: 600;
+}
+
+.notification-panel__body {
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.notification-group {
+  margin-bottom: 1.25rem;
+}
+
+.notification-group h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.notification-field {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.3rem 0;
+}
+
+/* The label column is fixed so the controls line up down the panel. */
+.notification-field > span:first-child {
+  flex: none;
+  width: 8rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.notification-field input[type="text"],
+.notification-field input[type="password"],
+.notification-field input[type="number"],
+.notification-field select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+}
+
+/*
+ * Long commands, paths, and identifiers have no space to break at.
+ *
+ * Inline code is the common case: a reply quoting one long path was wider than
+ * the transcript, and the overflow reached the conversation container, which
+ * scrolls horizontally — so a single such line put a scrollbar under the whole
+ * conversation. `anywhere` rather than `break-word` because it also counts when
+ * the box's own width is resolved, which is what lets the line shrink instead of
+ * widening every ancestor.
+ *
+ * Code blocks reset this. They are read as blocks and scroll on their own axis,
+ * and wrapping them would change what they say.
+ */
+.markdown {
+  overflow-wrap: anywhere;
+}
+
+.markdown pre {
+  overflow-wrap: normal;
+}
+
 /*
  * Kept in the layout rather than `display: none`, which some browsers treat as
  * unclickable when triggered programmatically.
