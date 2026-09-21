@@ -387,6 +387,35 @@ textarea {
   white-space: nowrap;
 }
 
+/*
+ * The agent's own session id, under its title.
+ *
+ * Monospace, because it is a value to match against rather than prose, and the
+ * id identifies the session rather than the pane — it follows the conversation
+ * when that is resumed elsewhere.
+ */
+.topbar-title .session-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The version of the page itself, shown on the sessions screen.
+ *
+ * The page is served from disk and updated on its own, so this is not the
+ * server's version: showing it is how you tell a stale tab from a stale binary.
+ */
+.web-version {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
 .ghost {
   border: 1px solid var(--border);
   border-radius: 8px;

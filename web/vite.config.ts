@@ -44,6 +44,15 @@ function uiVersion(): string {
 // from disk by `herdr web` ([web] static_dir) and is never embedded in the
 // herdr binary, so it can be updated or replaced independently.
 export default defineConfig({
+  /*
+   * The version is already stamped into the page as a comment for the updater;
+   * the app also needs it at runtime so the sessions screen can say which build
+   * it is serving. Reading the comment from the DOM would tie the display to
+   * that format, so the same value is substituted as a constant instead.
+   */
+  define: {
+    __WEB_UI_VERSION__: JSON.stringify(uiVersion()),
+  },
   plugins: [
     react(),
     {

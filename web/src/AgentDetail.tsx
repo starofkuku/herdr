@@ -762,6 +762,16 @@ export function AgentDetail({
           <span className="subtitle">
             {agent?.project ?? ""} {agent?.cwd ? `· ${shortenPath(agent.cwd)}` : ""}
           </span>
+          {/*
+            The session id identifies the agent's own session rather than the
+            pane: a pane is replaced when a session is resumed elsewhere, and
+            this is the value that follows the conversation across them.
+          */}
+          {agent?.sessionId ? (
+            <span className="session-id" title="Agent session id">
+              {agent.sessionId}
+            </span>
+          ) : null}
         </div>
         <ThemeToggle />
         <ConnectionBadge state={connection} onRetry={onRetry} />

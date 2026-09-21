@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import type { SessionSummary } from "./gateway";
 import { ThemeToggle } from "./ThemeToggle";
+import { WEB_UI_VERSION } from "./version";
 
 interface SessionPickerProps {
   sessions: SessionSummary[];
@@ -57,6 +58,14 @@ export function SessionPicker({
           disconnect
         </button>
         <ThemeToggle />
+        {/*
+          The page is served from disk and can be updated on its own, so its
+          version is not the same fact as the server's. Showing it here is how
+          you tell a stale tab from a stale binary.
+        */}
+        <span className="web-version" title="Web UI build">
+          {WEB_UI_VERSION}
+        </span>
       </header>
 
       {detail ? <p className="error">{detail}</p> : null}

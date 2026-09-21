@@ -90,6 +90,14 @@ export interface AgentView {
   /** Local path of the agent's own transcript, when the agent reports one. */
   transcriptPath?: string;
   /**
+   * The agent's own session identity, in whichever form it reported.
+   *
+   * Agents name a session either by an opaque id or by the transcript file, and
+   * both are shown as an id so the reader sees one kind of value rather than a
+   * path in one pane and a UUID in the next.
+   */
+  sessionId?: string;
+  /**
    * The question this agent is waiting on, when it publishes a structured one.
    *
    * Absent for agents that only report state, where the terminal is the only
@@ -153,6 +161,7 @@ export function agentsFromSnapshot(
       project: workspaceLabels.get(workspaceId) ?? workspaceId,
       cwd: asString(agent.foreground_cwd) ?? asString(agent.cwd) ?? "",
       transcriptPath: transcriptPathOf(agent),
+      sessionId: sessionIdOf(agent),
       interaction: parseInteractionRequest(agent.interaction_request) ?? undefined,
     });
   }
@@ -169,6 +178,24 @@ function transcriptPathOf(agent: Partial<AgentRecord>): string | undefined {
   const session = agent.agent_session;
   if (!session || session.kind !== "path") return undefined;
   return asString(session.value);
+}
+
+/**
+ * The agent's session identity, in whichever form it reported.
+ *
+ * When the agent reports a path, the id is that file's name rather than the
+ * path: the file is named after the session, so the stem is the identifier the
+ * agent itself would print, while the directory says more about this machine's
+ * layout than about the session.
+ */
+function sessionIdOf(agent: Partial<AgentRecord>): string | undefined {
+  const session = agent.agent_session;
+  const value = asString(session?.value);
+  if (!session || !value) return undefined;
+  if (session.kind === "id") return value;
+  if (session.kind !== "path") return undefined;
+  const name = value.split("/").pop() ?? value;
+  return name.endsWith(".jsonl") ? name.slice(0, -"jsonl".length - 1) : name;
 }
 
 /** Human-readable label for a status value. */
