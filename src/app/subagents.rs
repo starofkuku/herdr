@@ -74,12 +74,7 @@ const MAX_OUTPUT: usize = 20;
 /// unknown session, and a pruned one alike — from the panel's point of view
 /// they are the same thing.
 pub(crate) fn read(transcript_path: &str) -> Option<Vec<SubagentRun>> {
-    // The pane's transcript path is what the extension recorded, minus the
-    // extension: `status.json` stores the session path without `.jsonl`.
-    let stem = transcript_path
-        .strip_suffix(".jsonl")
-        .unwrap_or(transcript_path);
-    let runs = read_runs_in(&runs_dir()?, stem);
+    let runs = read_runs_in(&runs_dir()?, transcript_path);
     if runs.is_empty() {
         None
     } else {
@@ -87,15 +82,35 @@ pub(crate) fn read(transcript_path: &str) -> Option<Vec<SubagentRun>> {
     }
 }
 
-/// The testable core: reads every run under `runs_dir` that belongs to `stem`.
-fn read_runs_in(runs_dir: &Path, stem: &str) -> Vec<SubagentRun> {
+/// Compares two spellings of the same session path.
+///
+/// The extension is not consistent about the suffix: it records the parent
+/// session either as the `.jsonl` file or as the directory `sessionId` names
+/// alongside it, depending on how the session was started. Both identify the
+/// same session, so the comparison ignores the suffix rather than assuming one
+/// form. Assuming one is what a single sample suggests and the other sample
+/// disproves.
+fn same_session(recorded: &str, transcript_path: &str) -> bool {
+    fn stem(path: &str) -> &str {
+        // Strip in one order and fall back to the value already stripped of
+        // the separator, not to the original: falling back to the original
+        // reintroduces the trailing slash the trim just removed.
+        let trimmed = path.trim_end_matches('/');
+        trimmed.strip_suffix(".jsonl").unwrap_or(trimmed)
+    }
+    stem(recorded) == stem(transcript_path)
+}
+
+/// The testable core: reads every run under `runs_dir` that belongs to
+/// `transcript_path`.
+fn read_runs_in(runs_dir: &Path, transcript_path: &str) -> Vec<SubagentRun> {
     let Ok(entries) = fs::read_dir(runs_dir) else {
         return Vec::new();
     };
 
     let mut runs: Vec<SubagentRun> = entries
         .flatten()
-        .filter_map(|entry| read_run(&entry.path().join("status.json"), stem))
+        .filter_map(|entry| read_run(&entry.path().join("status.json"), transcript_path))
         .collect();
 
     // Newest first, which is the order the panel reads them in. A run with no
@@ -129,14 +144,13 @@ fn temp_root() -> Option<PathBuf> {
 
 /// One `status.json`, or `None` when it is missing, unreadable, or belongs to
 /// a different session.
-fn read_run(status_path: &Path, stem: &str) -> Option<SubagentRun> {
+fn read_run(status_path: &Path, transcript_path: &str) -> Option<SubagentRun> {
     let text = fs::read_to_string(status_path).ok()?;
     let raw: serde_json::Value = serde_json::from_str(&text).ok()?;
 
-    // The association test. The extension stores the parent session path here
-    // with the extension already stripped, so a plain comparison is enough.
+    // The association test, tolerating either spelling of the session path.
     let session_id = raw.get("sessionId").and_then(serde_json::Value::as_str)?;
-    if session_id != stem {
+    if !same_session(session_id, transcript_path) {
         return None;
     }
 
@@ -379,6 +393,57 @@ mod tests {
         let runs = read_runs_in(&dir, STEM);
         assert_eq!(runs.len(), 1);
         assert_eq!(runs[0].run_id, "mine");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn matches_either_spelling_of_the_session_path() {
+        // The extension records the parent session either as the `.jsonl` file
+        // or as the directory beside it, depending on how the session was
+        // started, while the pane always reports the file. Assuming one form is
+        // what a single sample suggests and the other sample disproves.
+        for recorded in [STEM, &format!("{STEM}.jsonl")] {
+            for reported in [STEM, &format!("{STEM}.jsonl")] {
+                let dir = scratch("spelling");
+                write_run(&dir, "mine", &running_run("mine", recorded));
+
+                let runs = read_runs_in(&dir, reported);
+                assert_eq!(
+                    runs.len(),
+                    1,
+                    "recorded {recorded:?} against reported {reported:?} should match"
+                );
+                assert_eq!(runs[0].run_id, "mine");
+                fs::remove_dir_all(&dir).ok();
+            }
+        }
+    }
+
+    #[test]
+    fn a_trailing_slash_does_not_change_the_session() {
+        // The sibling `sessionRoot` field can carry a trailing separator.
+        let dir = scratch("trailing-slash");
+        write_run(&dir, "mine", &running_run("mine", &format!("{STEM}.jsonl")));
+
+        let runs = read_runs_in(&dir, &format!("{STEM}/"));
+        assert_eq!(runs.len(), 1);
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_different_session_still_does_not_match() {
+        // Normalising must not become so loose that unrelated sessions merge.
+        let dir = scratch("different");
+        write_run(
+            &dir,
+            "theirs",
+            &running_run(
+                "theirs",
+                "/tmp/sessions/2026-09-19T01-02-03-456Z_01a0ffff.jsonl",
+            ),
+        );
+
+        assert!(read_runs_in(&dir, STEM).is_empty());
         fs::remove_dir_all(&dir).ok();
     }
 
