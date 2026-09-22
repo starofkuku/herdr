@@ -1564,6 +1564,13 @@ pub struct AppState {
     pub toast_config: ToastConfig,
     /// Channels that leave this machine, as opposed to what the screen shows.
     pub notification_config: crate::config::NotificationConfig,
+    /// Origin of the web UI, when it has one a client could reach.
+    ///
+    /// `None` when the gateway is not configured, or when it binds an address
+    /// that only says where to listen (`0.0.0.0`, `::`, loopback). A push that
+    /// links needs an address the reader's phone can open, and guessing one
+    /// would produce a button that goes nowhere.
+    pub web_base_url: Option<String>,
     /// Base URL of a codex-trace instance, when configured.
     ///
     /// Derived from config at startup; `None` hides the link-copying menu action.
@@ -2031,6 +2038,7 @@ impl AppState {
             bell: BellConfig::default(),
             toast_config: ToastConfig::default(),
             notification_config: crate::config::NotificationConfig::default(),
+            web_base_url: None,
             codex_trace_url: None,
             keybinds: Keybinds::default(),
             spinner_tick: 0,

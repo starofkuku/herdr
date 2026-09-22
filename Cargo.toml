@@ -1,6 +1,6 @@
 [package]
 name = "herdr"
-version = "0.7.31"
+version = "0.7.32"
 edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
@@ -20,6 +20,11 @@ include = [
 
 [dependencies]
 base64 = "0.22.1"
+# Already in the tree through codex-trace-parser, with `clock` enabled, so naming
+# it here adds no code to the build. Used for one thing: rendering a push's
+# timestamp in the reader's own time zone, which the standard library cannot do —
+# it stops at a Unix timestamp.
+chrono = "0.4"
 bincode = { version = "2", features = ["serde"] }
 bytes = "1"
 clap = { version = "4.5", default-features = false, features = ["std"] }

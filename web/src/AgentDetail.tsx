@@ -5,7 +5,7 @@ import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type Agent
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
-import { Plus, Square } from "lucide-react";
+import { Plus, Send, Square } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { PendingUploads } from "./PendingUploads";
@@ -969,7 +969,7 @@ export function AgentDetail({
               title="Stop the agent (sends Esc)"
               onClick={() => void interrupt()}
             >
-              <Square size={16} strokeWidth={0} fill="currentColor" aria-hidden="true" />
+              <Square size={15} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
             </button>
           ) : (
             <button
@@ -977,7 +977,7 @@ export function AgentDetail({
               disabled={busy || preparing || (!draft.trim() && uploads.length === 0)}
               aria-label="Send"
             >
-              ↑
+              <Send size={18} aria-hidden="true" />
             </button>
           )}
         </div>

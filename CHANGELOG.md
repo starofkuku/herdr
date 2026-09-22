@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [0.7.32] - 2026-09-22
+
+### Added
+- A Feishu push carries a button that opens the conversation it is about, and the time it was sent. The button is left out when the gateway binds an address that only says where to listen (`0.0.0.0`, `::`, loopback) or is not configured at all: a button that goes nowhere is worse than no button, and guessing a host would produce exactly that. The time is rendered in the reader's own zone, which needs a calendar and a time-zone database rather than a Unix timestamp; `chrono` was already in the build through `codex-trace-parser` with its `clock` feature, so naming it as a direct dependency adds no code.
+
+### Changed
+- The web UI's send control is a paper plane and the stop control a rounded outlined square, both drawn with the same icon set as the rest of the interface rather than the text arrow and filled block they replaced.
+
+### Fixed
+- The jump-to-newest control is centred in its circle. It was missing the padding reset its siblings have, so the browser's default button padding left a 24x34 content box inside a 36x36 circle — the mark stayed centred in it, but the box it was centred in was no longer square.
+
 ## [0.7.31] - 2026-09-21
 
 ### Added

@@ -1509,6 +1509,14 @@ textarea {
   color: var(--text);
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
   cursor: pointer;
+  /*
+   * The browser's default button padding is not zero, and under border-box it
+   * leaves a 24x34 content box inside a 36x36 circle. The mark stays centred in
+   * it, but the box it is centred in is no longer square, which is enough to
+   * read as off-centre at some pixel ratios.
+   */
+  padding: 0;
+  line-height: 1;
 }
 
 .jump-to-latest:hover {
@@ -1727,11 +1735,14 @@ textarea {
   border-radius: 50%;
   background: var(--accent);
   color: var(--on-accent);
-  font-size: 1.1rem;
-  font-weight: 700;
   flex: none;
   display: grid;
   place-items: center;
+  /*
+   * The mark is an icon now, so the text properties the arrow character needed —
+   * a font size, a weight, a line box — are gone with it. Padding still has to
+   * be reset: the browser's default is not zero.
+   */
   line-height: 1;
   padding: 0;
 }

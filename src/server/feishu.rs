@@ -27,6 +27,8 @@ pub(crate) struct Push {
     /// Colours the card: something waiting on a person is not the same event as
     /// a task that merely finished.
     pub(crate) attention: bool,
+    /// Where to open the conversation, when the gateway is reachable by name.
+    pub(crate) link: Option<String>,
 }
 
 /// A push that has been decided but is waiting out its delay.
@@ -103,11 +105,30 @@ fn body(push: &Push, timestamp: i64, signature: Option<&str>) -> serde_json::Val
                 { "tag": "hr" },
                 { "tag": "div", "text": { "tag": "lark_md", "content": push.summary } },
                 { "tag": "note", "elements": [
-                    { "tag": "plain_text", "content": "herdr" },
+                    { "tag": "plain_text", "content": format!("herdr · {}", local_time(timestamp)) },
                 ] },
             ],
         },
     });
+
+    // The button is what makes a push actionable: a reader who has just been told
+    // an agent needs them wants to open it, and a card without a link makes them
+    // find the address themselves. Left out when there is no reachable origin,
+    // because a button that fails is worse than no button.
+    if let Some(link) = &push.link {
+        value["card"]["elements"]
+            .as_array_mut()
+            .expect("elements is an array")
+            .push(serde_json::json!({
+                "tag": "action",
+                "actions": [{
+                    "tag": "button",
+                    "text": { "tag": "plain_text", "content": "打开对话" },
+                    "type": "primary",
+                    "url": link,
+                }],
+            }));
+    }
 
     if let Some(signature) = signature {
         // Both go at the top level of the body; DingTalk puts its pair in the
@@ -219,6 +240,28 @@ fn send(url: &str, secret: &str, push: &Push) -> Outcome {
     accepted(&String::from_utf8_lossy(&output.stdout))
 }
 
+/// The moment a push was sent, in the reader's own time zone.
+///
+/// `chrono` rather than `std`: the standard library stops at a Unix timestamp,
+/// and "when did this arrive" is a question a timestamp does not answer without
+/// the reader doing arithmetic. The crate is already in the build through
+/// `codex-trace-parser`, with `clock` enabled, so this costs no new code.
+///
+/// An unreadable timestamp renders as UTC instead of failing: the clock is the
+/// least important thing on the card, and a push without it is better than no
+/// push at all.
+fn local_time(timestamp: i64) -> String {
+    use chrono::TimeZone as _;
+
+    // One step from the Unix timestamp to local time; the trait has to be in
+    // scope for `timestamp_opt`.
+    match chrono::Local.timestamp_opt(timestamp, 0) {
+        chrono::LocalResult::Single(local) => local.format("%Y-%m-%d %H:%M:%S").to_string(),
+        // An ambiguous or out-of-range instant is not worth failing a push over.
+        _ => "unknown time".to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,6 +336,7 @@ mod tests {
             state: "finished".to_owned(),
             summary: "done".to_owned(),
             attention: false,
+            link: None,
         };
         let value = body(&push, 1789983752, None);
         assert!(value.get("sign").is_none());
@@ -310,6 +354,7 @@ mod tests {
             state: "needs attention".to_owned(),
             summary: "waiting".to_owned(),
             attention: true,
+            link: None,
         };
         let value = body(&push, 1789983752, Some("sig"));
         assert_eq!(value["timestamp"], "1789983752");

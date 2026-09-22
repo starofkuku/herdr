@@ -127,6 +127,35 @@ pub(crate) fn serving_for(extension: &str) -> UploadServing {
 ///
 /// Returns `None` when neither `uploads_dir` nor `static_dir` is set: without a
 /// directory there is nowhere to write and nothing to serve.
+/// The web UI's origin, when a reader could open it from somewhere else.
+///
+/// `None` unless the gateway is configured and binds an address that names a
+/// host. `0.0.0.0` and `::` only say which interfaces to listen on and loopback
+/// names the server itself, so a link built from any of them would be a button
+/// that goes nowhere. What is left is the case the config documents: a private
+/// interface such as a WireGuard address.
+pub(crate) fn web_base_url(config: &crate::config::Config) -> Option<String> {
+    let web = &config.web;
+    let host = web.bind.trim();
+    if host.is_empty()
+        || host == "0.0.0.0"
+        || host == "::"
+        || host == "127.0.0.1"
+        || host == "localhost"
+        || host == "::1"
+    {
+        return None;
+    }
+
+    // A bare IPv6 literal needs brackets to sit in a URL authority.
+    let authority = if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    };
+    Some(format!("http://{authority}:{}", web.port))
+}
+
 pub(crate) fn uploads_dir(config: &crate::config::Config) -> Option<PathBuf> {
     if let Some(dir) = &config.web.uploads_dir {
         return Some(crate::web::expand_tilde(Path::new(dir)));

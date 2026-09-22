@@ -1787,6 +1787,20 @@ impl HeadlessServer {
         }
 
         // Every change clears whatever was waiting, announced or not.
+        // The link is built from this pane's public id, the same identifier the
+        // web UI's own routes use, so the button lands on the conversation the
+        // push is about rather than merely on the app. `None` at any step leaves
+        // the card without a button, which is what should happen when there is no
+        // address a reader could reach.
+        let link = match self.app.state.web_base_url.as_ref() {
+            Some(base) => self.app.find_pane(pane_id).and_then(|(ws_idx, _)| {
+                let session = crate::session::active_name()?;
+                let public = self.app.public_pane_id(ws_idx, pane_id)?;
+                Some(format!("{base}/#/{session}/{public}"))
+            }),
+            None => None,
+        };
+
         self.app.pending_push = fields.map(|fields| crate::server::feishu::PendingPush {
             url: feishu.url.clone(),
             secret: feishu.secret.clone(),
@@ -1797,6 +1811,7 @@ impl HeadlessServer {
                 state: fields.event.to_owned(),
                 summary: fields.context,
                 attention: fields.attention,
+                link,
             },
         });
 

@@ -667,6 +667,7 @@ impl App {
             bell: config.ui.bell,
             toast_config: config.ui.toast.clone(),
             notification_config: config.notification.clone(),
+            web_base_url: crate::server::uploads::web_base_url(config),
             codex_trace_url: config.codex_trace.url.clone(),
             keybinds: config.keybinds(),
             spinner_tick: 0,
@@ -1482,6 +1483,7 @@ impl App {
                 self.state.bell = config.ui.bell;
                 self.state.toast_config = config.ui.toast.clone();
                 self.state.notification_config = config.notification.clone();
+                self.state.web_base_url = crate::server::uploads::web_base_url(config);
             }
         }
 
