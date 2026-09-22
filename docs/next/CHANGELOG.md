@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.35] - 2026-09-22
+
+### Added
+- A pane whose terminal row count does not match the rect it is drawn into is now reported in the log, with both numbers. The two are separate pieces of state — the rect comes from layout, the row count from whichever resize ran last — and nothing in the type system keeps them equal, so they can drift and show up as a band of blank rows below an agent's output. Logging the mismatch turns that from a guess into a number, at the moment the frame is built.
+
 ## [0.7.34] - 2026-09-22
 
 ### Added
