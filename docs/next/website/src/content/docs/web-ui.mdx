@@ -175,6 +175,10 @@ The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every
 
 **Agents.** The agents in the selected session, grouped by workspace and showing each one's current state. A running agent is tinted green — its name, its status dot, and the border of the panel it is in — so activity is visible while scanning the list instead of only in the small status pill. Tap an agent to open it.
 
+**Agent rail.** A handle pinned to an edge of every screen that opens into a list of every pane in the session. Panes that are working or waiting come first, then the rest by which changed most recently; tap a row to jump to that pane. It is closed by default and opens over the page rather than pushing it, so opening it does not reflow the conversation. When an agent finishes, the rail opens itself and flashes that row, because a list that is usually closed cannot otherwise report a finish. Working panes are red and finished ones green, since the two states are shown side by side.
+
+Drag the handle to move the rail. Releasing it within 100px of an edge attaches it to that edge — a gradient band shows which edges would hold it — and anywhere else it stays where it was dropped. Horizontal and vertical attach independently, so it can sit along the top edge at any horizontal position, and the position is remembered across reloads. Clicking outside an open list closes it. On a wide window the agent switcher is hidden in favour of the rail; on a phone the rail is a thin handle whose list would cover the conversation, so the switcher remains.
+
 **Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below. Its header carries the agent's own mark, the id of the session its conversation belongs to, and a switcher for the other agents in the same session.
 
 ## The agent console

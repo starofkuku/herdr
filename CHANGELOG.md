@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.7.34] - 2026-09-22
+
+### Added
+- The web UI has an agent rail on the right edge of every screen, listing every pane in the session. Panes that are working or waiting come first, then the rest by which changed most recently, and a row is tapped to jump straight to it. It is collapsed to a handle by default and slides its list out over the page rather than pushing it, so opening it never reflows the conversation being read.
+
+- The rail opens itself and flashes the row when an agent finishes, because the list is normally closed and a highlight nobody happened to be looking at is not a notification. Clicking outside the open list closes it, and on a window wide enough for the rail the agent switcher is hidden, since the two would be one control for one job in the same corner.
+
+- The rail can be dragged anywhere on the page, and its position is remembered across reloads. Releasing within 100px of an edge attaches it to that edge, with a gradient band showing which edges would hold it; anywhere else it stays exactly where it was dropped. The horizontal and vertical axes attach independently, so it can sit along the top edge at any horizontal position.
+
+### Changed
+- Inside the rail, a working pane is red and a finished one green. The two states are shown side by side there, and the default palette paints both green.
+
+### Fixed
+- A client reporting a new terminal size no longer takes over the shared pane size. Taking over is the foreground client's job, and the foreground client is whichever terminal the user is looking at — a window changing shape is not that. With two windows open, the background one resizing (collapsing the sidebar changes the column count, for example) used to rescale the panes for the window in front, leaving its pane rows no longer matching the height they were drawn in and producing a band of blank rows under the agent's output. The size is still recorded for the client that sent it, and it applies when that client becomes the foreground one.
+
 ## [0.7.33] - 2026-09-22
 
 ### Fixed
