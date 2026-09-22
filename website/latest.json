@@ -1,14 +1,24 @@
 {
-  "version": "0.7.32",
+  "version": "0.7.33",
   "protocol": 22,
-  "notes": "### Added\n- A Feishu push carries a button that opens the conversation it is about, and the time it was sent. The button is left out when the gateway binds an address that only says where to listen (`0.0.0.0`, `::`, loopback) or is not configured at all: a button that goes nowhere is worse than no button, and guessing a host would produce exactly that. The time is rendered in the reader's own zone, which needs a calendar and a time-zone database rather than a Unix timestamp; `chrono` was already in the build through `codex-trace-parser` with its `clock` feature, so naming it as a direct dependency adds no code.\n\n### Changed\n- The web UI's send control is a paper plane and the stop control a rounded outlined square, both drawn with the same icon set as the rest of the interface rather than the text arrow and filled block they replaced.\n\n### Fixed\n- The jump-to-newest control is centred in its circle. It was missing the padding reset its siblings have, so the browser's default button padding left a 24x34 content box inside a 36x36 circle \u2014 the mark stayed centred in it, but the box it was centred in was no longer square.",
+  "notes": "### Fixed\n- Changing the toast delivery in the web UI's notification settings no longer makes the config file unreadable. The value was written bare (`delivery = system`) while the writer takes values verbatim, so the line was not valid TOML \u2014 and one bad line makes the whole file fail to parse, which drops *every* setting in it rather than only the one being changed. The failure was quiet in the way that matters most: the setting appeared to save, and the next read returned defaults for everything. Stored values are quoted now, and a test asserts the document still parses after a write.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.32/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.32/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.32/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.32/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.33": {
+      "notes": "### Fixed\n- Changing the toast delivery in the web UI's notification settings no longer makes the config file unreadable. The value was written bare (`delivery = system`) while the writer takes values verbatim, so the line was not valid TOML \u2014 and one bad line makes the whole file fail to parse, which drops *every* setting in it rather than only the one being changed. The failure was quiet in the way that matters most: the setting appeared to save, and the next read returned defaults for everything. Stored values are quoted now, and a test asserts the document still parses after a write.",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.33/herdr-macos-aarch64"
+      }
+    },
     "0.7.32": {
       "notes": "### Added\n- A Feishu push carries a button that opens the conversation it is about, and the time it was sent. The button is left out when the gateway binds an address that only says where to listen (`0.0.0.0`, `::`, loopback) or is not configured at all: a button that goes nowhere is worse than no button, and guessing a host would produce exactly that. The time is rendered in the reader's own zone, which needs a calendar and a time-zone database rather than a Unix timestamp; `chrono` was already in the build through `codex-trace-parser` with its `clock` feature, so naming it as a direct dependency adds no code.\n\n### Changed\n- The web UI's send control is a paper plane and the stop control a rounded outlined square, both drawn with the same icon set as the rest of the interface rather than the text arrow and filled block they replaced.\n\n### Fixed\n- The jump-to-newest control is centred in its circle. It was missing the padding reset its siblings have, so the browser's default button padding left a 24x34 content box inside a 36x36 circle \u2014 the mark stayed centred in it, but the box it was centred in was no longer square.",
       "protocol": 22,
