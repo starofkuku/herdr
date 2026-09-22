@@ -2544,6 +2544,42 @@ mod tests {
         content
     }
 
+    /// Every string written is quoted, so the document stays parseable.
+    ///
+    /// `upsert_section_value` takes the value verbatim. An enum name or a URL
+    /// written bare is not valid TOML, and one bad line makes the *whole* file
+    /// unparseable, which silently drops every setting in it rather than only the
+    /// one that was being changed.
+    #[test]
+    fn notification_settings_keep_the_document_parseable() {
+        let content = save_notification_settings_probe(
+            "notification-quoted-values",
+            crate::api::schema::ConfigNotificationSetParams {
+                toast_delivery: Some("system".to_owned()),
+                feishu_url: Some("https://example.invalid/hook".to_owned()),
+                feishu_enabled: Some(true),
+                bell_enabled: Some(false),
+                ..Default::default()
+            },
+        );
+
+        assert!(
+            content.parse::<toml::Value>().is_ok(),
+            "written document does not parse: {content}"
+        );
+        let value: toml::Value = content.parse().unwrap();
+        assert_eq!(
+            value["ui"]["toast"]["delivery"].as_str(),
+            Some("system"),
+            "{content}"
+        );
+        assert_eq!(value["ui"]["bell"]["enabled"].as_bool(), Some(false));
+        assert_eq!(
+            value["notification"]["feishu"]["enabled"].as_bool(),
+            Some(true)
+        );
+    }
+
     #[test]
     fn notification_settings_write_only_the_keys_given() {
         let content = save_notification_settings_probe(

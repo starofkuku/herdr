@@ -112,8 +112,16 @@ impl App {
                     "system" => "system",
                     _ => return content,
                 };
-                content =
-                    crate::config::upsert_section_value(&content, "ui.toast", "delivery", value);
+                // Quoted, like every other string written here. `upsert_section_value`
+                // takes the value verbatim: an enum name written bare is not valid
+                // TOML, and one bad line makes the whole file unparseable, which
+                // drops every setting in it rather than only this one.
+                content = crate::config::upsert_section_value(
+                    &content,
+                    "ui.toast",
+                    "delivery",
+                    &toml_string(value),
+                );
             }
             if let Some(delay) = params.toast_delay_seconds {
                 content = crate::config::upsert_section_value(

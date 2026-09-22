@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.33] - 2026-09-22
+
+### Fixed
+- Changing the toast delivery in the web UI's notification settings no longer makes the config file unreadable. The value was written bare (`delivery = system`) while the writer takes values verbatim, so the line was not valid TOML — and one bad line makes the whole file fail to parse, which drops *every* setting in it rather than only the one being changed. The failure was quiet in the way that matters most: the setting appeared to save, and the next read returned defaults for everything. Stored values are quoted now, and a test asserts the document still parses after a write.
+
 ## [0.7.32] - 2026-09-22
 
 ### Added
