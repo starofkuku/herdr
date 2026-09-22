@@ -10,6 +10,7 @@ import { agentsFromSnapshot, compareAgents, type AgentView } from "./api";
 import { ConnectForm } from "./ConnectForm";
 import { SessionPicker } from "./SessionPicker";
 import { AgentList } from "./AgentList";
+import { SessionActivity } from "./SessionActivity";
 import { AgentDetail } from "./AgentDetail";
 import { loadSettings, saveSettings, restoreTarget, type StoredSettings } from "./settings";
 import { currentRoute, navigate, type Route } from "./route";
@@ -66,6 +67,19 @@ export default function App() {
    */
   const statusSubsRef = useRef<Map<string, Subscription>>(new Map());
   const refreshTimer = useRef<number | null>(null);
+  /**
+   * The last known agent list per session, so switching back is instant.
+   *
+   * A snapshot request is a round trip through the server, and the list is the
+   * whole point of the session screen: clearing it on every switch shows an empty
+   * list for as long as that takes, on every switch. The cached list is shown
+   * immediately and then replaced by the fresh one, so the only thing that can be
+   * stale is a status, and it is stale for one round trip.
+   *
+   * In memory only. It is a view of a server that owns the truth, and persisting
+   * it would outlive the processes it describes.
+   */
+  const agentCache = useRef<Map<string, AgentView[]>>(new Map());
 
   if (!clientRef.current) {
     clientRef.current = new GatewayClient({
@@ -81,14 +95,25 @@ export default function App() {
 
   const client = clientRef.current;
 
-  /** Reloads the agent list for the bound session. */
+  /**
+   * Reloads the agent list for the bound session.
+   *
+   * The result is cached under the session that was bound when the request was
+   * sent, not the one bound when it arrives: a switch during the round trip must
+   * not file one session's panes under another's name.
+   */
   const refreshAgents = useCallback(async () => {
+    // Read before the await: the session this request is *for*. Filing the result
+    // under whatever is bound when it lands would mix two sessions' panes.
+    const target = sessionRef.current;
     try {
       const snapshot = await client.call<{
         snapshot?: { agents?: unknown; workspaces?: unknown };
       }>("session.snapshot");
       const list = agentsFromSnapshot(snapshot.snapshot?.agents, snapshot.snapshot?.workspaces);
-      setAgents(list.sort(compareAgents));
+      if (target) agentCache.current.set(target, list);
+      // Dropped if the reader moved on while this was in flight.
+      if (sessionRef.current === target) setAgents(list.sort(compareAgents));
     } catch (err) {
       if (err instanceof ApiError) setDetail(err.message);
     }
@@ -115,12 +140,21 @@ export default function App() {
         return;
       }
       setSession(name);
+      // Assigned here as well as during render: `refreshAgents` reads this ref a
+      // few lines below, before React has re-rendered, and would otherwise file
+      // the new session's panes under the previous session's name.
+      sessionRef.current = name;
+      // Paint the session from cache before awaiting anything, so the list is on
+      // screen for the first frame rather than after a round trip.
+      setAgents(agentCache.current.get(name) ?? []);
       setSettings((current) => {
         const next = { ...current, session: name };
         saveSettings(next);
         return next;
       });
-      await refreshAgents();
+      // Not awaited: the subscriptions below matter more than the snapshot, and
+      // the fresh list arrives when it arrives.
+      void refreshAgents();
 
       subscriptionRef.current?.close();
       // The kinds that are subscribable: agent detection, pane lifecycle, and
@@ -269,11 +303,17 @@ export default function App() {
       try {
         await client.useSession(wanted.session);
         setSession(wanted.session);
+        // Same reason as `openSession`: this ref is what `refreshAgents` caches
+        // under, and render has not run yet.
+        sessionRef.current = wanted.session;
+        setAgents(agentCache.current.get(wanted.session) ?? []);
         await refreshAgents();
       } catch {
         // Unknown session (deleted, or a link from another machine): fall back
         // to the picker instead of showing an empty conversation.
         setSession(null);
+        sessionRef.current = null;
+        setAgents([]);
         navigate({ view: "root" }, { replace: true });
         setRoute({ view: "root" });
       } finally {
@@ -291,8 +331,30 @@ export default function App() {
     [],
   );
 
+  /**
+   * Wraps a screen with the session activity panel.
+   *
+   * The panel is pinned rather than placed inside a screen because it is about
+   * the panes that are *not* on screen: it has to survive moving between the
+   * list and a conversation, which is exactly when it is worth a glance.
+   */
+  const withActivity = (screen: JSX.Element) => (
+    <>
+      <SessionActivity
+        agents={agents}
+        currentPaneId={route.view === "detail" ? route.paneId : null}
+        onOpen={(paneId) => {
+          const target = { view: "detail" as const, session: session ?? "", paneId };
+          navigate(target);
+          setRoute(target);
+        }}
+      />
+      {screen}
+    </>
+  );
+
   if (phase === "connect") {
-    return (
+    return withActivity(
       <ConnectForm
         initialUrl={settings.url}
         initialKey={settings.remember ? settings.key ?? "" : ""}
@@ -310,7 +372,7 @@ export default function App() {
   }
 
   if (phase === "pick") {
-    return (
+    return withActivity(
       <SessionPicker
         sessions={sessions}
         connected={state === "ready"}
@@ -333,7 +395,7 @@ export default function App() {
 
   if (phase === "detail" && route.view === "detail") {
     const agent = agents.find((item) => item.paneId === route.paneId) ?? null;
-    return (
+    return withActivity(
       <AgentDetail
         client={client}
         agent={agent}
@@ -355,7 +417,7 @@ export default function App() {
     );
   }
 
-  return (
+  return withActivity(
     <AgentList
       session={session ?? ""}
       agents={agents}
@@ -374,6 +436,10 @@ export default function App() {
         statusSubsRef.current.forEach((sub) => sub.close());
         statusSubsRef.current.clear();
         setSession(null);
+        sessionRef.current = null;
+        // The cache is kept; only the live list is cleared, so returning to this
+        // session is still instant.
+        setAgents([]);
         setSettings((current) => {
           const next = { ...current, session: undefined };
           saveSettings(next);

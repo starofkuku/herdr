@@ -1493,6 +1493,341 @@ textarea {
  * transcript the reader is looking at, which is the one thing this control
  * should not do.
  */
+/* ---- session activity ---- */
+
+/*
+ * The pane rail: a handle, plus a list that slides out of it.
+ *
+ * Positioned with `left`/`top` from React rather than by the CSS, because it is
+ * draggable and can be parked anywhere. Docking is just a placement that happens
+ * to sit on an edge, so there is no separate docked layout to keep in sync.
+ *
+ * The list slides over the page rather than pushing it, because opening a list of
+ * other panes must not reflow the text being read.
+ */
+.session-activity {
+  position: fixed;
+  z-index: 26;
+  display: flex;
+  align-items: flex-start;
+  /* The drag sets position on every pointer move; a transition would lag it. */
+  transition: none;
+}
+
+/* A docked rail is at x=0, so its rounded corner has to face the page. */
+.session-activity__panel {
+  position: absolute;
+  top: 0;
+  width: min(17rem, 80vw);
+  max-height: 60vh;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    transform 0.16s ease,
+    opacity 0.16s ease,
+    visibility 0.16s;
+}
+
+/* Opens towards the middle of the screen, so it never opens off the edge. */
+.session-activity.opens-right .session-activity__panel {
+  left: 100%;
+  transform: translateX(-100%);
+}
+
+.session-activity.opens-left .session-activity__panel {
+  right: 100%;
+  transform: translateX(100%);
+}
+
+.session-activity.open .session-activity__panel {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+}
+
+/* The handle: what stays put while the list moves. */
+.session-activity__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.6rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: grab;
+  /* A drag must not select text or scroll the page under the pointer. */
+  touch-action: none;
+  user-select: none;
+}
+
+.session-activity__head:hover {
+  background: var(--surface-2);
+}
+
+.session-activity.dragging .session-activity__head {
+  cursor: grabbing;
+}
+
+/* While dragging, the rail fades so it reads as being moved rather than used. */
+.session-activity.dragging {
+  opacity: 0.85;
+}
+
+/*
+ * The drop zone for each edge the rail would attach to.
+ *
+ * A soft gradient band rather than a bar or an outline: it says where the rail
+ * will land without competing with the rail itself, and it fades out so nothing
+ * looks like a panel that needs dismissing. Shown per edge, so a corner shows two
+ * at once — that is the rail being held on both axes.
+ */
+.dock-zone {
+  position: fixed;
+  z-index: 25;
+  pointer-events: none;
+}
+
+.dock-zone--left,
+.dock-zone--right {
+  top: 0;
+  bottom: 0;
+  width: 100px;
+}
+
+.dock-zone--left {
+  left: 0;
+  background: linear-gradient(
+    to right,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    color-mix(in srgb, var(--accent) 0%, transparent)
+  );
+}
+
+.dock-zone--right {
+  right: 0;
+  background: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    color-mix(in srgb, var(--accent) 0%, transparent)
+  );
+}
+
+/*
+ * The top band is a different shape: it lies under the header, so it starts below
+ * it rather than behind it, and it spans the width the rail could be dropped at.
+ */
+.dock-zone--top {
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 100px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    color-mix(in srgb, var(--accent) 0%, transparent)
+  );
+}
+
+/*
+ * Held to the top, the list must open downward: it is out of room above, and a
+ * panel clipped by the viewport edge would be unusable.
+ */
+.session-activity.at-top .session-activity__panel {
+  top: 100%;
+}
+
+.session-activity__mark {
+  color: var(--muted);
+}
+
+/* Lit while the list is out, so the handle still reads as the control that did it. */
+.session-activity.open .session-activity__mark {
+  color: var(--running);
+}
+
+.session-activity__busy,
+.session-activity__done {
+  flex: none;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-activity__busy {
+  background: var(--surface-2);
+  color: var(--running);
+}
+
+.session-activity__done {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+
+.session-activity__list {
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+}
+
+.session-activity__item {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-activity__item:hover {
+  background: var(--surface-2);
+}
+
+.session-activity__item.current {
+  color: var(--muted);
+}
+
+/*
+ * Status colours, scoped to this panel.
+ *
+ * The list puts working and done side by side, so they cannot share a hue: the
+ * three states a reader acts on have to be told apart at a glance, and the app's
+ * default palette paints working and done as two greens.
+ *
+ * Red for still running, amber for waiting on the reader, green for finished.
+ * Amber rather than the app's red for `blocked`, because red is taken here by
+ * `working` — what matters in this panel is whether a pane needs the reader, not
+ * whether it stopped.
+ */
+.session-activity .dot.working {
+  background: var(--err);
+  animation: panel-working-halo 1.8s ease-in-out infinite;
+}
+
+@keyframes panel-working-halo {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--err) 10%, transparent);
+  }
+}
+
+.session-activity .dot.blocked {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+
+.session-activity .dot.done {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent);
+}
+
+.session-activity .pill.working {
+  background: color-mix(in srgb, var(--err) 20%, transparent);
+  color: var(--err);
+}
+
+.session-activity .pill.blocked {
+  background: color-mix(in srgb, var(--warn) 20%, transparent);
+  color: var(--warn);
+}
+
+.session-activity .pill.done {
+  background: color-mix(in srgb, var(--ok) 20%, transparent);
+  color: var(--ok);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-activity .dot.working {
+    animation: none;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--err) 22%, transparent);
+  }
+}
+
+/*
+ * A row whose agent just finished.
+ *
+ * The list is closed most of the time, so the animation is paused at its first
+ * frame while closed and only runs once the panel is open. Playing it unseen
+ * would be the same as not having it: the reader would open the panel to a row
+ * that had already finished flashing.
+ */
+.session-activity__item.finished {
+  animation: finish-flash 2.6s ease-out;
+  animation-play-state: paused;
+}
+
+.session-activity.open .session-activity__item.finished {
+  animation-play-state: running;
+}
+
+@keyframes finish-flash {
+  0% {
+    background: color-mix(in srgb, var(--ok) 34%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 55%, transparent);
+  }
+  55% {
+    background: color-mix(in srgb, var(--ok) 20%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 30%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* No motion to lose here — the tint is the signal — so the row just stays lit. */
+  .session-activity__item.finished {
+    animation: none;
+    background: color-mix(in srgb, var(--ok) 26%, transparent);
+  }
+}
+
+
+/*
+ * The name and its directory stack, so the panel stays narrow on a phone instead
+ * of running the path off the side.
+ */
+.session-activity__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-activity__name,
+.session-activity__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-activity__path {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
 .jump-to-latest {
   position: absolute;
   right: 1rem;
@@ -1888,6 +2223,20 @@ textarea {
 .agent-switcher {
   position: relative;
   flex: none;
+}
+
+/*
+ * Desktop hides the agent switcher: the session activity panel on the right edge
+ * lists the same panes and jumps to them, so keeping both would be two controls
+ * for one job in the same corner.
+ *
+ * A phone keeps it. The panel is a thin handle there and its list would cover the
+ * conversation, so the switcher stays the way to move between agents.
+ */
+@media (min-width: 50rem) {
+  .agent-switcher {
+    display: none;
+  }
 }
 
 /* Three stacked rules: the list this button opens. */
