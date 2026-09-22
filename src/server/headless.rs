@@ -3289,8 +3289,26 @@ impl HeadlessServer {
                         height_px: cell_height_px,
                     };
                 }
-                self.promote_client_to_foreground(client_id);
-                self.resize_shared_runtime_to_effective_size();
+                // A resize only changes this client's own size. It does not
+                // make the client the foreground one: the foreground client is
+                // whichever terminal the user is actually looking at, and that
+                // is decided by focus and by input, not by a window changing
+                // shape.
+                //
+                // Letting a resize promote would let any client steal the shared
+                // pane size. Two windows on one server resize for reasons that
+                // have nothing to do with the user's attention — collapsing the
+                // sidebar changes the column count, and a terminal regaining
+                // focus reports its size again — so every such event would
+                // rescale the panes for whoever had been in front, leaving the
+                // pane's row count no longer matching the height it is drawn in.
+                // The visible symptom is a band of blank rows under an agent's
+                // output in the window that lost the race.
+                if self.foreground_client_id == Some(client_id) {
+                    // The client in front resized, so the panes must follow it.
+                    self.sync_foreground_client_state();
+                    self.resize_shared_runtime_to_effective_size();
+                }
                 true
             }
             ServerEvent::ClientDetach { client_id } => {
@@ -7365,6 +7383,106 @@ next_tab = ""
         assert_eq!(server.foreground_client_id, Some(2));
         assert_eq!(server.clients[&1].outer_terminal_focus, Some(false));
         assert_eq!(server.app.state.outer_terminal_focus, Some(true));
+    }
+
+    #[test]
+    fn client_resize_does_not_promote_or_resize_a_background_client() {
+        let mut server = test_headless_server();
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (120, 40),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                Some(true),
+                1,
+                RenderEncoding::SemanticFrame,
+                None,
+            ),
+        );
+        server.clients.insert(
+            2,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                Some(false),
+                2,
+                RenderEncoding::SemanticFrame,
+                None,
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+        assert_eq!(server.effective_size, (120, 40));
+        // `PaneInfo` is not comparable, so keep the geometry that matters.
+        let pane_rects_before: Vec<_> = server
+            .app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .map(|info| info.inner_rect)
+            .collect();
+
+        // A background client reports a new size. It keeps its own size, but it
+        // does not take over the shared pane geometry: the user is looking at
+        // client 1, and a window changing shape is not a reason to move the
+        // panes out from under them.
+        assert!(server.handle_server_event(ServerEvent::ClientResize {
+            client_id: 2,
+            cols: 100,
+            rows: 30,
+            cell_width_px: 0,
+            cell_height_px: 0,
+        }));
+
+        assert_eq!(server.clients[&2].terminal_size, (100, 30));
+        assert_eq!(server.foreground_client_id, Some(1));
+        assert_eq!(server.effective_size, (120, 40));
+        // Pane geometry is keyed off the foreground size, so it must not have
+        // moved either.
+        let pane_rects_after: Vec<_> = server
+            .app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .map(|info| info.inner_rect)
+            .collect();
+        assert_eq!(pane_rects_after, pane_rects_before);
+    }
+
+    #[test]
+    fn client_resize_of_the_foreground_client_resizes_the_shared_runtime() {
+        let mut server = test_headless_server();
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (120, 40),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                Some(true),
+                1,
+                RenderEncoding::SemanticFrame,
+                None,
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        server.sync_foreground_client_state();
+        assert_eq!(server.effective_size, (120, 40));
+
+        assert!(server.handle_server_event(ServerEvent::ClientResize {
+            client_id: 1,
+            cols: 100,
+            rows: 30,
+            cell_width_px: 0,
+            cell_height_px: 0,
+        }));
+
+        assert_eq!(server.clients[&1].terminal_size, (100, 30));
+        assert_eq!(server.foreground_client_id, Some(1));
+        assert_eq!(server.effective_size, (100, 30));
     }
 
     #[test]
