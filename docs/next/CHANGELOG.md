@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.37] - 2026-09-23
+
+### Fixed
+- The unwritten-session test added in 0.7.36 is formatted, so `cargo fmt --check` passes on the release commit. Nothing about the behaviour changed.
+
 ## [0.7.36] - 2026-09-23
 
 ### Fixed
