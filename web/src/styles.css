@@ -57,11 +57,23 @@
   box-sizing: border-box;
 }
 
+/*
+ * The document is a frame, not a scroll surface. `#root` is pinned to the dynamic
+ * viewport and owns its scrolling, so these two only have to stop the document
+ * from moving at all; their own height is irrelevant once the root covers them.
+ */
 html,
-body,
-#root {
+body {
   height: 100%;
   margin: 0;
+  /*
+   * The document itself never scrolls or pans. Everything the app shows lives in
+   * `#root`, which is pinned to the viewport, so there is no page-level overflow
+   * for the browser to move. That matters on a phone: opening the keyboard pans
+   * the page up by the height of the keyboard unless told otherwise, and panning
+   * is not something layout can undo — the header goes off screen with it.
+   */
+  overflow: hidden;
 }
 
 body {
@@ -70,6 +82,31 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
+}
+
+/*
+ * The app box: the dynamic viewport, pinned, and the one scroller for screens that
+ * do not manage their own (the connect form, the session picker).
+ *
+ * `fixed` so it cannot be scrolled out of place — a height alone still leaves the
+ * page as a scrolling surface, and on a phone that surface is what slides when the
+ * keyboard opens. Pinned, there is nothing to slide.
+ *
+ * `100dvh` rather than `inset: 0` because `inset: 0` measures the layout viewport,
+ * which a phone keyboard does not change, while the screens inside use `100dvh`
+ * and do shrink with it. The two would disagree by the height of the keyboard,
+ * which is exactly the overflow this is meant to remove.
+ */
+#root {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Fallback for browsers without dynamic viewport units. */
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 button {
@@ -351,6 +388,15 @@ textarea {
 
 /* ---- shared chrome ---- */
 
+/*
+ * The screen header, held at the top of its own column.
+ *
+ * `sticky` rather than `fixed`: the header belongs to the screen it titles, and
+ * `fixed` would take it out of that column's flow, so the content underneath it
+ * would start at the very top. Sticky keeps it in flow while pinning it, which
+ * is what makes it stay put as the list scrolls — and it is positioned against
+ * the screen's own box, not the document, so nothing pulls it off screen.
+ */
 .topbar {
   display: flex;
   align-items: center;
@@ -361,6 +407,7 @@ textarea {
   background: var(--surface);
   position: sticky;
   top: 0;
+  /* Above the list it titles, below overlays and the activity rail. */
   z-index: 10;
 }
 
@@ -660,6 +707,7 @@ textarea {
 /* ---- agent list ---- */
 
 .list-screen {
+  /* Grows past the viewport and lets `#root` scroll it. */
   min-height: 100%;
   display: flex;
   flex-direction: column;
@@ -2705,9 +2753,18 @@ textarea {
   justify-content: flex-end;
 }
 
+/*
+ * Dismiss-on-outside-click, behind the panel.
+ *
+ * Explicitly behind: both boxes are positioned, so without a stack order the
+ * scrim — which comes later in the DOM — paints over the panel it is supposed to
+ * sit behind. The drawer then looks right and swallows every click, because the
+ * whole surface is the dismiss target.
+ */
 .subagent-drawer__scrim {
   position: absolute;
   inset: 0;
+  z-index: 0;
   background: color-mix(in srgb, var(--bg) 60%, transparent);
   border: 0;
   cursor: pointer;
@@ -2715,6 +2772,7 @@ textarea {
 
 .subagent-drawer__panel {
   position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   width: min(30rem, 92vw);
@@ -2858,8 +2916,22 @@ textarea {
   cursor: pointer;
 }
 
+/*
+ * The expanded detail, capped and scrolled on its own.
+ *
+ * A long run records hundreds of tool calls — one here reached 196 — and letting
+ * those flow into the drawer would make a single card taller than the viewport,
+ * so the panel's scroll position stops being a useful way to move between cards.
+ * Bounding the detail keeps every card a glanceable height and puts the long list
+ * behind its own scrollbar, where the reader asked for it.
+ */
 .run-detail {
   margin-top: 0.3rem;
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
 .run-output p {

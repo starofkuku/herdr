@@ -47,9 +47,9 @@ pub(crate) struct SubagentRun {
     pub(crate) current_tool_args: Option<String>,
     /// The workflow this run belongs to, when it is a child of one.
     pub(crate) parent_workflow_run_id: Option<String>,
-    /// Recent tool invocations, oldest first: what the run has been doing.
+    /// Tool invocations, oldest first: what the run has been doing.
     pub(crate) tools: Vec<SubagentToolCall>,
-    /// Recent output lines from the run, oldest first.
+    /// Output lines from the run, oldest first.
     pub(crate) output: Vec<String>,
     /// Result files the extension wrote for this run.
     pub(crate) artifacts: Vec<String>,
@@ -63,10 +63,19 @@ pub(crate) struct SubagentToolCall {
 
 /// How much of a run's history to carry.
 ///
-/// The file keeps a short tail anyway, but a cap keeps the API response
-/// predictable whatever the extension decides to retain.
-const MAX_TOOLS: usize = 20;
-const MAX_OUTPUT: usize = 20;
+/// The extension keeps the whole tool history in `status.json`, and a long run
+/// produces hundreds of entries — a fan-out that reads a large repository hit 196
+/// in one run here. Carrying a short tail was a guess made before that was
+/// measured; it left the detail panel showing a twentieth of the work, which
+/// reads as a bug rather than as a summary. A real tool call is around 110 bytes,
+/// so even several hundred is tens of kilobytes — nothing for a local UI that
+/// already ships a 400 kB page.
+///
+/// The cap is therefore a guard against a pathological run, not a display
+/// budget: it sits far above anything observed and only trips if the extension
+/// ever retains something unreasonable.
+const MAX_TOOLS: usize = 2000;
+const MAX_OUTPUT: usize = 2000;
 
 /// Reads the runs belonging to the session at `transcript_path`.
 ///
@@ -250,8 +259,10 @@ fn read_tools(step: &serde_json::Value) -> Vec<SubagentToolCall> {
     else {
         return Vec::new();
     };
-    let start = entries.len().saturating_sub(MAX_TOOLS);
-    entries[start..]
+    // Entries are chronological, so a cap keeps the start of the run: that is
+    // where the task is set up, and it is what a reader scrolls to first. The
+    // tail is already summarised by the counters above the list.
+    entries[..entries.len().min(MAX_TOOLS)]
         .iter()
         .filter_map(|entry| {
             Some(SubagentToolCall {
@@ -276,8 +287,7 @@ fn read_output(step: &serde_json::Value) -> Vec<String> {
     else {
         return Vec::new();
     };
-    let start = entries.len().saturating_sub(MAX_OUTPUT);
-    entries[start..]
+    entries[..entries.len().min(MAX_OUTPUT)]
         .iter()
         .filter_map(|entry| entry.as_str())
         .filter(|line| !line.trim().is_empty())
@@ -462,6 +472,48 @@ mod tests {
         assert_eq!(run.tokens, Some(120));
         assert_eq!(run.current_tool.as_deref(), Some("bash"));
         assert_eq!(run.current_tool_args.as_deref(), Some("sleep 70"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A long run keeps its whole tool history.
+    ///
+    /// The extension records every tool call, and a fan-out that reads a large
+    /// repository produces hundreds. An earlier cap of 20 was a guess made before
+    /// that was measured, and it made the detail panel show a twentieth of the
+    /// work — which reads as a broken panel, not as a summary.
+    #[test]
+    fn a_long_run_keeps_its_tool_history() {
+        let dir = scratch("long-history");
+        let tools: Vec<String> = (0..250)
+            .map(|i| format!(r#"{{"tool":"bash","args":"step {i}","endMs":{i}}}"#))
+            .collect();
+        let output: Vec<String> = (0..250).map(|i| format!(r#""line {i}""#)).collect();
+        let body = format!(
+            r#"{{
+              "runId": "mine",
+              "sessionId": "{STEM}",
+              "mode": "single",
+              "state": "complete",
+              "cwd": "/home/u/project",
+              "toolCount": 250,
+              "steps": [{{
+                "agent": "scout",
+                "sessionName": "scout: long run",
+                "recentTools": [{}],
+                "recentOutput": [{}]
+              }}]
+            }}"#,
+            tools.join(","),
+            output.join(",")
+        );
+        write_run(&dir, "mine", &body);
+
+        let run = &read_runs_in(&dir, STEM)[0];
+        assert_eq!(run.tools.len(), 250, "the whole history is carried");
+        assert_eq!(run.output.len(), 250);
+        // Chronological order: the cap, when it applies, must keep the start.
+        assert_eq!(run.tools[0].args, "step 0");
+        assert_eq!(run.tools[249].args, "step 249");
         fs::remove_dir_all(&dir).ok();
     }
 
