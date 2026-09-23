@@ -1263,6 +1263,34 @@ impl App {
             );
         };
 
+        // A session the agent has started but not written to yet.
+        //
+        // The integration publishes the transcript path as soon as the agent
+        // opens a session, but the agent only creates the file when it has its
+        // first message. Reporting "unreadable" for that is wrong twice over: it
+        // is expected rather than broken, and it is the state every new session
+        // passes through. An empty conversation is the honest answer.
+        if !std::path::Path::new(&path).exists() {
+            return encode_success(
+                id,
+                ResponseResult::PaneSession {
+                    session: PaneSessionResult {
+                        pane_id: public_pane_id,
+                        path,
+                        agent: reported_agent,
+                        // Nothing has been written, so there is nothing to read a
+                        // provider out of. The pane's own detection is the only
+                        // label available.
+                        provider: String::new(),
+                        cwd: None,
+                        total_tokens: None,
+                        turns: Vec::new(),
+                        pagination: None,
+                    },
+                },
+            );
+        }
+
         // Load on miss, then refresh, so repeated paging does not re-parse.
         if self.session_cache.get_mut(&path).is_none() {
             match codex_trace_parser::session::SessionHandle::load(std::path::Path::new(&path)) {
@@ -2880,6 +2908,58 @@ mod tests {
         assert_eq!(scroll.offset_from_bottom, 3);
         assert!(scroll.max_offset_from_bottom >= scroll.offset_from_bottom);
         assert_eq!(scroll.viewport_rows, 5);
+    }
+
+    /// A session the agent opened but has not written to yet reports no turns.
+    ///
+    /// The integration publishes the transcript path when the agent opens a
+    /// session, and the agent only creates the file once it has a first message.
+    /// Treating that as unreadable showed an error to anyone who opened a fresh
+    /// pane in the web UI.
+    #[tokio::test]
+    async fn api_pane_session_without_a_transcript_file_is_empty_not_an_error() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        // A path under a directory that exists but holds no file, which is what a
+        // freshly opened session looks like.
+        let dir = std::env::temp_dir().join(format!("herdr-empty-session-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let missing = dir.join("not-written-yet.jsonl");
+        let _ = std::fs::remove_file(&missing);
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("test terminal")
+            .persisted_agent_session = Some(crate::agent_resume::PersistedAgentSession {
+            source: "herdr:pi".into(),
+            agent: "pi".into(),
+            session_ref: crate::agent_resume::AgentSessionRef {
+                kind: crate::agent_resume::AgentSessionRefKind::Path,
+                value: missing.display().to_string(),
+            },
+        });
+
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req".into(),
+            method: crate::api::schema::Method::PaneSession(PaneSessionParams {
+                pane_id: public_pane_id.clone(),
+                cursor: None,
+                max_bytes: None,
+            }),
+        });
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneSession { session } = success.result else {
+            panic!("expected a session response, got {:?}", success.result);
+        };
+        assert!(session.turns.is_empty());
+        assert_eq!(session.pane_id, public_pane_id);
+        assert_eq!(session.path, missing.display().to_string());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
