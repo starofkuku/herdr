@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.7.36] - 2026-09-23
+
+### Fixed
+- A subagent drawer no longer swallows every click. The dismiss-on-outside-click layer is positioned over the whole screen and comes after the panel in the document, and neither had a stack order — so the layer painted over the panel it is meant to sit behind, and the drawer looked right while every click on it dismissed it. Both boxes now declare their order.
+- A session the agent has opened but not written to yet reports an empty conversation instead of an error. The integration publishes the transcript path as soon as the agent opens a session, and the agent only creates the file when it has a first message, so every fresh pane passed through a state that the web UI showed as `ApiError: session file does not exist`.
+- A long subagent run keeps its whole tool history in the detail panel. The API carried only the last 20 entries, which showed a twentieth of a run's work and read as a broken panel; the extension records the full chronological history, so the answer is to pass it through. The cap is now a guard against a pathological run rather than a display budget, and it keeps the start of the run when it does apply.
+- Opening a phone keyboard no longer lets the whole app be dragged up and down. The document was `height: 100%` — the layout viewport, which a keyboard does not change — while the screens inside used `100dvh`, which does; the root was therefore taller than the app it held and the difference was scrollable. Both now use the same unit, the root is pinned to the dynamic viewport, and the viewport asks for `interactive-widget=resizes-content` so a keyboard shrinks the content instead of panning the page.
+- Returning to the web UI after a phone has been asleep no longer leaves the stop control on screen for an agent that has already finished. A backgrounded tab has its timers frozen, so the reconnect backoff never ran and the page came back to a dead socket; it also kept the last status it had seen, because the reconnect path skipped the refresh when the session binding was already correct. The page now reconnects as soon as it is visible, and a reconnect always reloads the agent list. The grace period that follows a send is also measured from the send, so a turn that ended while the page was hidden does not replay the wait.
+
 ## [0.7.35] - 2026-09-22
 
 ### Added
