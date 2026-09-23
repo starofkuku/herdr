@@ -2920,8 +2920,7 @@ mod tests {
     async fn api_pane_session_without_a_transcript_file_is_empty_not_an_error() {
         let (mut app, public_pane_id) = app_with_test_workspace();
         let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0]
-            .panes[&pane_id]
+        let terminal_id = app.state.workspaces[0].panes[&pane_id]
             .attached_terminal_id
             .clone();
         // A path under a directory that exists but holds no file, which is what a
