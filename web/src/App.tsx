@@ -296,8 +296,16 @@ export default function App() {
     const wanted = routeRef.current;
     if (wanted.view === "root") return;
     if (restoringRef.current) return;
-    // Already bound to the right session; only a pane change is left to apply.
-    if (sessionRef.current === wanted.session) return;
+    // Already bound to the right session. The binding survives a reconnect, but
+    // the data does not: everything that changed while the page was suspended was
+    // missed, so the list has to be pulled again rather than kept. Without this a
+    // phone that was backgrounded through an agent finishing comes back to the
+    // stale status it last saw — which is what leaves a stop control on screen
+    // for work that is already over.
+    if (sessionRef.current === wanted.session) {
+      void refreshAgents();
+      return;
+    }
     restoringRef.current = true;
     void (async () => {
       try {

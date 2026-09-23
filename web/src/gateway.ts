@@ -93,6 +93,20 @@ export class GatewayClient {
    */
   private lastState: ConnectionState = "closed";
 
+  /**
+   * Reconnects as soon as the page is visible again.
+   *
+   * A backgrounded tab has its timers frozen, so the reconnect backoff cannot
+   * run until the page is visible — which is exactly when the connection is
+   * wanted. Without this the page comes back to a dead socket and shows whatever
+   * it last knew: an agent that finished in the meantime still looks like it is
+   * working, so the stop control stays on screen after there is nothing to stop.
+   */
+  private readonly onVisibilityChange = () => {
+    if (document.hidden) return;
+    if (this.credentials && !this.closedByUser) this.retryNow();
+  };
+
   private pending = new Map<
     string,
     { resolve: (value: ApiEnvelope) => void; reject: (err: Error) => void }
@@ -102,6 +116,7 @@ export class GatewayClient {
 
   constructor(handlers: GatewayHandlers) {
     this.handlers = handlers;
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
   }
 
   connect(url: string, key: string): void {
@@ -417,6 +432,7 @@ export class GatewayClient {
    */
   close(): void {
     this.closedByUser = true;
+    document.removeEventListener("visibilitychange", this.onVisibilityChange);
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

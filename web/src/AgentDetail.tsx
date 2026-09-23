@@ -32,6 +32,16 @@ import {
 const SENT_ECHO_TIMEOUT_MS = 30_000;
 
 /**
+ * How long a fresh send is trusted to still be running.
+ *
+ * Detection lags the send, so a non-working status seen immediately after
+ * sending is not evidence that the turn ended. Measured from the send, not from
+ * each status change, so a turn that ended while the page was backgrounded is
+ * already past the grace period when the page returns.
+ */
+const GRACE_MS = 1500;
+
+/**
  * What the server returns for one staged file.
  *
  * Only the fields the UI reads are declared. `paste_text` is already shaped for
@@ -239,6 +249,17 @@ export function AgentDetail({
   const refreshTimer = useRef<number | null>(null);
   const inFlight = useRef(false);
   const stopTimer = useRef<number | null>(null);
+  /**
+   * When the current sent turn began, for the grace period below.
+   *
+   * A turn is only over once the agent stops reporting `working`, but detection
+   * lags the send, so the first non-working status right after sending is not
+   * trusted. Measuring from the send rather than waiting a fixed period each time
+   * the status changes means the grace has already elapsed by the time the page
+   * comes back from being backgrounded — where the turn ended long ago and there
+   * is nothing left to wait for.
+   */
+  const pendingSince = useRef(0);
 
   /**
    * Replaces the newest page with fresh output.
@@ -510,6 +531,7 @@ export function AgentDetail({
       setDraft("");
       setError(null);
       setPendingTurn(true);
+      pendingSince.current = Date.now();
       setSentMessage(text);
       if (sentExpiry.current !== null) window.clearTimeout(sentExpiry.current);
       sentExpiry.current = window.setTimeout(() => {
@@ -581,10 +603,13 @@ export function AgentDetail({
       return;
     }
     if (stopTimer.current !== null) return;
+    // Only the part of the grace period that has not already passed, so a turn
+    // that ended while the page was hidden does not replay the wait.
+    const remaining = Math.max(0, GRACE_MS - (Date.now() - pendingSince.current));
     stopTimer.current = window.setTimeout(() => {
       stopTimer.current = null;
       setPendingTurn(false);
-    }, 1500);
+    }, remaining);
   }, [pendingTurn, agent?.status]);
 
   // Switching panes must not carry the affordance across.

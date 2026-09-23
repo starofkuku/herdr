@@ -2,7 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <!--
+      `interactive-widget=resizes-content` makes a phone keyboard shrink the
+      content area instead of panning the whole page up. Without it the browser
+      pushes the page by the height of the keyboard, which takes the header off
+      screen along with everything else and cannot be undone by layout: the
+      viewport itself moved. Chromium honours this; Safari ignores the directive
+      and pans regardless, which the fixed root below still contains.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="dark" />
     <title>herdr web</title>
   </head>
