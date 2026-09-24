@@ -2322,6 +2322,339 @@ fn platform_target() -> (&'static str, &'static str) {
 // Tests
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// herdr switch
+// ---------------------------------------------------------------------------
+
+pub(crate) const SWITCH_USAGE: &str = "usage: herdr switch <version>
+       herdr switch --list
+
+  Installs a specific released version, replacing the binary in place.
+  Accepts 0.7.30 or v0.7.30. `--list` shows the versions available.";
+
+/// The subset of a GitHub release that a switch needs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SwitchRelease {
+    /// The tag as GitHub spells it, for example `v0.7.30`.
+    tag: String,
+    download_url: String,
+    /// `sha256:<hex>` as published by the release API, when present.
+    digest: Option<String>,
+    size: Option<u64>,
+}
+
+/// What `herdr switch` was asked to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SwitchTarget {
+    /// Install the named version.
+    Version(Version),
+    /// Print the versions the repository has releases for.
+    List,
+}
+
+pub(crate) fn parse_switch_args(args: &[String]) -> Result<SwitchTarget, String> {
+    let mut version: Option<Version> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--help" | "-h" => return Err(SWITCH_USAGE.to_string()),
+            "--list" => return Ok(SwitchTarget::List),
+            other if other.starts_with('-') => {
+                return Err(format!("unknown switch option: {other}"));
+            }
+            other => {
+                if version.is_some() {
+                    return Err(format!("unexpected argument: {other}"));
+                }
+                let parsed = Version::parse(other).ok_or_else(|| {
+                    format!("invalid version: {other} (expected something like 0.7.30)")
+                })?;
+                version = Some(parsed);
+            }
+        }
+    }
+
+    match version {
+        Some(version) => Ok(SwitchTarget::Version(version)),
+        None => Err(SWITCH_USAGE.to_string()),
+    }
+}
+
+/// The repository `herdr update` already tracks.
+///
+/// Derived from the manifest URL rather than written out again, so the two
+/// commands cannot drift onto different repositories.
+fn releases_api_base() -> Result<String, String> {
+    let manifest = STABLE_UPDATE_MANIFEST_URL;
+    let rest = manifest
+        .strip_prefix("https://raw.githubusercontent.com/")
+        .ok_or_else(|| format!("unexpected update manifest url: {manifest}"))?;
+    let mut parts = rest.splitn(3, '/');
+    let owner = parts.next().ok_or("update manifest url has no owner")?;
+    let repo = parts
+        .next()
+        .ok_or("update manifest url has no repository")?;
+    Ok(format!("https://api.github.com/repos/{owner}/{repo}"))
+}
+
+fn github_api_get(url: &str, timeout_secs: &str) -> Result<serde_json::Value, String> {
+    let output = Command::new("curl")
+        .args([
+            "-sfL",
+            "--max-time",
+            timeout_secs,
+            "-H",
+            "Accept: application/vnd.github+json",
+        ])
+        .arg(url)
+        .output()
+        .map_err(|e| format!("failed to run curl: {e}"))?;
+
+    if !output.status.success() {
+        return Err("request failed".into());
+    }
+    serde_json::from_slice(&output.stdout).map_err(|e| format!("invalid release json: {e}"))
+}
+
+/// Resolves one released version to a downloadable asset.
+///
+/// The manifest `herdr update` reads only ever describes the newest release, so a
+/// specific older version has to come from the release API. That API also
+/// publishes a sha256 digest per asset, which is what makes the download
+/// verifiable — the manifest's own assets carry no checksum.
+fn fetch_switch_release(version: &Version, os: &str, arch: &str) -> Result<SwitchRelease, String> {
+    let base = releases_api_base()?;
+    let tag = format!("v{version}");
+    let body = github_api_get(&format!("{base}/releases/tags/{tag}"), "30").map_err(|_| {
+        // A missing tag is the common case — a typo, or a version that was never
+        // released — so it gets its own message rather than a curl status.
+        format!("no release found for v{version}. Run `herdr switch --list` to see what exists.")
+    })?;
+
+    let asset_name = format!("herdr-{os}-{arch}");
+    let assets = body
+        .get("assets")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("release has no assets")?;
+
+    let asset = assets
+        .iter()
+        .find(|asset| asset.get("name").and_then(serde_json::Value::as_str) == Some(&asset_name))
+        .ok_or_else(|| format!("v{version} has no asset named {asset_name}"))?;
+
+    let download_url = asset
+        .get("browser_download_url")
+        .and_then(serde_json::Value::as_str)
+        .ok_or("release asset has no download url")?
+        .to_string();
+
+    Ok(SwitchRelease {
+        tag,
+        download_url,
+        digest: asset
+            .get("digest")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        size: asset.get("size").and_then(serde_json::Value::as_u64),
+    })
+}
+
+/// Lists released versions, newest first, marking the installed one.
+fn fetch_release_tags() -> Result<Vec<String>, String> {
+    let base = releases_api_base()?;
+    let body = github_api_get(&format!("{base}/releases?per_page=30"), "30")
+        .map_err(|_| "failed to list releases".to_string())?;
+    let releases = body.as_array().ok_or("release list is not an array")?;
+
+    let installed = Version::current();
+    let mut out = Vec::new();
+    for release in releases {
+        let Some(tag) = release.get("tag_name").and_then(serde_json::Value::as_str) else {
+            continue;
+        };
+        let Some(version) = Version::parse(tag) else {
+            continue;
+        };
+        if version == installed {
+            out.push(format!("{tag}  (installed)"));
+        } else {
+            out.push(tag.to_string());
+        }
+    }
+    Ok(out)
+}
+
+/// Downloads one asset and verifies it against the digest the API published.
+///
+/// Mirrors `download_update`, but takes the URL from the resolved release rather
+/// than from the update manifest.
+#[cfg(not(windows))]
+fn download_switch_asset(release: &SwitchRelease) -> Result<DownloadedUpdate, String> {
+    let current_exe = env::current_exe().map_err(|e| format!("can't find current binary: {e}"))?;
+    let parent = current_exe.parent().ok_or("can't find binary directory")?;
+
+    let test_path = parent.join(".herdr-write-test");
+    if let Err(e) = fs::write(&test_path, b"") {
+        let _ = fs::remove_file(&test_path);
+        return Err(format!(
+            "install directory not writable: {} ({}). Try running with appropriate permissions.",
+            parent.display(),
+            e
+        ));
+    }
+    let _ = fs::remove_file(&test_path);
+
+    let tmp_path = parent.join(format!(".herdr-switch-{}.tmp", std::process::id()));
+
+    let status = Command::new("curl")
+        .args(["-sfL", "--max-time", "300", "-o"])
+        .arg(&tmp_path)
+        .arg(&release.download_url)
+        .status()
+        .map_err(|e| format!("download failed: {e}"))?;
+
+    if !status.success() {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("download failed for {}", release.tag));
+    }
+
+    if let Some(digest) = &release.digest {
+        // The API spells it `sha256:<hex>`; the verifier takes the bare hex.
+        let expected = digest.strip_prefix("sha256:").unwrap_or(digest);
+        if let Err(e) = crate::checksum::verify_sha256(&tmp_path, expected) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(format!(
+                "checksum verification failed for {} (expected {expected}): {e}",
+                release.tag
+            ));
+        }
+        eprintln!("checksum verified");
+    } else {
+        // Releases published before the API exposed digests have none. Refusing
+        // would make older versions unreachable, so this warns instead.
+        eprintln!(
+            "warning: {} publishes no checksum; not verified",
+            release.tag
+        );
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Err(e) = fs::set_permissions(&tmp_path, fs::Permissions::from_mode(0o755)) {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(format!("chmod failed: {e}"));
+        }
+    }
+
+    Ok(DownloadedUpdate {
+        current_exe,
+        tmp_path: Some(tmp_path),
+    })
+}
+
+/// Runs `herdr switch`.
+pub(crate) fn switch(target: SwitchTarget) -> Result<(), String> {
+    if let SwitchTarget::List = target {
+        let tags = fetch_release_tags()?;
+        if tags.is_empty() {
+            eprintln!("no releases found");
+            return Ok(());
+        }
+        for tag in tags {
+            println!("{tag}");
+        }
+        return Ok(());
+    }
+
+    let SwitchTarget::Version(version) = target else {
+        unreachable!("list handled above");
+    };
+
+    // The same guards `herdr update` applies: an install owned by a package
+    // manager must not have its binary replaced underneath it.
+    if is_homebrew_managed_install() {
+        return Err("switching is disabled for Homebrew installs; use `brew` instead".into());
+    }
+    if is_mise_managed_install() {
+        return Err("switching is disabled for mise installs".into());
+    }
+    if is_nix_managed_install() {
+        return Err("switching is disabled for Nix installs".into());
+    }
+    if running_inside_herdr() {
+        return Err("run `herdr switch` outside herdr after detaching from the session".into());
+    }
+
+    let installed = Version::current();
+    if version == installed {
+        eprintln!("already on {version}");
+        return Ok(());
+    }
+
+    #[cfg(windows)]
+    {
+        let _ = version;
+        Err("switching is not supported on Windows yet".into())
+    }
+
+    #[cfg(not(windows))]
+    {
+        let (os, arch) = platform_target();
+        if os == "unknown" || arch == "unknown" {
+            return Err("unsupported platform".into());
+        }
+
+        eprintln!("looking up {version}...");
+        let release = fetch_switch_release(&version, os, arch)?;
+        match release.size {
+            Some(size) => eprintln!(
+                "found {} ({:.1} MiB)",
+                release.tag,
+                size as f64 / 1_048_576.0
+            ),
+            None => eprintln!("found {}", release.tag),
+        }
+
+        // Running servers are decided through `herdr update`'s own path, so a
+        // switch prompts, hands off, and restarts exactly the way an update does.
+        let release_info = ReleaseInfo {
+            version: version.clone(),
+            identity: release.tag.clone(),
+            channel: UpdateChannel::Stable,
+            build_id: None,
+            commit: None,
+            target_protocol: None,
+            download_url: release.download_url.clone(),
+            sha256: release.digest.clone(),
+            notes_body: String::new(),
+        };
+        let options = SelfUpdateOptions::default();
+        let plans = plan_running_server_updates(&release_info)?;
+        let decisions = confirm_running_server_update_action(plans, &release_info, options)?;
+
+        eprintln!("downloading {}...", release.tag);
+        let downloaded = download_switch_asset(&release)?;
+        let updated_exe = downloaded.current_exe.clone();
+
+        if !prompt_to_complete_plain_update(&decisions, &release_info)? {
+            eprintln!("Herdr was not switched.");
+            eprintln!(
+                "Stop running Herdr sessions when ready, then run `herdr switch {version}` again."
+            );
+            return Ok(());
+        }
+
+        install_downloaded_update(downloaded)?;
+        eprintln!("installed {}", release.tag);
+
+        let decisions = mark_plain_update_stop_decisions(decisions);
+        let outcomes =
+            apply_running_session_update_decisions(&release_info, &updated_exe, decisions)?;
+        print_running_session_update_outcomes(&outcomes, &release_info);
+        Ok(())
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -3288,6 +3621,61 @@ mod tests {
     fn current_version_parses() {
         let v = Version::current();
         assert!(v.major < 100);
+    }
+
+    #[test]
+    fn switch_parses_a_version_with_or_without_the_v_prefix() {
+        for input in ["0.7.30", "v0.7.30"] {
+            let parsed = parse_switch_args(&[input.to_string()]).expect("should parse");
+            assert_eq!(
+                parsed,
+                SwitchTarget::Version(Version {
+                    major: 0,
+                    minor: 7,
+                    patch: 30
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn switch_rejects_a_version_it_cannot_understand() {
+        for input in ["v0.7", "0.7.30.1", "latest", "0.7.x", ""] {
+            let err = parse_switch_args(&[input.to_string()]).expect_err("should reject");
+            assert!(
+                err.starts_with("invalid version") || err.starts_with("usage:"),
+                "{input} produced {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn switch_lists_without_a_version() {
+        assert_eq!(
+            parse_switch_args(&["--list".to_string()]).unwrap(),
+            SwitchTarget::List
+        );
+    }
+
+    #[test]
+    fn switch_rejects_a_second_version() {
+        let err = parse_switch_args(&["0.7.30".to_string(), "0.7.31".to_string()])
+            .expect_err("should reject");
+        assert!(err.contains("unexpected argument"), "{err}");
+    }
+
+    #[test]
+    fn switch_rejects_unknown_flags() {
+        let err = parse_switch_args(&["--force".to_string()]).expect_err("should reject");
+        assert!(err.contains("unknown switch option"), "{err}");
+    }
+
+    /// The repository comes from the manifest URL so the two commands cannot
+    /// drift onto different repositories.
+    #[test]
+    fn switch_uses_the_same_repository_as_the_update_manifest() {
+        let base = releases_api_base().expect("manifest url should parse");
+        assert_eq!(base, "https://api.github.com/repos/starofkuku/herdr");
     }
 
     #[test]

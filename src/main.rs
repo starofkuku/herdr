@@ -550,6 +550,28 @@ fn main() -> io::Result<()> {
         }
     }
 
+    if args.get(1).map(|s| s.as_str()) == Some("switch") {
+        let target = match update::parse_switch_args(&args[2..]) {
+            Ok(target) => target,
+            Err(err) if err.starts_with("usage:") => {
+                eprintln!("{err}");
+                std::process::exit(0);
+            }
+            Err(err) => {
+                eprintln!("{err}");
+                eprintln!("{}", update::SWITCH_USAGE);
+                std::process::exit(2);
+            }
+        };
+        return match update::switch(target) {
+            Ok(()) => Ok(()),
+            Err(err) => {
+                eprintln!("switch failed: {err}");
+                std::process::exit(1);
+            }
+        };
+    }
+
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("herdr — terminal workspace manager for AI coding agents");
         println!();
@@ -559,6 +581,7 @@ fn main() -> io::Result<()> {
         println!("       herdr session attach <name>");
         println!("       herdr completion zsh");
         println!("       herdr update [--handoff]");
+        println!("       herdr switch <version>");
         println!("       herdr channel set <stable|preview>");
         println!("       herdr server stop");
         println!("       herdr server reload-config");
