@@ -1805,7 +1805,10 @@ impl HeadlessServer {
             url: feishu.url.clone(),
             secret: feishu.secret.clone(),
             push: crate::server::feishu::Push {
-                title: format!("{} {}", fields.agent, fields.event),
+                // Prefixed so a push is identifiable as Herdr's in a busy chat
+                // list, where the agent name alone reads like any other message.
+                // The separator matches the card's own footer.
+                title: format!("herdr · {} {}", fields.agent, fields.event),
                 project: fields.project,
                 agent: fields.agent,
                 state: fields.event.to_owned(),

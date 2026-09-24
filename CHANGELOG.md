@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.40] - 2026-09-24
+
+### Changed
+- A Feishu push is titled `herdr · <agent> <event>` rather than `<agent> <event>`. In a busy chat list the agent name alone reads like any other message, and the card's own footer already carries the same prefix, so the two now agree.
+
 ## [0.7.39] - 2026-09-24
 
 ### Changed
