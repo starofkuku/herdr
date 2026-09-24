@@ -1,14 +1,24 @@
 {
-  "version": "0.7.38",
+  "version": "0.7.39",
   "protocol": 22,
-  "notes": "### Added\n- `herdr switch <version>` installs a specific released version in place of the one you are running, and `herdr switch --list` shows what is available with the installed version marked. The update manifest only ever describes the newest release, so a chosen version is resolved through the release API instead \u2014 which also publishes a sha256 digest per asset, so the download is verified. Releases from before that metadata existed have none, and the command says so rather than refusing to install them. Running sessions go through the same decision path `herdr update` uses, including the prompt to stop an old server when the protocol changed.\n\n### Fixed\n- A pane's row count is no longer compared against its rect on every frame. That check ran for every pane of every frame and called into the terminal runtime, which takes a lock and crosses the FFI boundary \u2014 on a remote session, where every frame is rendered for a client, it showed up as noticeable lag. The check was diagnostic and is gone; `herdr update` and `herdr switch` are unaffected.",
+  "notes": "### Changed\n- In the web UI, a finished subagent is recorded under the turn that asked for it instead of sitting in the bar above the composer forever. Each one appears as a row beneath that turn's answer, with its agent, what it did, and its tool count; the row opens the same drawer for the full detail. The bar is left to report only what is still running, which is the thing worth interrupting a reader for. Runs the transcript cannot place \u2014 they started before the oldest loaded page \u2014 stay out of the conversation rather than being shown at the wrong turn.\n\n- The todo panel is only shown while something is left to do. A finished list is not context for anything, and leaving it parked over the conversation with nothing to say matched neither the CLI nor the work it described.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.38/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.38/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.38/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.38/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.39": {
+      "notes": "### Changed\n- In the web UI, a finished subagent is recorded under the turn that asked for it instead of sitting in the bar above the composer forever. Each one appears as a row beneath that turn's answer, with its agent, what it did, and its tool count; the row opens the same drawer for the full detail. The bar is left to report only what is still running, which is the thing worth interrupting a reader for. Runs the transcript cannot place \u2014 they started before the oldest loaded page \u2014 stay out of the conversation rather than being shown at the wrong turn.\n\n- The todo panel is only shown while something is left to do. A finished list is not context for anything, and leaving it parked over the conversation with nothing to say matched neither the CLI nor the work it described.",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.39/herdr-macos-aarch64"
+      }
+    },
     "0.7.38": {
       "notes": "### Added\n- `herdr switch <version>` installs a specific released version in place of the one you are running, and `herdr switch --list` shows what is available with the installed version marked. The update manifest only ever describes the newest release, so a chosen version is resolved through the release API instead \u2014 which also publishes a sha256 digest per asset, so the download is verified. Releases from before that metadata existed have none, and the command says so rather than refusing to install them. Running sessions go through the same decision path `herdr update` uses, including the prompt to stop an old server when the protocol changed.\n\n### Fixed\n- A pane's row count is no longer compared against its rect on every frame. That check ran for every pane of every frame and called into the terminal runtime, which takes a lock and crosses the FFI boundary \u2014 on a remote session, where every frame is rendered for a client, it showed up as noticeable lag. The check was diagnostic and is gone; `herdr update` and `herdr switch` are unaffected.",
       "protocol": 22,
