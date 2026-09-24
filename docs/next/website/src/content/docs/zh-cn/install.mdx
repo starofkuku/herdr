@@ -146,6 +146,21 @@ herdr update --handoff
 
 实时交接不适用于 Homebrew、mise 或 Nix 的包管理器更新。这些安装先用包管理器更新,然后在准备好使用新服务器时重启那个 Herdr 会话。如果运行中的会话仍在使用旧服务器,用 `herdr server stop` 或 `herdr session stop <name>` 停止它,再重新运行 Herdr。
 
+## 切换版本
+
+`herdr switch` 会用指定版本就地替换当前正在运行的版本：
+
+```bash
+herdr switch 0.7.30    # 比当前已安装的版本更旧
+herdr switch --list    # 列出可用版本，并标出已安装的那个
+```
+
+仅适用于直接安装。与 `herdr update` 相同的理由，它在 Homebrew、mise、Nix 下会拒绝执行：这些工具自己管理二进制文件。
+
+下载会用 GitHub 为该发布资产公布的 sha256 校验和进行校验。早于该元数据存在的发布没有校验和，此时命令会说明情况而不是直接失败——否则那些版本就无法使用了。
+
+正在运行的会话与更新时同样处理，包括在客户端/服务端协议变化时询问是否停止旧服务端。
+
 ## 系统要求
 
 Herdr 稳定版支持 Linux 和 macOS。Windows 原生构建是仅限预览版的测试版发布;受支持的工作流和已知限制见 [Windows 测试版](/zh-cn/docs/windows-beta/)。

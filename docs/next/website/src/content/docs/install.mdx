@@ -146,6 +146,21 @@ herdr update --handoff
 
 Live handoff does not apply to Homebrew, mise, or Nix package-manager updates. For those installs, update with the package manager, then restart that Herdr session when you are ready to use the new server. If a running session still uses the old server, stop it with `herdr server stop` or `herdr session stop <name>`, then run Herdr again.
 
+## Switching versions
+
+`herdr switch` installs a specific released version in place of the one you are running:
+
+```bash
+herdr switch 0.7.30    # a version older than the one installed
+herdr switch --list    # what is available, with the installed one marked
+```
+
+It is for direct installs only, and refuses to run under Homebrew, mise, or Nix for the same reason `herdr update` does: those manage the binary themselves.
+
+The download is verified against the sha256 checksum GitHub publishes for the release asset. Releases from before that metadata existed have no checksum, and the command says so rather than failing — the alternative would be to make those versions unreachable.
+
+Running sessions are handled the same way an update handles them, including the prompt to stop an old server when the client/server protocol changed.
+
 ## Requirements
 
 Stable Herdr releases support Linux and macOS. Native Windows builds are preview-only beta releases; see [Windows beta](/docs/windows-beta/) for supported workflows and known limitations.

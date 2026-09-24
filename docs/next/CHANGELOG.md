@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.7.38] - 2026-09-24
+
+### Added
+- `herdr switch <version>` installs a specific released version in place of the one you are running, and `herdr switch --list` shows what is available with the installed version marked. The update manifest only ever describes the newest release, so a chosen version is resolved through the release API instead — which also publishes a sha256 digest per asset, so the download is verified. Releases from before that metadata existed have none, and the command says so rather than refusing to install them. Running sessions go through the same decision path `herdr update` uses, including the prompt to stop an old server when the protocol changed.
+
+### Fixed
+- A pane's row count is no longer compared against its rect on every frame. That check ran for every pane of every frame and called into the terminal runtime, which takes a lock and crosses the FFI boundary — on a remote session, where every frame is rendered for a client, it showed up as noticeable lag. The check was diagnostic and is gone; `herdr update` and `herdr switch` are unaffected.
+
 ## [0.7.37] - 2026-09-23
 
 ### Fixed
