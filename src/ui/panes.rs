@@ -162,44 +162,6 @@ fn stable_scrollbar_gutter(rt: &TerminalRuntime, pane_inner: Rect) -> (Rect, Opt
 }
 
 /// Resize every visible runtime in a tab to the geometry it would receive if the tab were selected.
-/// Resizes a pane runtime to the rect it is about to be drawn in.
-///
-/// The runtime's row count and the rect it is drawn into are two separate pieces
-/// of state, and nothing in the type system keeps them equal: the rect comes from
-/// layout, the row count from whichever resize last ran. They drift apart when a
-/// render happens for one client and the resize that belongs with it does not, and
-/// the visible symptom is a band of blank rows under the agent's output, or output
-/// clipped at the bottom.
-///
-/// So the invariant is checked where it is established. A mismatch is logged with
-/// both numbers and the terminal it belongs to, which is what makes the culprit
-/// findable rather than guessed at. This runs on every frame that resizes, so the
-/// read is deliberately just the row count.
-fn resize_pane_runtime(
-    rt: &crate::terminal::TerminalRuntime,
-    terminal_id: &crate::terminal::TerminalId,
-    rows: u16,
-    cols: u16,
-    cell_size: crate::kitty_graphics::HostCellSize,
-) {
-    rt.resize(rows, cols, cell_size.width_px, cell_size.height_px);
-
-    // `viewport_rows` is the runtime's own idea of how many rows it has. A
-    // mismatch here means the resize did not take, which is a different problem
-    // from the drift above and worth separating in the log.
-    if let Some(metrics) = rt.scroll_metrics() {
-        if metrics.viewport_rows != rows as usize {
-            tracing::warn!(
-                terminal_id = ?terminal_id,
-                expected_rows = rows,
-                actual_rows = metrics.viewport_rows,
-                cols,
-                "pane resize did not take effect; output will not fill its rect"
-            );
-        }
-    }
-}
-
 pub(super) fn resize_tab_panes(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -220,12 +182,11 @@ pub(super) fn resize_tab_panes(
             let pane_inner = pane_inner_rect(area, borders);
             let inner_rect = stable_terminal_inner_rect(pane_inner);
             if !app.direct_attach_resize_locks.contains(terminal_id) {
-                resize_pane_runtime(
-                    rt,
-                    terminal_id,
+                rt.resize(
                     inner_rect.height,
                     inner_rect.width,
-                    cell_size,
+                    cell_size.width_px,
+                    cell_size.height_px,
                 );
             }
         }
@@ -238,12 +199,11 @@ pub(super) fn resize_tab_panes(
         if let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) {
             let inner_rect = stable_terminal_inner_rect(pane_inner);
             if !app.direct_attach_resize_locks.contains(terminal_id) {
-                resize_pane_runtime(
-                    rt,
-                    terminal_id,
+                rt.resize(
                     inner_rect.height,
                     inner_rect.width,
-                    cell_size,
+                    cell_size.width_px,
+                    cell_size.height_px,
                 );
             }
         }
@@ -279,16 +239,17 @@ pub(super) fn compute_pane_infos(
         let mut scrollbar_rect = None;
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, focused_id) {
             (inner_rect, scrollbar_rect) = stable_scrollbar_gutter(rt, pane_inner);
-            if let Some(terminal_id) = ws.terminal_id(focused_id) {
-                if resize_panes && !app.direct_attach_resize_locks.contains(terminal_id) {
-                    resize_pane_runtime(
-                        rt,
-                        terminal_id,
-                        inner_rect.height,
-                        inner_rect.width,
-                        cell_size,
-                    );
-                }
+            if resize_panes
+                && ws.terminal_id(focused_id).is_some_and(|terminal_id| {
+                    !app.direct_attach_resize_locks.contains(terminal_id)
+                })
+            {
+                rt.resize(
+                    inner_rect.height,
+                    inner_rect.width,
+                    cell_size.width_px,
+                    cell_size.height_px,
+                );
             }
         }
         return vec![PaneInfo {
@@ -310,16 +271,17 @@ pub(super) fn compute_pane_infos(
         let mut scrollbar_rect = None;
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
             (inner_rect, scrollbar_rect) = stable_scrollbar_gutter(rt, pane_inner);
-            if let Some(terminal_id) = ws.terminal_id(info.id) {
-                if resize_panes && !app.direct_attach_resize_locks.contains(terminal_id) {
-                    resize_pane_runtime(
-                        rt,
-                        terminal_id,
-                        inner_rect.height,
-                        inner_rect.width,
-                        cell_size,
-                    );
-                }
+            if resize_panes
+                && ws.terminal_id(info.id).is_some_and(|terminal_id| {
+                    !app.direct_attach_resize_locks.contains(terminal_id)
+                })
+            {
+                rt.resize(
+                    inner_rect.height,
+                    inner_rect.width,
+                    cell_size.width_px,
+                    cell_size.height_px,
+                );
             }
         }
 
@@ -354,32 +316,6 @@ pub(super) fn render_panes(
                 && terminal_active
                 && !pane_is_scrolled_back(rt)
                 && app.pane_exposes_host_cursor(ws_idx, info.id);
-            // The runtime's row count has to match the rect it is drawn into, or
-            // the frame shows a band of blank rows below the agent's output (when
-            // the runtime has fewer rows than the rect) or clips it (when it has
-            // more). Nothing enforces that equality — the rect comes from layout
-            // and the row count from whichever resize last ran, and they drift
-            // when a render happens for a client whose resize did not.
-            //
-            // Checked here, at the moment of drawing, because this is the point
-            // where the drift becomes visible: the frame being built right now is
-            // the one that will look wrong. Docked rows are excluded, since a
-            // direct-attach pane deliberately keeps the attaching client's size.
-            if let Some(metrics) = rt.scroll_metrics() {
-                let expected = info.inner_rect.height as usize;
-                let locked = ws
-                    .terminal_id(info.id)
-                    .is_some_and(|id| app.direct_attach_resize_locks.contains(id));
-                if metrics.viewport_rows != expected && !locked {
-                    tracing::warn!(
-                        pane_id = ?info.id,
-                        expected_rows = expected,
-                        actual_rows = metrics.viewport_rows,
-                        "pane drawn with a row count that does not match its rect; output will not fill the pane"
-                    );
-                }
-            }
-
             rt.render(frame, info.inner_rect, show_cursor);
             render_pane_scrollbar(app, frame, info, rt);
 
