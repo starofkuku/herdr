@@ -1,18 +1,23 @@
 import { useState } from "react";
 import { Circle, CircleCheck, LoaderCircle } from "lucide-react";
-import { isOpen, todoProgress, type TodoItem } from "./todos";
+import { isOpen, shouldShowPanel, todoProgress, type TodoItem } from "./todos";
 
 /**
  * The agent's todo list, pinned under the conversation.
  *
  * Collapsed to a count by default: the list is context for what the agent is
  * doing rather than the thing being read, and on a phone an expanded list would
- * take the screen. Nothing renders when the agent keeps no list, so panes that
- * never use the todo tool gain no chrome at all.
+ * take the screen.
+ *
+ * Only rendered while something is left to do. A finished list is not context for
+ * anything — the work it described has already happened — and leaving it there
+ * parks a panel over the conversation with nothing to say. This matches the CLI,
+ * which puts the list away once the turn that owned it ends.
  */
 export function TodoPanel({ todos }: { todos: TodoItem[] }) {
   const [open, setOpen] = useState(false);
-  if (todos.length === 0) return null;
+
+  if (!shouldShowPanel(todos)) return null;
 
   const { total, completed, inProgress } = todoProgress(todos);
 

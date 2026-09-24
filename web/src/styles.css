@@ -2863,6 +2863,62 @@ textarea {
 /* ---- subagents ---- */
 
 /*
+ * Subagents a turn spawned, listed under that turn.
+ *
+ * A completed run used to exist only in the bar pinned above the composer, which
+ * meant it kept announcing finished work at the bottom of the pane, with nothing
+ * tying it to the request that caused it. Here the record sits with the turn, and
+ * the bar is left to report only what is still running.
+ */
+.turn-subagents {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-top: 0.5rem;
+}
+
+.turn-subagent {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.74rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.turn-subagent:hover {
+  border-color: var(--accent);
+}
+
+/* A run that failed or was stopped is worth noticing when scanning back. */
+.turn-subagent.failed {
+  border-color: color-mix(in srgb, var(--err) 45%, var(--border));
+}
+
+.turn-subagent__agent {
+  flex: none;
+  font-weight: 600;
+}
+
+.turn-subagent__activity {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+
+
+/*
  * The subagent indicator, sitting beside the todo list above the composer. It
  * is one line collapsed, because on a phone the count is the whole story; the
  * drawer is where the detail lives.

@@ -204,3 +204,58 @@ export function shortPath(path: string, max = 3): string {
   if (parts.length <= max) return path;
   return `…/${parts.slice(-max).join("/")}`;
 }
+
+/**
+ * Groups finished runs by the turn that was running when they started.
+ *
+ * A run is placed under the turn whose time span contains its `started_at`, so
+ * the record appears where the work was asked for rather than at the bottom of
+ * the pane forever. Runs that started before the oldest loaded turn, or whose
+ * timestamps are missing, come back under `unplaced` instead of being dropped:
+ * the panel still has to account for them, just in the fallback position.
+ *
+ * `run.started_at` is milliseconds (the extension records `startedAt` that way and
+ * the API passes it through), while `turn.started_at` is Unix seconds. The
+ * conversion happens here, where both are in hand, rather than being spread
+ * across callers.
+ */
+export function runsByTurn(
+  runs: SubagentRun[],
+  turns: { turn_id: string; started_at?: number; completed_at?: number }[],
+): { byTurn: Map<string, SubagentRun[]>; unplaced: SubagentRun[] } {
+  const byTurn = new Map<string, SubagentRun[]>();
+  const unplaced: SubagentRun[] = [];
+
+  for (const run of runs) {
+    if (run.started_at === undefined) {
+      unplaced.push(run);
+      continue;
+    }
+    const at = Math.floor(run.started_at / 1000);
+
+    // The last turn that had already started, which is the one in progress when
+    // the run began. Turns are chronological, so the first match walking forward
+    // is the one to keep.
+    let found: string | undefined;
+    for (const turn of turns) {
+      const started = turn.started_at;
+      if (started === undefined) continue;
+      // A turn with no end is still open, so anything after its start belongs to
+      // it; otherwise the run has to fall inside the span.
+      const ended = turn.completed_at;
+      const withinSpan = ended === undefined ? at >= started : at >= started && at <= ended;
+      if (withinSpan) found = turn.turn_id;
+      if (started > at) break;
+    }
+
+    if (found === undefined) {
+      unplaced.push(run);
+      continue;
+    }
+    const existing = byTurn.get(found);
+    if (existing) existing.push(run);
+    else byTurn.set(found, [run]);
+  }
+
+  return { byTurn, unplaced };
+}

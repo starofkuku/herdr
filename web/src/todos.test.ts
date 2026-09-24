@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isOpen, parseTodos, todoProgress } from "./todos";
+import { isOpen, parseTodos, shouldShowPanel, todoProgress } from "./todos";
 
 describe("parseTodos", () => {
   test("keeps well-formed tasks", () => {
@@ -67,5 +67,22 @@ describe("isOpen", () => {
     expect(isOpen({ id: 1, subject: "a", status: "completed" })).toBe(false);
     expect(isOpen({ id: 1, subject: "a", status: "pending" })).toBe(true);
     expect(isOpen({ id: 1, subject: "a", status: "in_progress" })).toBe(true);
+  });
+});
+
+describe("shouldShowPanel", () => {
+  const task = (status: string, id = 1) => ({ id, subject: "x", status }) as never;
+
+  test("空列表不显示", () => {
+    expect(shouldShowPanel([])).toBe(false);
+  });
+
+  test("全部完成就隐藏", () => {
+    expect(shouldShowPanel([task("completed", 1), task("completed", 2)])).toBe(false);
+  });
+
+  test("还有未完成就显示", () => {
+    expect(shouldShowPanel([task("completed", 1), task("pending", 2)])).toBe(true);
+    expect(shouldShowPanel([task("in_progress", 1)])).toBe(true);
   });
 });

@@ -11,7 +11,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import { PendingUploads } from "./PendingUploads";
 import { TodoPanel } from "./TodoPanel";
 import { SubagentBar, SubagentDrawer } from "./SubagentBar";
-import { SUBAGENT_POLL_MS, loadSubagents, type SubagentRun } from "./subagents";
+import { SUBAGENT_POLL_MS, isRunning, loadSubagents, type SubagentRun } from "./subagents";
 import { TODO_POLL_MS, loadTodos, type TodoItem } from "./todos";
 import { ThemeToggle } from "./ThemeToggle";
 import {
@@ -908,6 +908,8 @@ export function AgentDetail({
           sentMessage={sentMessage}
           working={agent?.status === "working"}
           onPreviewImage={setLightbox}
+          subagents={subagents.runs}
+          onOpenSubagents={() => setDrawerOpen(true)}
         />
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
@@ -922,9 +924,17 @@ export function AgentDetail({
         puts it, so it stays visible while reading without displacing the input.
       */}
       <TodoPanel todos={todos} />
+      {/*
+        Only the runs that are still going.
+
+        A finished run belongs to the turn that asked for it, which is where the
+        conversation records it; leaving it here as well kept a bar pinned above
+        the composer announcing work that was over. What is left is the live
+        count, which is the thing worth interrupting the reader for.
+      */}
       <SubagentBar
         active={subagents.active}
-        runs={subagents.runs}
+        runs={subagents.runs.filter(isRunning)}
         onOpen={() => setDrawerOpen(true)}
       />
 

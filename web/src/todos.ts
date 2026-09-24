@@ -60,6 +60,17 @@ export function parseTodos(value: unknown): TodoItem[] {
 }
 
 /** Whether a task still needs doing, which is what the header counts down. */
+/**
+ * Whether the panel is worth showing at all.
+ *
+ * A list that is entirely done is not context for anything: the work it described
+ * has already happened, and the panel would sit over the conversation saying so.
+ * An empty list is nothing to show either.
+ */
+export function shouldShowPanel(todos: TodoItem[]): boolean {
+  return todos.length > 0 && todos.some(isOpen);
+}
+
 export function isOpen(todo: TodoItem): boolean {
   return todo.status !== "completed";
 }

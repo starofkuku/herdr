@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.7.39] - 2026-09-24
+
+### Changed
+- In the web UI, a finished subagent is recorded under the turn that asked for it instead of sitting in the bar above the composer forever. Each one appears as a row beneath that turn's answer, with its agent, what it did, and its tool count; the row opens the same drawer for the full detail. The bar is left to report only what is still running, which is the thing worth interrupting a reader for. Runs the transcript cannot place — they started before the oldest loaded page — stay out of the conversation rather than being shown at the wrong turn.
+
+- The todo panel is only shown while something is left to do. A finished list is not context for anything, and leaving it parked over the conversation with nothing to say matched neither the CLI nor the work it described.
+
 ## [0.7.38] - 2026-09-24
 
 ### Added

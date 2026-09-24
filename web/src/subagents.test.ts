@@ -7,6 +7,7 @@ import {
   rootRuns,
   shortPath,
   type SubagentRun,
+  runsByTurn,
 } from "./subagents";
 
 function run(overrides: Partial<SubagentRun> = {}): SubagentRun {
@@ -137,5 +138,63 @@ describe("shortPath", () => {
 
   test("trims a long path to its tail", () => {
     expect(shortPath("/home/u/proj/sub/probe/a.md", 2)).toBe("…/probe/a.md");
+  });
+});
+
+describe("runsByTurn", () => {
+  const run = (id: string, startedAtMs?: number) =>
+    ({
+      run_id: id,
+      mode: "single",
+      state: "complete",
+      agent: "scout",
+      started_at: startedAtMs,
+    }) as never;
+
+  // Seconds, matching what the API reports for turns.
+  const T1 = 1_700_000_000;
+  const T2 = T1 + 600;
+  const turns = [
+    { turn_id: "a", started_at: T1, completed_at: T2 - 1 },
+    { turn_id: "b", started_at: T2 },
+  ];
+  const ms = (seconds: number) => seconds * 1000;
+
+  test("毫秒与秒的单位差异被正确处理", () => {
+    const { byTurn } = runsByTurn([run("r1", ms(T1 + 10))], turns);
+    expect(byTurn.get("a")?.map((r) => r.run_id)).toEqual(["r1"]);
+  });
+
+  test("落在第二轮的开始之后归到第二轮", () => {
+    const { byTurn } = runsByTurn([run("r2", ms(T2 + 5))], turns);
+    expect(byTurn.get("b")?.map((r) => r.run_id)).toEqual(["r2"]);
+  });
+
+  test("进行中的轮次没有结束时间，仍然收下之后的 run", () => {
+    const open = [{ turn_id: "open", started_at: T2 }];
+    const { byTurn } = runsByTurn([run("r3", ms(T2 + 9999))], open);
+    expect(byTurn.get("open")?.length).toBe(1);
+  });
+
+  test("早于最早一轮的 run 归入 unplaced 而不是丢弃", () => {
+    const { byTurn, unplaced } = runsByTurn([run("old", ms(T1 - 5000))], turns);
+    expect(byTurn.size).toBe(0);
+    expect(unplaced.map((r) => r.run_id)).toEqual(["old"]);
+  });
+
+  test("没有时间戳的 run 归入 unplaced", () => {
+    const { unplaced } = runsByTurn([run("notime", undefined)], turns);
+    expect(unplaced.map((r) => r.run_id)).toEqual(["notime"]);
+  });
+
+  test("同一轮的多个 run 全部保留且顺序不变", () => {
+    const { byTurn } = runsByTurn([run("x", ms(T1 + 1)), run("y", ms(T1 + 2))], turns);
+    expect(byTurn.get("a")?.map((r) => r.run_id)).toEqual(["x", "y"]);
+  });
+
+  test("没有 turn 时全部 unplaced", () => {
+    const { byTurn, unplaced } = runsByTurn([run("z", ms(T1))], []);
+    expect(byTurn.size).toBe(0);
+    expect(unplaced.length).toBe(1);
   });
 });

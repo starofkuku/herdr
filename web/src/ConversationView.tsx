@@ -12,6 +12,7 @@ import {
   tickPositionAt,
 } from "./navigator";
 import { splitMessage } from "./attachments";
+import { activity, runsByTurn, type SubagentRun } from "./subagents";
 import { useActiveTurn } from "./useActiveTurn";
 import {
   loadConversation,
@@ -461,10 +462,15 @@ function Turn({
   turn,
   index,
   onPreviewImage,
+  subagents,
+  onOpenSubagents,
 }: {
   turn: ConversationTurn;
   index?: number;
   onPreviewImage?: (url: string) => void;
+  /** Finished runs that started during this turn, shown as their own record. */
+  subagents?: SubagentRun[];
+  onOpenSubagents?: () => void;
 }) {
   const [showActivity, setShowActivity] = useState(false);
   // Reasoning is thinking out loud. It is the bulk of a turn's text for an agent
@@ -563,6 +569,37 @@ function Turn({
               : null}
           </div>
         ) : null}
+
+        {/*
+          Subagents this turn spawned, recorded under the turn that asked for
+          them.
+
+          They used to live only in the bar above the composer, which meant a
+          finished run kept announcing itself at the bottom of the pane long
+          after the work was over, with nothing tying it to the request. Here the
+          record sits next to the turn that caused it and goes away with the rest
+          of the history when the reader scrolls on.
+        */}
+        {subagents?.length ? (
+          <div className="turn-subagents">
+            {subagents.map((run) => (
+              <button
+                key={run.run_id}
+                type="button"
+                className={`turn-subagent ${run.state}`}
+                onClick={onOpenSubagents}
+                title={run.task ?? run.agent}
+              >
+                <span className={`run-dot ${run.state}`} aria-hidden="true" />
+                <span className="turn-subagent__agent">{run.agent}</span>
+                <span className="turn-subagent__activity">{activity(run)}</span>
+                {run.tool_count !== undefined ? (
+                  <span className="run-metric">{run.tool_count} 次工具</span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -578,6 +615,8 @@ function Turn({
  */
 export function ConversationView({
   client,
+  subagents = [],
+  onOpenSubagents,
   paneId,
   label,
   sentMessage,
@@ -585,6 +624,10 @@ export function ConversationView({
   onPreviewImage,
 }: {
   client: DetailClient;
+  /** Every run recorded for this pane, running or finished. */
+  subagents?: SubagentRun[];
+  /** Opens the subagent drawer, which holds each run's full detail. */
+  onOpenSubagents?: () => void;
   paneId: string;
   label: string;
   /**
@@ -858,6 +901,15 @@ export function ConversationView({
   const totalTokens = conversation?.totalTokens;
   const turns: ConversationTurn[] = [...older.flat(), ...newest];
 
+  /*
+   * Finished runs are filed under the turn that was running when they started, so
+   * each one is recorded where it was asked for instead of only in the bar above
+   * the composer. Runs the grouping cannot place — started before the oldest
+   * loaded turn, or with no timestamp — are left out of the transcript rather
+   * than dropped: the bar still accounts for them.
+   */
+  const { byTurn: subagentsByTurn } = runsByTurn(subagents, turns);
+
   const newestTurn = newest[newest.length - 1];
   const newestTurnId = newestTurn?.turn_id ?? null;
 
@@ -989,6 +1041,8 @@ export function ConversationView({
               turn={turn}
               index={index}
               onPreviewImage={onPreviewImage}
+              subagents={subagentsByTurn.get(turn.turn_id)}
+              onOpenSubagents={onOpenSubagents}
             />
           ))}
           {pending ? (
