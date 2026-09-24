@@ -10,6 +10,7 @@ import { agentsFromSnapshot, compareAgents, type AgentView } from "./api";
 import { ConnectForm } from "./ConnectForm";
 import { SessionPicker } from "./SessionPicker";
 import { AgentList } from "./AgentList";
+import { CommandPalette } from "./CommandPalette";
 import { SessionActivity } from "./SessionActivity";
 import { AgentDetail } from "./AgentDetail";
 import { loadSettings, saveSettings, restoreTarget, type StoredSettings } from "./settings";
@@ -41,6 +42,8 @@ export default function App() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [session, setSession] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentView[]>([]);
+  /** Whether the Ctrl/Cmd+K jump palette is up. */
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [settings, setSettings] = useState<StoredSettings>(() => loadSettings());
   const phase: Phase =
     state !== "ready" && route.view === "root"
@@ -346,8 +349,48 @@ export default function App() {
    * the panes that are *not* on screen: it has to survive moving between the
    * list and a conversation, which is exactly when it is worth a glance.
    */
+  /*
+   * Ctrl/Cmd+K opens the jump palette, from any screen.
+   *
+   * Bound on the document rather than on a screen because it has to work while
+   * the reader is in a conversation, in the list, and on the picker alike. The
+   * default is prevented so the browser's own search-in-page does not open on
+   * top of it, and `metaKey` covers macOS where the same chord is Cmd+K.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "k" && event.key !== "K") return;
+      if (!event.ctrlKey && !event.metaKey) return;
+      /*
+       * Take the chord everywhere, including inside the composer.
+       *
+       * The composer is focused automatically on opening a conversation, so
+       * excluding text fields would mean the shortcut does nothing in exactly the
+       * place it is most likely to be pressed. Ctrl/Cmd+K has no editing meaning
+       * on these platforms — the browser's own use is "focus the search field",
+       * which is what this replaces — so there is nothing to preserve.
+       */
+      event.preventDefault();
+      setPaletteOpen((value) => !value);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const withActivity = (screen: JSX.Element) => (
     <>
+      {paletteOpen ? (
+        <CommandPalette
+          agents={agents}
+          currentPaneId={route.view === "detail" ? route.paneId : null}
+          onOpen={(paneId) => {
+            const target = { view: "detail" as const, session: session ?? "", paneId };
+            navigate(target);
+            setRoute(target);
+          }}
+          onClose={() => setPaletteOpen(false)}
+        />
+      ) : null}
       <SessionActivity
         agents={agents}
         currentPaneId={route.view === "detail" ? route.paneId : null}

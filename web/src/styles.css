@@ -1541,6 +1541,174 @@ textarea {
  * transcript the reader is looking at, which is the one thing this control
  * should not do.
  */
+/* ---- command palette ---- */
+
+/*
+ * The Ctrl/Cmd+K jump-to-agent palette.
+ *
+ * Centred and above everything, including the activity rail: it takes the
+ * keyboard, and a palette that let anything else keep the keys would be fighting
+ * the reader's typing.
+ */
+.palette {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  /*
+   * A little above the middle rather than centred: the list grows downward, and
+   * parking the field high leaves room for it without the field itself moving as
+   * the results change length.
+   */
+  padding: max(4rem, 12vh) 1rem 2rem;
+}
+
+/*
+ * Dismiss-on-outside-click, behind the panel.
+ *
+ * Both boxes are positioned and the scrim comes later in the document, so the
+ * stack order has to be declared: without it the scrim paints over the panel it
+ * is meant to sit behind, and every click inside the palette closes it.
+ */
+.palette__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  border: 0;
+  cursor: pointer;
+}
+
+.palette__panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(34rem, 100%);
+  max-height: min(28rem, 70vh);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.45);
+  overflow: hidden;
+}
+
+.palette__field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.palette__icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.palette__field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  /* 16px keeps iOS from zooming the page when the field takes focus. */
+  font-size: 16px;
+  outline: none;
+}
+
+.palette__count {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.palette__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+}
+
+.palette__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* One highlight for both input methods, so Enter goes where the pointer is. */
+.palette__item.active {
+  background: var(--surface-2);
+}
+
+.palette__item.current .palette__name {
+  color: var(--muted);
+}
+
+.palette__name {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette__meta {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.palette__empty {
+  margin: 0;
+  padding: 1.5rem 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.palette__hint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  padding: 0.45rem 0.75rem;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.palette__hint kbd {
+  display: inline-block;
+  min-width: 1.1rem;
+  margin-right: 0.15rem;
+  padding: 0.05rem 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+  font-family: inherit;
+  font-size: 0.68rem;
+  text-align: center;
+}
+
 /* ---- session activity ---- */
 
 /*

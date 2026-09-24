@@ -622,6 +622,39 @@ export function AgentDetail({
     }
   }, [paneId]);
 
+  /**
+   * Put the caret in the composer when a conversation is opened.
+   *
+   * Opening an agent is almost always followed by typing at it, and having to
+   * aim at the field first is a step that earns nothing. This runs on the pane
+   * rather than on mount so that arriving at a different agent also lands in its
+   * field.
+   *
+   * Two things are deliberately not focused into:
+   *
+   * - A field the reader has already put the caret in: taking focus away from what
+   *   someone is doing is worse than the convenience.
+   * - A touch device, where focusing raises the on-screen keyboard and covers the
+   *   conversation the reader just opened to read.
+   */
+  useEffect(() => {
+    if (!paneId) return;
+    const field = composerRef.current;
+    if (!field) return;
+    if (field === document.activeElement) return;
+
+    const activeNow = document.activeElement;
+    if (
+      activeNow instanceof HTMLElement &&
+      (activeNow.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(activeNow.tagName))
+    ) {
+      return;
+    }
+    if (window.matchMedia("(hover: none)").matches) return;
+
+    field.focus();
+  }, [paneId]);
+
   // Files chosen for one agent must not be sent to another, and their object
   // URLs would otherwise leak.
   useEffect(() => {
