@@ -2333,6 +2333,9 @@ pub(crate) const SWITCH_USAGE: &str = "usage: herdr switch <version>
   Accepts 0.7.30 or v0.7.30. `--list` shows the versions available.";
 
 /// The subset of a GitHub release that a switch needs.
+///
+/// Only the install path reads it, and that path does not exist on Windows.
+#[cfg(not(windows))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SwitchRelease {
     /// The tag as GitHub spells it, for example `v0.7.30`.
@@ -2421,6 +2424,7 @@ fn github_api_get(url: &str, timeout_secs: &str) -> Result<serde_json::Value, St
 /// specific older version has to come from the release API. That API also
 /// publishes a sha256 digest per asset, which is what makes the download
 /// verifiable — the manifest's own assets carry no checksum.
+#[cfg(not(windows))]
 fn fetch_switch_release(version: &Version, os: &str, arch: &str) -> Result<SwitchRelease, String> {
     let base = releases_api_base()?;
     let tag = format!("v{version}");
