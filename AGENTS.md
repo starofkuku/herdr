@@ -104,6 +104,41 @@ server:
 env -u HERDR_SOCKET_PATH -u HERDR_CLIENT_SOCKET_PATH cargo run -- <command>
 ```
 
+## Shipping
+
+This section applies to every agent, in every checkout, unless Can explicitly
+says otherwise for a specific change.
+
+### Releasing needs an explicit instruction
+
+Making a change and releasing it are two separate decisions. Can makes the second
+one.
+
+Do not run any of these unless the current request says to ship:
+
+- `just release <version>`
+- `just release-prepare`, `just release-publish`, or `just release-docs-check`
+- bumping `Cargo.toml` or `Cargo.lock` to a new version
+- creating or pushing a `v*` tag
+- pushing `master` when the change is otherwise ready
+
+"Fix this", "add that", "change the title" and similar mean implement it,
+validate it, and stop. Report what changed and what was verified, then wait. Can
+often wants to look at a change, use it for a while, or bundle it with the next
+one, and a pushed tag cannot be taken back: the release assets are public the
+moment the workflow finishes.
+
+A request to ship sounds like "ship it", "release this", "发个版" or "发新版".
+When in doubt, ask instead of releasing. Asking costs one message; a release that
+was not wanted cannot be undone.
+
+### Frontend changes are not releases
+
+Updating the served web UI (`just web-build` into the configured `static_dir`) is
+a deploy step for local iteration, not a release. It is fine to do while working,
+and it is not what this section is about. `just web-publish` is a release and
+follows the rule above.
+
 ## Local Can Machine Workflow
 
 This section applies only on Can's workstation or Windows VM setup. If the
