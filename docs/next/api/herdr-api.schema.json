@@ -2059,7 +2059,8 @@
             "qodercli",
             "cursor",
             "mastracode",
-            "grok"
+            "grok",
+            "zcode"
           ],
           "type": "string"
         },
@@ -7431,7 +7432,8 @@
             "qodercli",
             "cursor",
             "mastracode",
-            "grok"
+            "grok",
+            "zcode"
           ],
           "type": "string"
         },

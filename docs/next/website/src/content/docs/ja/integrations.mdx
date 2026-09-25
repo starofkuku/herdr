@@ -1,6 +1,6 @@
 ---
 title: インテグレーション
-description: Pi、OMP、Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、Qoder CLI、Cursor Agent CLI、MastraCode、Grok Build 向けの Herdr インテグレーションをインストールします。
+description: Pi、OMP、Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、Qoder CLI、Cursor Agent CLI、MastraCode、Grok Build、ZCode 向けの Herdr インテグレーションをインストールします。
 ---
 
 Herdr は対応エージェントを自動的に検出します。公式インテグレーションは、復元のためのネイティブセッション識別、ライフサイクル状態の報告、またはその両方を追加できます。
@@ -63,6 +63,25 @@ Herdr はインテグレーションを 2 つの異なる方法で使います:
 一部のインテグレーションは、エージェントのネイティブセッション参照を報告します。Herdr は公式のセッション参照を使って、`[session] resume_agents_on_restore = false` で無効化されていない限り、Herdr サーバーの再起動後に Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Cursor Agent CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode、Grok Build のペインを resume します。
 
 エージェントネイティブのセッション復元には最新の Herdr インテグレーションが必要です: Pi インテグレーションはバージョン `2`、OMP は `3`、Claude Code は `6`、Codex は `7`、GitHub Copilot CLI は `2`、Devin CLI は `2`、Droid は `2`、Kimi Code CLI は `3`、Qoder CLI は `2`、Cursor Agent CLI は `1`、OpenCode は `5`、Kilo Code CLI は `1`、Hermes Agent は `2`、MastraCode は `1`、Grok Build は `2` です。インストール済みバージョンは `herdr integration status` で確認してください。
+
+## ZCode
+
+ZCode 統合をインストールします。
+
+```bash
+herdr integration install zcode
+```
+
+Herdr は次のファイルを書き込みます。
+
+```text
+~/.zcode/cli/hooks/herdr-agent-state.sh
+~/.zcode/cli/config.json
+```
+
+ZCode は `~/.claude/settings.json` ではなく、独自の `config.json` からフックを読み込みます。`~/.claude/settings.json` は読み取り専用のレガシー互換として一覧表示されるだけです。Herdr は 2 つのフックを登録します。`SessionStart` はネイティブセッション ID(`sess_...`)を記録し、サーバー再起動後に `zcode --resume <id>` で復元できるようにします。`PermissionRequest` はターミナルが独自のプロンプトを表示する前に、Web UI から承認に応答できるようにします。エージェントの状態は Claude Code 統合と同様に画面検出に委ねます。
+
+利用できるのはユーザースコープのフックだけです。ZCode はプロジェクトフックをワークスペース信頼レビューの背後に置いていますが、その機能は CLI や TUI では有効になっていないため、`~/.zcode/cli/config.json` 以外にインストールしたフックは実行されません。アンインストールすると、管理対象のフックスクリプトとフックエントリが削除され、`config.json` の残りの内容は変更されません。
 
 ## Grok Build
 

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.7.41] - 2026-09-25
+
+### Added
+- ZCode support: `herdr integration install zcode` registers a session hook and a permission hook in `~/.zcode/cli/config.json`, so panes get native session restore (`zcode --resume <sess_...>`) and approvals can be answered from the web UI. ZCode reads hooks only from its own config file; the `~/.claude/settings.json` it lists as legacy compatibility is never executed, and its project-scope hooks sit behind a workspace trust review that its CLI and TUI do not enable. Agent state stays with screen detection, the same split as Claude Code. `herdr agent` also detects ZCode panes from their screen.
+
 ## [0.7.40] - 2026-09-24
 
 ### Changed

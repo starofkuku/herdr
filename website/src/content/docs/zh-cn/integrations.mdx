@@ -1,6 +1,6 @@
 ---
 title: 集成
-description: 为 Pi、OMP、Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、Qoder CLI、Cursor Agent CLI、MastraCode 和 Grok Build 安装 Herdr 集成。
+description: 为 Pi、OMP、Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、Qoder CLI、Cursor Agent CLI、MastraCode 和 Grok Build 和 ZCode 安装 Herdr 集成。
 ---
 
 Herdr 自动检测受支持的智能体。官方集成可以额外提供用于恢复的原生会话身份、生命周期状态上报,或两者兼有。
@@ -63,6 +63,25 @@ Herdr 以两种不同方式使用集成:
 一些集成会上报智能体的原生会话引用。除非被 `[session] resume_agents_on_restore = false` 禁用,Herdr 会在服务器重启后使用官方会话引用恢复 Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Cursor Agent CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode 和 Grok Build 的窗格。
 
 原生会话恢复需要最新的 Herdr 集成: Pi 集成版本 `2`、OMP 版本 `3`、Claude Code 版本 `6`、Codex 版本 `7`、GitHub Copilot CLI 版本 `2`、Devin CLI 版本 `2`、Droid 版本 `2`、Kimi Code CLI 版本 `3`、Qoder CLI 版本 `2`、Cursor Agent CLI 版本 `1`、OpenCode 版本 `5`、Kilo Code CLI 版本 `1`、Hermes Agent 版本 `2`、MastraCode 版本 `1`、Grok Build 版本 `2`。用 `herdr integration status` 查看已安装版本。
+
+## ZCode
+
+安装 ZCode 集成：
+
+```bash
+herdr integration install zcode
+```
+
+Herdr 会写入：
+
+```text
+~/.zcode/cli/hooks/herdr-agent-state.sh
+~/.zcode/cli/config.json
+```
+
+ZCode 从自己的 `config.json` 读取 hook，而不是 `~/.claude/settings.json`——后者只作为只读的旧版兼容项列出。Herdr 在其中注册两个 hook：`SessionStart` 记录原生会话 ID（`sess_...`），使 Herdr 在服务端重启后可以用 `zcode --resume <id>` 恢复；`PermissionRequest` 让 Web UI 能在终端自行弹出提示前响应审批。agent 状态交由屏幕检测，与 Claude Code 集成一致。
+
+只有用户级 hook 可用。ZCode 把项目级 hook 放在工作区信任审核之后，而该功能在其 CLI 和 TUI 中并未启用，因此安装在 `~/.zcode/cli/config.json` 之外的 hook 不会在那里执行。卸载会移除托管的 hook 脚本和 hook 条目，`config.json` 的其余内容保持不变。
 
 ## Grok Build
 

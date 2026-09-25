@@ -375,6 +375,7 @@ rows = [["workspace"], ["$jj_status"]]
             Agent::Kilo,
             Agent::Qodercli,
             Agent::Maki,
+            Agent::Zcode,
         ];
         let entries = agents
             .iter()

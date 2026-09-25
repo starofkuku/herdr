@@ -1,0 +1,54 @@
+id = "zcode"
+version = "2026.09.25.1"
+min_engine_version = 2
+updated_at = "2026-09-25T00:00:00Z"
+aliases = ["herdr:zcode"]
+
+# ZCode draws an alternate-screen TUI, so the whole recent buffer is ZCode's
+# own interface rather than shell scrollback.
+#
+# Only working and blocked are matched. ZCode has no idle-only string: its
+# `Ready.` status lives in the sidebar, which is not drawn below 120 columns
+# (ZCode tui/src/app-sidebar-layout.ts:5,8,86,118), so an idle rule would be
+# invisible in a narrow pane and Herdr's known-agent idle fallback is the
+# honest answer there.
+
+[[rules]]
+id = "working_esc_to_interrupt"
+state = "working"
+priority = 100
+region = "whole_recent"
+visible_working = true
+# The bottom of the composer carries "<spinner> esc to interrupt" while a turn
+# runs. The literal is identical in the English and Chinese locales, so this
+# does not depend on the user's language.
+# (ZCode i18n/src/locales/en-US.ts:83 and zh-CN.ts:83)
+contains = ["esc to interrupt"]
+
+[[rules]]
+id = "blocked_approval"
+state = "blocked"
+priority = 90
+region = "whole_recent"
+visible_blocker = true
+# The approval panel replaces the composer, so "esc to interrupt" disappears
+# while it is on screen. Its border title is "Approval required: <tool>" and its
+# footer spells out the keys.
+# (ZCode tui/src/app-approval-panel.tsx:51,131-134)
+all = [
+  { contains = ["approval required:"] },
+  { contains = ["esc denies"] },
+]
+
+[[rules]]
+id = "blocked_question"
+state = "blocked"
+priority = 89
+region = "whole_recent"
+visible_blocker = true
+# The question panel replaces the composer as well, with its own key hints.
+# (ZCode tui/src/app-question-panel.tsx:16,26,96-98)
+any = [
+  { contains = ["review answers"] },
+  { all = [{ contains = ["esc declines"] }, { any = [{ contains = ["enter answers"] }, { contains = ["space toggles"] }] }] },
+]

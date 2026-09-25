@@ -90,6 +90,9 @@ pub fn is_reserved_native_state_source(source: &str, agent: &str) -> bool {
             | ("herdr:droid", "droid")
             | ("herdr:qodercli", "qodercli")
             | ("herdr:cursor", "cursor")
+            // ZCode reports its session id on SessionStart but leaves state
+            // authority to screen detection, like claude.
+            | ("herdr:zcode", "zcode")
     )
 }
 
@@ -203,6 +206,12 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
                 session_ref.value.clone(),
             ]
         }
+        // ZCode resumes a persisted session with `--resume <sess_...>`;
+        // `-c` would pick the newest session for the cwd instead.
+        // (ZCode cli/src/arguments.ts:47-59)
+        ("herdr:zcode", "zcode", AgentSessionRefKind::Id) => {
+            vec!["zcode".into(), "--resume".into(), session_ref.value.clone()]
+        }
         ("herdr:codex", "codex", AgentSessionRefKind::Id) => {
             vec!["codex".into(), "resume".into(), session_ref.value.clone()]
         }
@@ -302,6 +311,7 @@ fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("herdr:kilo", "kilo")
             | ("herdr:cursor", "cursor")
             | ("herdr:grok", "grok")
+            | ("herdr:zcode", "zcode")
     )
 }
 

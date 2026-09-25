@@ -56,6 +56,7 @@ pub(crate) fn remote_image_paste_transport(agent: Agent) -> Option<RemoteImagePa
         | Agent::Hermes
         | Agent::Kilo
         | Agent::Qodercli
+        | Agent::Zcode
         | Agent::Maki => Some(RemoteImagePasteTransport::PastedPath),
         Agent::Gemini | Agent::Kimi | Agent::Devin | Agent::Antigravity => None,
     }
@@ -246,6 +247,7 @@ mod tests {
             Agent::Kilo,
             Agent::Qodercli,
             Agent::Maki,
+            Agent::Zcode,
         ] {
             assert_eq!(
                 remote_image_paste_text(agent, "/tmp/image.png"),

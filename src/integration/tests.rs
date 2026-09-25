@@ -2659,6 +2659,7 @@ fn bundled_integration_asset_versions_match_expected_versions() {
             MASTRACODE_INTEGRATION_VERSION,
         ),
         ("grok", GROK_HOOK_ASSET, GROK_INTEGRATION_VERSION),
+        ("zcode", ZCODE_HOOK_ASSET, ZCODE_INTEGRATION_VERSION),
     ] {
         assert_eq!(
             parse_integration_version(asset),
@@ -2795,6 +2796,25 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(MASTRACODE_HOOK_ASSET.contains("agent_session_id"));
     assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent"));
     assert!(MASTRACODE_HOOK_ASSET.contains("pane.release_agent"));
+
+    // ZCode has no argv action contract, so the hook derives its action from the
+    // event name on stdin, and it must not report the throwaway transcript file
+    // ZCode hands to hooks.
+    assert!(ZCODE_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=zcode"));
+    assert!(ZCODE_HOOK_ASSET.contains("hook_event_name"));
+    assert!(ZCODE_HOOK_ASSET.contains("agent_session_id"));
+    assert!(ZCODE_HOOK_ASSET.contains("session_start_source"));
+    assert!(
+        ZCODE_HOOK_ASSET.contains("pane.report_agent_session")
+            || ZCODE_HOOK_ASSET.contains("report-agent-session")
+    );
+    // ZCode hands hooks a throwaway transcript file that is deleted when the hook
+    // returns, so Herdr must never persist it as the session path.
+    assert!(!ZCODE_HOOK_ASSET.contains("agent_session_path ="));
+    assert!(!ZCODE_HOOK_ASSET.contains("--agent-session-path"));
+    // SubagentStop is not in ZCode's event set, so no branch may dispatch on it.
+    assert!(!ZCODE_HOOK_ASSET.contains("== \"SubagentStop\""));
+    assert!(!ZCODE_HOOK_ASSET.contains("pane.release_agent"));
 }
 
 #[test]
@@ -3497,6 +3517,145 @@ fn uninstall_mastracode_errors_when_event_value_not_array() {
         err.contains("hook entries for SessionStart must be an array"),
         "unexpected error: {err}"
     );
+
+    if let Some(home) = original_home {
+        std::env::set_var("HOME", home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_zcode_writes_hook_and_registers_it_in_its_own_config() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let original_home = std::env::var_os("HOME");
+    let zcode_dir = base.join(".zcode").join("cli");
+    fs::create_dir_all(&zcode_dir).unwrap();
+    // A config with fields Herdr knows nothing about, to prove the read-edit-write
+    // round trip does not drop them.
+    fs::write(
+        zcode_dir.join("config.json"),
+        r#"{"model":{"provider":"local","id":"m"},"telemetry":true,"hooks":{}}"#,
+    )
+    .unwrap();
+    std::env::set_var("HOME", &base);
+
+    let installed = install_zcode().unwrap();
+    let hook_content = fs::read_to_string(&installed.hook_path).unwrap();
+    let config: Value =
+        serde_json::from_str(&fs::read_to_string(&installed.config_path).unwrap()).unwrap();
+
+    assert_eq!(
+        installed.hook_path,
+        zcode_dir.join("hooks").join(ZCODE_HOOK_INSTALL_NAME)
+    );
+    assert_eq!(hook_content, ZCODE_HOOK_ASSET);
+
+    // Unknown fields survive.
+    assert_eq!(config["model"]["provider"], "local");
+    assert_eq!(config["telemetry"], true);
+
+    // ZCode's hooks runtime is off by default, so installing must turn it on.
+    assert_eq!(config["hooks"]["enabled"], true);
+
+    assert_eq!(config["hooks"]["SessionStart"][0]["matcher"], "*");
+    assert!(config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        .as_str()
+        .unwrap()
+        .contains(" session"));
+    assert_eq!(config["hooks"]["PermissionRequest"][0]["matcher"], "*");
+    assert!(
+        config["hooks"]["PermissionRequest"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" permission")
+    );
+
+    // State stays with screen detection, so the per-turn lifecycle hooks are not
+    // installed, and ZCode has no SessionEnd or SubagentStop event at all.
+    for absent in [
+        "UserPromptSubmit",
+        "PreToolUse",
+        "PostToolUse",
+        "PostToolUseFailure",
+        "Stop",
+        "SessionEnd",
+        "SubagentStop",
+    ] {
+        assert!(
+            config["hooks"].get(absent).is_none(),
+            "{absent} must not be registered"
+        );
+    }
+
+    if let Some(home) = original_home {
+        std::env::set_var("HOME", home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_zcode_is_idempotent_for_hook_entries() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let original_home = std::env::var_os("HOME");
+    let zcode_dir = base.join(".zcode").join("cli");
+    fs::create_dir_all(&zcode_dir).unwrap();
+    std::env::set_var("HOME", &base);
+
+    install_zcode().unwrap();
+    install_zcode().unwrap();
+
+    let config: Value =
+        serde_json::from_str(&fs::read_to_string(zcode_dir.join("config.json")).unwrap()).unwrap();
+    assert_eq!(config["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        config["hooks"]["PermissionRequest"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    if let Some(home) = original_home {
+        std::env::set_var("HOME", home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn uninstall_zcode_removes_hook_and_leaves_other_config_alone() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let original_home = std::env::var_os("HOME");
+    let zcode_dir = base.join(".zcode").join("cli");
+    fs::create_dir_all(&zcode_dir).unwrap();
+    fs::write(
+        zcode_dir.join("config.json"),
+        r#"{"model":{"provider":"local"},"hooks":{}}"#,
+    )
+    .unwrap();
+    std::env::set_var("HOME", &base);
+
+    let installed = install_zcode().unwrap();
+    let result = uninstall_zcode().unwrap();
+
+    assert!(result.removed_hook_file);
+    assert!(result.updated_config);
+    assert!(!installed.hook_path.exists());
+
+    let config: Value =
+        serde_json::from_str(&fs::read_to_string(zcode_dir.join("config.json")).unwrap()).unwrap();
+    assert!(config["hooks"].get("SessionStart").is_none());
+    assert!(config["hooks"].get("PermissionRequest").is_none());
+    // The user's own configuration is untouched, including the switch Herdr set.
+    assert_eq!(config["model"]["provider"], "local");
 
     if let Some(home) = original_home {
         std::env::set_var("HOME", home);

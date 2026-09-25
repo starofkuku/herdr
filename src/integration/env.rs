@@ -48,6 +48,16 @@ pub(crate) fn claude_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(CLAUDE_CONFIG_DIR_ENV_VAR, &[".claude"])
 }
 
+/// ZCode keeps its CLI configuration in `~/.zcode/cli`, where `config.json` is
+/// the file its hooks live in (ZCode adapters/src/config/file-config.adapter.ts:62).
+///
+/// Unlike Claude, ZCode has no environment variable that relocates this
+/// directory: `baseDir` is only reachable through its programmatic API and the
+/// CLI always resolves `~/.zcode/cli`.
+pub(crate) fn zcode_dir() -> io::Result<PathBuf> {
+    Ok(home_dir()?.join(".zcode").join("cli"))
+}
+
 pub(crate) fn codex_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(CODEX_HOME_ENV_VAR, &[".codex"])
 }

@@ -15,7 +15,7 @@ use super::config_edit::{
 use super::env::{
     claude_dir, codex_dir, copilot_dir, cursor_dir, devin_dir, droid_dir, grok_hooks_dir,
     hermes_dir, hermes_plugin_dir, kilo_dir, kimi_dir, mastracode_dir, omp_extension_dir,
-    opencode_dir, pi_extension_dir, qodercli_dir,
+    opencode_dir, pi_extension_dir, qodercli_dir, zcode_dir,
 };
 use super::file_ops::{
     make_executable, remove_dir_all_if_exists, remove_file_if_exists, remove_legacy_bash_hook_file,
@@ -28,7 +28,7 @@ use super::types::{
     KiloInstallPaths, KiloUninstallResult, KimiInstallPaths, KimiUninstallResult,
     MastracodeInstallPaths, MastracodeUninstallResult, OmpInstallPaths, OmpUninstallResult,
     OpenCodeInstallPaths, OpenCodeUninstallResult, PiUninstallResult, QodercliInstallPaths,
-    QodercliUninstallResult,
+    QodercliUninstallResult, ZcodeInstallPaths, ZcodeUninstallResult,
 };
 use super::{
     CLAUDE_HOOK_ASSET, CLAUDE_HOOK_INSTALL_NAME, CODEX_HOOK_ASSET, CODEX_HOOK_INSTALL_NAME,
@@ -44,7 +44,8 @@ use super::{
     MASTRACODE_HOOK_INSTALL_NAME, MASTRACODE_HOOK_TIMEOUT_MS, OMP_EXTENSION_ASSET,
     OMP_EXTENSION_INSTALL_NAME, OPENCODE_PLUGIN_ASSET, OPENCODE_PLUGIN_INSTALL_NAME,
     PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME, QODERCLI_HOOK_ASSET, QODERCLI_HOOK_EVENTS,
-    QODERCLI_HOOK_INSTALL_NAME, QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS,
+    QODERCLI_HOOK_INSTALL_NAME, QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS, ZCODE_HOOK_ASSET,
+    ZCODE_HOOK_INSTALL_NAME, ZCODE_PERMISSION_HOOK_TIMEOUT_SEC,
 };
 
 pub(crate) fn install_pi() -> io::Result<PathBuf> {
@@ -1349,5 +1350,145 @@ pub(crate) fn uninstall_grok() -> io::Result<GrokUninstallResult> {
         hooks_json_path,
         removed_hook_file,
         removed_hooks_json,
+    })
+}
+
+/// ZCode reads hooks from its own config file rather than from Claude's
+/// settings.json: it lists `~/.claude/settings.json` as read-only legacy
+/// compatibility, with every entry forced to `enabled: false, editable: false`
+/// (ZCode services/src/hooks/hooksService.ts:122-131,251-260 and
+/// services/src/hooks/workspaceHookSettingsModel.ts:216-246). Its own hook file
+/// is `~/.zcode/cli/config.json` (adapters/src/config/file-config.adapter.ts:62).
+///
+/// Only user-scope hooks are usable here. Project hooks pass through a workspace
+/// trust gate that is not wired up on the CLI/TUI/headless paths at all, so they
+/// never run there; user-scope configured hooks carry no admission gate
+/// (core/src/hooks/runner-helpers.ts:19-20, core/src/hooks/configured-runner.ts:19),
+/// which makes this the one registration point that works.
+pub(crate) fn install_zcode() -> io::Result<ZcodeInstallPaths> {
+    let dir = zcode_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "zcode directory not found at {}. install zcode first",
+            dir.display()
+        )));
+    }
+
+    let hooks_dir = dir.join("hooks");
+    fs::create_dir_all(&hooks_dir)?;
+
+    let hook_path = hooks_dir.join(ZCODE_HOOK_INSTALL_NAME);
+    fs::write(&hook_path, ZCODE_HOOK_ASSET)?;
+    make_executable(&hook_path)?;
+
+    // config.json is the user's main ZCode configuration, not a file Herdr owns,
+    // so it is read, edited, and written back through serde_json::Value: every
+    // field Herdr does not know about survives untouched.
+    let config_path = dir.join("config.json");
+    let mut config = if config_path.is_file() {
+        serde_json::from_str::<Value>(&fs::read_to_string(&config_path)?).map_err(|err| {
+            io::Error::other(format!("failed to parse {}: {err}", config_path.display()))
+        })?
+    } else {
+        json!({})
+    };
+
+    let hooks = ensure_hooks_object(&mut config, &config_path, "zcode config", "zcode hooks")?;
+
+    // ZCode's hooks runtime is off unless this is explicitly true
+    // (contracts/src/hooks/index.ts:425-430 DefaultHooksRuntimeConfig.enabled).
+    hooks.insert("enabled".to_string(), Value::Bool(true));
+
+    // Clear anything an older Herdr may have written. ZCode's hook event set is
+    // exactly SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest,
+    // PostToolUse, PostToolUseFailure and Stop (contracts/src/hooks/index.ts:7-15),
+    // so there is no SessionEnd or SubagentStop to clean up.
+    remove_hook_commands(hooks, "SessionStart", &hook_path, Some("idle"))?;
+    remove_hook_commands(hooks, "SessionStart", &hook_path, Some("session"))?;
+    remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("working"))?;
+    remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
+    remove_hook_commands(hooks, "PostToolUse", &hook_path, Some("working"))?;
+    remove_hook_commands(hooks, "PostToolUseFailure", &hook_path, Some("working"))?;
+    remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
+    remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("permission"))?;
+    remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
+
+    // Two hooks only, mirroring the Claude integration: the session hook records
+    // which session this pane belongs to, and the permission hook lets the web UI
+    // answer an approval. Agent state is left to screen detection, so per-turn
+    // lifecycle hooks would spawn a process per event to report nothing.
+    ensure_command_hook(
+        hooks,
+        "SessionStart",
+        hook_command(&hook_path, Some("session")),
+        10,
+        Some("*"),
+    )?;
+    // The permission hook answers an approval from the web UI and otherwise leaves
+    // ZCode's own prompt alone. It runs before that prompt is drawn, so its
+    // timeout is how long the reader has to answer before the terminal takes over;
+    // the script also stops waiting as soon as the request is answered.
+    ensure_command_hook(
+        hooks,
+        "PermissionRequest",
+        hook_command(&hook_path, Some("permission")),
+        ZCODE_PERMISSION_HOOK_TIMEOUT_SEC,
+        Some("*"),
+    )?;
+
+    fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+
+    Ok(ZcodeInstallPaths {
+        hook_path,
+        config_path,
+    })
+}
+
+pub(crate) fn uninstall_zcode() -> io::Result<ZcodeUninstallResult> {
+    let dir = zcode_dir()?;
+    let hook_path = dir.join("hooks").join(ZCODE_HOOK_INSTALL_NAME);
+    let config_path = dir.join("config.json");
+    let mut updated_config = false;
+
+    if config_path.is_file() {
+        let mut config = serde_json::from_str::<Value>(&fs::read_to_string(&config_path)?)
+            .map_err(|err| {
+                io::Error::other(format!("failed to parse {}: {err}", config_path.display()))
+            })?;
+
+        if let Some(hooks) =
+            hooks_object_if_present(&mut config, &config_path, "zcode config", "zcode hooks")?
+        {
+            updated_config |=
+                remove_hook_commands(hooks, "SessionStart", &hook_path, Some("idle"))?;
+            updated_config |=
+                remove_hook_commands(hooks, "SessionStart", &hook_path, Some("session"))?;
+            updated_config |=
+                remove_hook_commands(hooks, "UserPromptSubmit", &hook_path, Some("working"))?;
+            updated_config |=
+                remove_hook_commands(hooks, "PreToolUse", &hook_path, Some("working"))?;
+            updated_config |=
+                remove_hook_commands(hooks, "PostToolUse", &hook_path, Some("working"))?;
+            updated_config |=
+                remove_hook_commands(hooks, "PostToolUseFailure", &hook_path, Some("working"))?;
+            updated_config |=
+                remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("blocked"))?;
+            updated_config |=
+                remove_hook_commands(hooks, "PermissionRequest", &hook_path, Some("permission"))?;
+            updated_config |= remove_hook_commands(hooks, "Stop", &hook_path, Some("idle"))?;
+        }
+
+        if updated_config {
+            fs::write(&config_path, serde_json::to_string_pretty(&config)?)?;
+        }
+    }
+
+    let removed_hook_file = remove_file_if_exists(&hook_path)?;
+
+    Ok(ZcodeUninstallResult {
+        hook_path,
+        config_path,
+        removed_hook_file,
+        updated_config,
     })
 }

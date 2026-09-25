@@ -1,6 +1,6 @@
 ---
 title: Integrations
-description: Install Herdr integrations for Pi, OMP, Claude Code, Codex, GitHub Copilot CLI, Devin CLI, Droid, Kimi Code CLI, OpenCode, Kilo Code CLI, Hermes Agent, Qoder CLI, Cursor Agent CLI, MastraCode, and Grok Build.
+description: Install Herdr integrations for Pi, OMP, Claude Code, Codex, GitHub Copilot CLI, Devin CLI, Droid, Kimi Code CLI, OpenCode, Kilo Code CLI, Hermes Agent, Qoder CLI, Cursor Agent CLI, MastraCode, Grok Build, and ZCode.
 ---
 
 Herdr detects supported agents automatically. Official integrations can add native session identity for restore, lifecycle state reports, or both.
@@ -63,6 +63,25 @@ Custom socket integrations can also report state when they define state that is 
 Some integrations report native agent session references. Herdr uses official session references to resume Claude Code, Codex, Devin CLI, Droid, Kimi Code CLI, Qoder CLI, Cursor Agent CLI, GitHub Copilot CLI, Pi, OMP, Hermes Agent, OpenCode, Kilo Code CLI, MastraCode, and Grok Build panes after a Herdr server restart unless `[session] resume_agents_on_restore = false` disables it.
 
 Native session restore requires current Herdr integrations: Pi integration version `2`, OMP version `3`, Claude Code version `6`, Codex version `7`, GitHub Copilot CLI version `2`, Devin CLI version `2`, Droid version `2`, Kimi Code CLI version `3`, Qoder CLI version `2`, Cursor Agent CLI version `1`, OpenCode version `5`, Kilo Code CLI version `1`, Hermes Agent version `2`, MastraCode version `1`, or Grok Build version `2`. Check installed versions with `herdr integration status`.
+
+## ZCode
+
+Install the ZCode integration:
+
+```bash
+herdr integration install zcode
+```
+
+Herdr writes:
+
+```text
+~/.zcode/cli/hooks/herdr-agent-state.sh
+~/.zcode/cli/config.json
+```
+
+ZCode reads hooks from its own `config.json`, not from `~/.claude/settings.json`, which it only lists as read-only legacy compatibility. Herdr registers two hooks there: `SessionStart` records the native session id (`sess_...`) so Herdr can resume with `zcode --resume <id>` after a server restart, and `PermissionRequest` lets the web UI answer an approval before the terminal draws its own prompt. Agent state is left to screen detection, matching the Claude Code integration.
+
+Only user-scope hooks are usable. ZCode gates project hooks behind a workspace trust review that is not wired up in its CLI or TUI, so a hook installed outside `~/.zcode/cli/config.json` never runs there. Uninstall removes the managed hook script and the hook entries, leaving the rest of `config.json` untouched.
 
 ## Grok Build
 

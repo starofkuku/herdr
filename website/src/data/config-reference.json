@@ -1013,6 +1013,17 @@
           ]
         },
         {
+          "key": "ui.sound.agents.zcode",
+          "type": "enum",
+          "default": "\"default\"",
+          "description": "Sound override for detected ZCode agents.",
+          "values": [
+            "default",
+            "on",
+            "off"
+          ]
+        },
+        {
           "key": "ui.sound.agents.maki",
           "type": "enum",
           "default": "\"default\"",

@@ -193,6 +193,22 @@ const GROK_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
 const GROK_HOOKS_JSON_INSTALL_NAME: &str = "herdr-agent-state.json";
 const GROK_HOOK_ASSET: &str = include_str!("assets/grok/herdr-agent-state.sh");
 const GROK_INTEGRATION_VERSION: u32 = 2;
+const ZCODE_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
+    "herdr-agent-state.ps1"
+} else {
+    "herdr-agent-state.sh"
+};
+const ZCODE_HOOK_ASSET: &str = if cfg!(windows) {
+    include_str!("assets/zcode/herdr-agent-state.ps1")
+} else {
+    include_str!("assets/zcode/herdr-agent-state.sh")
+};
+const ZCODE_INTEGRATION_VERSION: u32 = 1;
+/// How long ZCode may wait for the web UI to answer an approval before it draws
+/// its own prompt. Same rationale as Claude's: the hook runs before that prompt,
+/// so this is a delay a terminal user pays, and the hook returns as soon as the
+/// request is answered or withdrawn.
+const ZCODE_PERMISSION_HOOK_TIMEOUT_SEC: u64 = 30;
 // SubagentStop is intentionally omitted: a finished subagent is not root-idle.
 // SessionEnd / Stop still mark idle for the root turn.
 const GROK_HOOK_EVENTS: [&str; 10] = [

@@ -221,6 +221,7 @@ fn parse_integration_target(
         "cursor" => IntegrationTarget::Cursor,
         "mastracode" => IntegrationTarget::Mastracode,
         "grok" => IntegrationTarget::Grok,
+        "zcode" => IntegrationTarget::Zcode,
         _ => {
             eprintln!("unknown integration target: {target}");
             eprintln!(
