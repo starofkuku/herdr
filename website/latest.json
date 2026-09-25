@@ -1,14 +1,24 @@
 {
-  "version": "0.7.40",
+  "version": "0.7.41",
   "protocol": 22,
-  "notes": "### Changed\n- A Feishu push is titled `herdr \u00b7 <agent> <event>` rather than `<agent> <event>`. In a busy chat list the agent name alone reads like any other message, and the card's own footer already carries the same prefix, so the two now agree.",
+  "notes": "### Added\n- ZCode support: `herdr integration install zcode` registers a session hook and a permission hook in `~/.zcode/cli/config.json`, so panes get native session restore (`zcode --resume <sess_...>`) and approvals can be answered from the web UI. ZCode reads hooks only from its own config file; the `~/.claude/settings.json` it lists as legacy compatibility is never executed, and its project-scope hooks sit behind a workspace trust review that its CLI and TUI do not enable. Agent state stays with screen detection, the same split as Claude Code. `herdr agent` also detects ZCode panes from their screen.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.40/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.40/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.40/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.40/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.41": {
+      "notes": "### Added\n- ZCode support: `herdr integration install zcode` registers a session hook and a permission hook in `~/.zcode/cli/config.json`, so panes get native session restore (`zcode --resume <sess_...>`) and approvals can be answered from the web UI. ZCode reads hooks only from its own config file; the `~/.claude/settings.json` it lists as legacy compatibility is never executed, and its project-scope hooks sit behind a workspace trust review that its CLI and TUI do not enable. Agent state stays with screen detection, the same split as Claude Code. `herdr agent` also detects ZCode panes from their screen.",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-macos-aarch64"
+      }
+    },
     "0.7.40": {
       "notes": "### Changed\n- A Feishu push is titled `herdr \u00b7 <agent> <event>` rather than `<agent> <event>`. In a busy chat list the agent name alone reads like any other message, and the card's own footer already carries the same prefix, so the two now agree.",
       "protocol": 22,
