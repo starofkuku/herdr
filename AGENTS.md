@@ -2,6 +2,20 @@
 
 Terminal based agent runtime for coding agents.
 
+## Repository Layout
+
+- `src/` — Rust binary containing the TUI and the server runtime. Key submodules: `app/` (state, actions, input), `platform/` (OS-specific code), `server/`, `client/`, `protocol/` (wire protocol), `workspace/`, `pane/`, `terminal/`, `ui/`, `detect/` (agent detection and `manifests/`), `integration/` (bundled agent integration assets), `web/` (HTTP server that serves the browser UI), `remote/`, `persist/`.
+- `web/` — browser UI (`herdr-web-ui`, React + TypeScript + Vite, managed with bun).
+- `website/` — herdr.dev Astro site; stable docs live in `website/src/content/docs/`.
+- `docs/next/` — staged unreleased docs, README, and CHANGELOG.
+- `workers/plugin-marketplace/` — plugin marketplace Cloudflare Worker.
+- `plugins/` — bundled plugins.
+- `scripts/` — Python maintenance scripts, run as tests by `just test`/`just check`.
+- `vendor/` — vendored libghostty-vt and portable-pty sources with patch tracking.
+- `tests/` — Rust integration tests.
+
+Toolchain notes: Rust is pinned via `rust-toolchain.toml`. Any cargo build compiles the vendored libghostty-vt with Zig, so Zig 0.15.2 must be available on `PATH` (or selected with the `ZIG` env var). `web/`, `website/`, and `workers/` use bun.
+
 ## Scope and Audience
 
 These instructions are layered.
@@ -86,8 +100,13 @@ Use `just` recipes by default instead of invoking cargo or scripts directly.
 
 ```bash
 just test               # cargo nextest + maintenance script tests
-just check              # formatting check + cargo nextest + maintenance script tests
+just check              # fmt + clippy + nextest + windows target clippy + maintenance tests
+just lint               # cargo fmt --check + clippy -D warnings
+just test-one <filter>  # one nextest filter, e.g. `just test-one codex_stale_working`
+just web-test           # browser UI unit tests (bun, no browser needed)
 ```
+
+`just windows-lint` cross-compiles clippy for `x86_64-pc-windows-msvc` from Unix/macOS, which is how to catch `cfg(windows)` compile and clippy failures locally before CI.
 
 Run `just check` before committing unless Can explicitly accepts narrower validation. Do not bypass failing checks; fix the failure or explain exactly why a narrower check is enough.
 

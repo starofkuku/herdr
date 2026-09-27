@@ -12,6 +12,8 @@ __pycache__/
 !/docs/next/**
 /.local/
 /backlog
+# ZCode 在项目里生成的本地 hooks 配置：内容随各人环境而变，不入库。
+/.zcode/
 
 /.pi/todos
 /.pi/issues
