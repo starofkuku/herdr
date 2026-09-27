@@ -635,7 +635,13 @@ fn terminal_command() -> Command {
 }
 
 fn web_command() -> Command {
-    Command::new("web").about("Serve the browser UI for Herdr sessions")
+    Command::new("web")
+        .about("Serve the browser UI for Herdr sessions")
+        .arg(
+            flag("detach")
+                .short('d')
+                .help("Run in the background, detached from this terminal"),
+        )
 }
 
 fn session_command() -> Command {
