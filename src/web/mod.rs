@@ -17,6 +17,7 @@ pub(crate) mod update;
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt as _, StreamExt as _};
@@ -27,6 +28,17 @@ use tracing::{debug, error, info, warn};
 
 use auth::{KeyError, WebKey};
 use protocol::{ClientMessage, ServerMessage};
+
+/// One live subscription: the task reading it, and the flag that stops it.
+///
+/// The flag is not redundant with `JoinHandle::abort`. Aborting a task that is
+/// blocked in a read does nothing, which is why cancelling used to leave the
+/// subscription — and its socket — alive forever. A subscription stops when its
+/// flag is set and the read times out to notice it.
+struct LiveSubscription {
+    handle: tokio::task::JoinHandle<()>,
+    stop: Arc<AtomicBool>,
+}
 
 /// Runtime settings for one gateway process.
 pub(crate) struct WebOptions {
@@ -123,6 +135,31 @@ struct SharedState {
 }
 
 /// Expands a leading `~` to the user's home directory.
+/// The file a detached gateway logs to, when one can be opened.
+///
+/// `herdr web --detach` has no terminal to write to, and a gateway that fails
+/// after detaching would otherwise fail silently. Returning `None` means the
+/// caller falls back to discarding output rather than refusing to start.
+pub(crate) fn detached_log_file() -> Option<std::fs::File> {
+    let dir = crate::session::data_dir();
+    if let Err(err) = std::fs::create_dir_all(&dir) {
+        tracing::debug!(err = %err, dir = %dir.display(), "could not create the log directory");
+        return None;
+    }
+    let path = dir.join("herdr-web.log");
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(file) => Some(file),
+        Err(err) => {
+            tracing::debug!(err = %err, path = %path.display(), "could not open the gateway log");
+            None
+        }
+    }
+}
+
 pub(crate) fn expand_tilde(path: &Path) -> PathBuf {
     let raw = path.to_string_lossy();
     let Some(rest) = raw.strip_prefix("~/") else {
@@ -390,7 +427,7 @@ async fn run_client(
     // Session this connection is bound to, resolved on first `use_session`.
     let mut api_socket: Option<PathBuf> = None;
     // Live subscription tasks, keyed by the browser's id.
-    let mut subscriptions: std::collections::HashMap<String, tokio::task::JoinHandle<()>> =
+    let mut subscriptions: std::collections::HashMap<String, LiveSubscription> =
         std::collections::HashMap::new();
     // Events produced by subscription tasks.
     let (events_tx, mut events_rx) = mpsc::unbounded_channel::<ServerMessage>();
@@ -442,8 +479,11 @@ async fn run_client(
         }
     };
 
-    for (_, handle) in subscriptions {
-        handle.abort();
+    // The flag first so each task leaves its read loop at the next timeout,
+    // then the abort in case one has not started yet.
+    for (_, subscription) in subscriptions {
+        subscription.stop.store(true, Ordering::Relaxed);
+        subscription.handle.abort();
     }
     let _ = sink.close().await;
     result
@@ -455,7 +495,7 @@ async fn handle_message(
     shared: &SharedState,
     authenticated: &mut bool,
     api_socket: &mut Option<PathBuf>,
-    subscriptions: &mut std::collections::HashMap<String, tokio::task::JoinHandle<()>>,
+    subscriptions: &mut std::collections::HashMap<String, LiveSubscription>,
     events_tx: &mpsc::UnboundedSender<ServerMessage>,
     sink: &mut futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<TcpStream>,
@@ -617,7 +657,10 @@ async fn handle_message(
 
             // Replace an existing subscription with the same id.
             if let Some(previous) = subscriptions.remove(&id) {
-                previous.abort();
+                // Cancelling is cooperative, so the flag matters: abort alone
+                // would leave the replaced subscription reading forever.
+                previous.stop.store(true, Ordering::Relaxed);
+                previous.handle.abort();
             }
 
             let line = serde_json::to_string(&serde_json::json!({
@@ -629,8 +672,10 @@ async fn handle_message(
 
             let tx = events_tx.clone();
             let sub_id = id.clone();
+            let stop = Arc::new(AtomicBool::new(false));
+            let stop_for_task = Arc::clone(&stop);
             let handle = tokio::task::spawn_blocking(move || {
-                let result = api::subscribe(&socket, &line, |line| {
+                let result = api::subscribe(&socket, &line, &stop_for_task, |line| {
                     let payload = match serde_json::from_str::<serde_json::Value>(line) {
                         Ok(value) => value,
                         Err(_) => return true,
@@ -648,13 +693,16 @@ async fn handle_message(
                     });
                 }
             });
-            subscriptions.insert(id, handle);
+            subscriptions.insert(id, LiveSubscription { handle, stop });
             Ok(())
         }
 
         ClientMessage::Unsubscribe { id } => {
-            if let Some(handle) = subscriptions.remove(&id) {
-                handle.abort();
+            if let Some(subscription) = subscriptions.remove(&id) {
+                // Set the flag so the task leaves its read loop at the next
+                // timeout; the abort only covers one that has not started.
+                subscription.stop.store(true, Ordering::Relaxed);
+                subscription.handle.abort();
             }
             Ok(())
         }

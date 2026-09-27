@@ -1902,7 +1902,21 @@ fn bridge_connection(
     }
 }
 
+/// Pumps `reader` into `writer` until the reader ends.
+///
+/// A write that cannot take the whole buffer yet is not a failure: the SSH pipe
+/// has a finite buffer, so a burst of output fills it and the kernel reports
+/// `EAGAIN` until the peer drains it. Treating that as fatal tore down a remote
+/// session whose connection was healthy — it just had more to say than the pipe
+/// could carry at once. The write is retried instead, with a short pause so a
+/// persistently full pipe does not spin a core.
+///
+/// `Interrupted` is retried for the same reason every other blocking call is: a
+/// signal is not an error the caller asked to see.
 fn copy_flush<R: io::Read, W: io::Write>(reader: &mut R, writer: &mut W) -> io::Result<u64> {
+    /// How long to wait before retrying a write the pipe could not accept.
+    const WRITE_RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(5);
+
     let mut buffer = [0_u8; 16 * 1024];
     let mut total = 0;
 
@@ -1914,7 +1928,31 @@ fn copy_flush<R: io::Read, W: io::Write>(reader: &mut R, writer: &mut W) -> io::
             Err(err) => return Err(err),
         };
 
-        writer.write_all(&buffer[..bytes_read])?;
+        let mut written = 0;
+        while written < bytes_read {
+            match writer.write(&buffer[written..bytes_read]) {
+                // A write that reports zero progress would loop forever; the
+                // `Write` contract allows it, so it has to be an error.
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "writer accepted no bytes",
+                    ));
+                }
+                Ok(count) => written += count,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                    ) =>
+                {
+                    std::thread::sleep(WRITE_RETRY_PAUSE);
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
         writer.flush()?;
         total += bytes_read as u64;
     }
@@ -2016,6 +2054,66 @@ fn sanitize_path_component(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A writer that reports `WouldBlock` a few times before accepting.
+    ///
+    /// This is what the SSH pipe does when its buffer is full: the write is
+    /// refused, and it succeeds once the peer reads. `copy_flush` must retry
+    /// rather than treat back-pressure as a dead connection.
+    struct ReluctantWriter {
+        refusals: usize,
+        written: Vec<u8>,
+    }
+
+    impl io::Write for ReluctantWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            if self.refusals > 0 {
+                self.refusals -= 1;
+                return Err(io::Error::new(io::ErrorKind::WouldBlock, "full"));
+            }
+            self.written.extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn copy_flush_retries_a_full_pipe_instead_of_failing() {
+        let mut input: &[u8] = b"hello";
+        let mut output = ReluctantWriter {
+            refusals: 3,
+            written: Vec::new(),
+        };
+
+        let total = copy_flush(&mut input, &mut output).expect("back-pressure must not be fatal");
+
+        assert_eq!(total, 5);
+        assert_eq!(output.written, b"hello");
+    }
+
+    /// A writer that keeps refusing must not spin forever without progress.
+    #[test]
+    fn copy_flush_fails_when_the_writer_accepts_nothing() {
+        struct StuckWriter;
+
+        impl io::Write for StuckWriter {
+            fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+                Ok(0)
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut input: &[u8] = b"hello";
+        let mut output = StuckWriter;
+        let err = copy_flush(&mut input, &mut output).expect_err("no progress is an error");
+        assert_eq!(err.kind(), io::ErrorKind::WriteZero);
+    }
 
     #[test]
     fn bridge_socket_is_user_only() {

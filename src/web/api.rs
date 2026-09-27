@@ -11,7 +11,10 @@
 
 use std::io::{self, BufRead as _, Read, Write as _};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
+use interprocess::local_socket::traits::Stream as _;
 use tracing::{debug, warn};
 
 /// Largest API response the gateway will forward.
@@ -193,38 +196,146 @@ fn spawn_session_server(name: Option<&str>, api_socket: &Path) -> io::Result<()>
     ))
 }
 
+/// How long a subscription read waits before checking whether it should stop.
+///
+/// The read has to time out for the stop flag to be observed at all: a read on a
+/// quiet subscription blocks indefinitely, so a cancel that only set a flag
+/// would be noticed whenever the next event happened to arrive — which for a
+/// pane nobody is touching may be never. Short enough that cancelling feels
+/// immediate, long enough that an idle subscription is not spinning.
+const SUBSCRIPTION_READ_TIMEOUT: Duration = Duration::from_millis(200);
+
 /// Streams a subscription, forwarding each response line to `on_line`.
 ///
-/// Runs until the client disconnects or the server closes the stream.
+/// Runs until the client disconnects, `should_stop` returns true, or the server
+/// closes the stream.
+///
+/// The read timeout and the stop flag together are what make this cancellable.
+/// A blocked read cannot be interrupted from outside — `JoinHandle::abort` does
+/// nothing for a blocking task — so cancelling has to be cooperative: the read
+/// returns empty-handed every `SUBSCRIPTION_READ_TIMEOUT`, and the caller's
+/// flag is checked before waiting again. Without that, a subscription with no
+/// traffic would hold its thread and its socket until the process exited, which
+/// is how the gateway ran its file descriptors out.
 pub(crate) fn subscribe(
     socket: &Path,
     request_line: &str,
+    should_stop: &AtomicBool,
     mut on_line: impl FnMut(&str) -> bool,
 ) -> io::Result<()> {
     let mut stream = crate::ipc::connect_local_stream(socket)?;
+    // Applied before the request is written so the very first read is bounded.
+    stream.set_recv_timeout(Some(SUBSCRIPTION_READ_TIMEOUT))?;
     stream.write_all(request_line.as_bytes())?;
     if !request_line.ends_with('\n') {
         stream.write_all(b"\n")?;
     }
     stream.flush()?;
 
-    let reader = io::BufReader::new(stream);
-    for line in reader.lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        if !on_line(&line) {
-            debug!("subscription consumer stopped");
+    let mut reader = io::BufReader::new(stream);
+    loop {
+        if should_stop.load(Ordering::Relaxed) {
+            debug!("subscription cancelled");
             return Ok(());
         }
+
+        let mut line = String::new();
+        match reader.read_line(&mut line) {
+            Ok(0) => return Ok(()),
+            Ok(_) => {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if !on_line(&line) {
+                    debug!("subscription consumer stopped");
+                    return Ok(());
+                }
+            }
+            // A wait with no data: expected, and the point of the timeout. The
+            // stop flag is checked at the top of the loop.
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue;
+            }
+            // A read that was interrupted partway through must not lose what it
+            // already buffered: `read_line` keeps its partial line in `line` and
+            // the next call appends to it, so continuing is safe.
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+            Err(err) => return Err(err),
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A quiet subscription must still be cancellable.
+    ///
+    /// This is the regression that mattered: a subscription with no traffic sat
+    /// in a blocking read forever, because cancelling only set a flag and nothing
+    /// ever woke the read to observe it. The thread and its socket stayed alive,
+    /// and enough of them exhausted the gateway's file descriptors.
+    ///
+    /// The listener here never sends a line, so the only way out is the stop flag
+    /// plus the read timeout.
+    #[test]
+    fn a_subscription_with_no_traffic_stops_when_asked() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::Arc;
+
+        let dir = std::env::temp_dir().join(format!(
+            "herdr-web-subscribe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("api.sock");
+
+        let listener = crate::ipc::bind_local_listener(&socket).unwrap();
+
+        // Accept the connection and then stay silent, which is what a subscription
+        // to a pane nobody is touching looks like.
+        let held = std::thread::spawn(move || {
+            use interprocess::local_socket::traits::Listener as _;
+            let mut stream = listener.accept().unwrap();
+            let mut request = String::new();
+            let _ = std::io::BufReader::new(&mut stream).read_line(&mut request);
+            std::thread::sleep(std::time::Duration::from_secs(3));
+        });
+
+        let stop = Arc::new(AtomicBool::new(false));
+        let stop_for_caller = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            stop_for_caller.store(true, Ordering::Relaxed);
+        });
+
+        let started = std::time::Instant::now();
+        let result = subscribe(
+            &socket,
+            "{\"id\":\"sub\",\"method\":\"events.subscribe\"}\n",
+            &stop,
+            |_line| true,
+        );
+
+        assert!(result.is_ok(), "cancelling must return cleanly: {result:?}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(2),
+            "cancelling must not wait for traffic: took {:?}",
+            started.elapsed()
+        );
+
+        let _ = held.join();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn normalize_maps_default_to_none() {
