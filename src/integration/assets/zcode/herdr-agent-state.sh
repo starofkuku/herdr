@@ -3,7 +3,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=zcode
-# HERDR_INTEGRATION_VERSION=1
+# HERDR_INTEGRATION_VERSION=2
 
 set -eu
 
@@ -151,8 +151,10 @@ def request_permission():
         "seq": time.time_ns(),
         # The request must not outlive the wait: once the hook has exited nobody
         # can collect an answer, so a lingering panel would offer a choice that
-        # goes nowhere.
-        "ttl_ms": wait_ms + 5_000,
+        # goes nowhere. The deadline matches the wait exactly, not more: a longer
+        # one would leave a window where the server still accepts an answer that
+        # this hook has already given up collecting.
+        "ttl_ms": wait_ms,
         "questions": [
             {
                 "id": "decision",
@@ -203,7 +205,17 @@ def request_permission():
         # and on timeout this is what stops a panel outliving the hook.
         call(
             "pane.clear_interaction",
-            {"pane_id": pane_id, "source": source, "request_id": request_id},
+              {
+                  "pane_id": pane_id,
+                  "source": source,
+                  "request_id": request_id,
+                  # The sequence is required, not decorative: `clear` refuses a request
+                  # whose sequence is not newer than the one it was reported with, and
+                  # refusing is what stops a stale clear from withdrawing a newer question.
+                  # Without it the server answers ok while doing nothing, so the panel
+                  # would stay up until its deadline.
+                  "seq": time.time_ns(),
+              },
         )
     return decision
 

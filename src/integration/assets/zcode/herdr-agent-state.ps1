@@ -2,7 +2,7 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=zcode
-# HERDR_INTEGRATION_VERSION=1
+# HERDR_INTEGRATION_VERSION=2
 
 param([string]$Action = "")
 
@@ -70,6 +70,10 @@ if ($Action -eq "permission") {
     # collect an answer, so a lingering panel would offer a choice that goes
     # nowhere. Option ids are ours, so the answer cannot be confused with
     # anything the agent wrote.
+    # A monotonic sequence, shared by the report and the clear below. The server
+    # refuses a `clear` whose sequence is not newer than the report's; that is
+    # what keeps a stale withdraw from retracting a newer question.
+    $seqCounter = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
     $reportArgs = @(
         "pane", "report-interaction", $paneId,
         "--source", $source,
@@ -77,7 +81,8 @@ if ($Action -eq "permission") {
         "--kind", "approval",
         "--title", "Allow $toolName?",
         "--summary", $summary,
-        "--ttl-ms", "$($waitMs + 5000)",
+        "--ttl-ms", "$waitMs",
+        "--seq", "$seqCounter",
         "--question", "decision=Allow $toolName to run?",
         "--option", "decision=allow=Allow",
         "--option", "decision=deny=Deny"
@@ -124,7 +129,12 @@ if ($Action -eq "permission") {
     # Withdraw either way: on success taking the answer already cleared it, and
     # on timeout this stops a panel outliving the hook.
     try {
-        & herdr pane clear-interaction $paneId --source $source --request-id $requestId 2>$null | Out-Null
+        # The sequence is required, not decorative: `clear` refuses a request whose
+        # sequence is not newer than the one it was reported with, and refusing is
+        # what stops a stale clear from withdrawing a newer question. Without it the
+        # server answers ok while doing nothing, so the panel would stay up until its
+        # deadline.
+        & herdr pane clear-interaction $paneId --source $source --request-id $requestId --seq $seqCounter 2>$null | Out-Null
     } catch {
     }
 

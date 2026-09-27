@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=7
+// HERDR_INTEGRATION_VERSION=8
 // @ts-nocheck
 
 import { createConnection } from "node:net";
@@ -296,7 +296,11 @@ async function bridgeAskUserQuestion(payload: any, signal: { abort: boolean }): 
         summary: typeof question?.question === "string" ? question.question : undefined,
         created_unix_ms: Date.now(),
         seq: nextReportSeq(),
-        ttl_ms: askUserWaitMs + 5000,
+        // The deadline matches the poll window exactly. A longer TTL leaves
+        // a window where the server still accepts an answer after the wait below
+        // has given up collecting it, so the choice is recorded and then silently
+        // dropped.
+        ttl_ms: askUserWaitMs,
         questions: [
           {
             id: "answer",
@@ -378,7 +382,17 @@ async function bridgeAskUserQuestion(payload: any, signal: { abort: boolean }): 
       {
         id: `${source}:ask-clear:${Date.now()}`,
         method: "pane.clear_interaction",
-        params: { pane_id: paneId, source, request_id: requestId },
+        // The sequence is required, not decorative: `clear` refuses a request
+        // whose sequence is not newer than the one it was reported with, and
+        // refusing is what stops a stale clear from withdrawing a newer question.
+        // Without it the server answers `ok` while doing nothing, leaving the panel
+        // behind until its deadline.
+        params: {
+          pane_id: paneId,
+          source,
+          request_id: requestId,
+          seq: nextReportSeq(),
+        },
       },
       2000,
     );
