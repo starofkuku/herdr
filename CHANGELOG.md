@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.7.42] - 2026-09-27
+
+### Added
+- `herdr web --detach` runs the gateway detached from the terminal that started it. A shell's `&` only backgrounds it: the gateway stays in that terminal's session and dies when the pane or tab closes. Without the flag `herdr web` is unchanged and still stops with Ctrl+C.
+
+### Fixed
+- A cancelled web subscription no longer keeps its thread and socket alive. Cancelling called `abort`, which does nothing for a task already blocked in a read, so a subscription to a pane with no activity never noticed it had been cancelled. Each page reload leaked a few, and after a couple of days the gateway ran out of file descriptors, which reaches a remote session as `Resource temporarily unavailable` and makes input stall. The server's matching thread leaked alongside it, because the connection was never closed for the server to observe.
+- Writing to a remote session retries when the pipe is full. Ordinary back-pressure used to fail the session outright, which read as a dropped connection rather than as "there is more output than the pipe can carry right now".
+
 ## [0.7.41] - 2026-09-25
 
 ### Added
