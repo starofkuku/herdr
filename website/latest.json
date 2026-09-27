@@ -1,14 +1,24 @@
 {
-  "version": "0.7.41",
+  "version": "0.7.42",
   "protocol": 22,
-  "notes": "### Added\n- ZCode support: `herdr integration install zcode` registers a session hook and a permission hook in `~/.zcode/cli/config.json`, so panes get native session restore (`zcode --resume <sess_...>`) and approvals can be answered from the web UI. ZCode reads hooks only from its own config file; the `~/.claude/settings.json` it lists as legacy compatibility is never executed, and its project-scope hooks sit behind a workspace trust review that its CLI and TUI do not enable. Agent state stays with screen detection, the same split as Claude Code. `herdr agent` also detects ZCode panes from their screen.",
+  "notes": "### Added\n- `herdr web --detach` runs the gateway detached from the terminal that started it. A shell's `&` only backgrounds it: the gateway stays in that terminal's session and dies when the pane or tab closes. Without the flag `herdr web` is unchanged and still stops with Ctrl+C.\n\n### Fixed\n- A cancelled web subscription no longer keeps its thread and socket alive. Cancelling called `abort`, which does nothing for a task already blocked in a read, so a subscription to a pane with no activity never noticed it had been cancelled. Each page reload leaked a few, and after a couple of days the gateway ran out of file descriptors, which reaches a remote session as `Resource temporarily unavailable` and makes input stall. The server's matching thread leaked alongside it, because the connection was never closed for the server to observe.\n- Writing to a remote session retries when the pipe is full. Ordinary back-pressure used to fail the session outright, which read as a dropped connection rather than as \"there is more output than the pipe can carry right now\".",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.41/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.42": {
+      "notes": "### Added\n- `herdr web --detach` runs the gateway detached from the terminal that started it. A shell's `&` only backgrounds it: the gateway stays in that terminal's session and dies when the pane or tab closes. Without the flag `herdr web` is unchanged and still stops with Ctrl+C.\n\n### Fixed\n- A cancelled web subscription no longer keeps its thread and socket alive. Cancelling called `abort`, which does nothing for a task already blocked in a read, so a subscription to a pane with no activity never noticed it had been cancelled. Each page reload leaked a few, and after a couple of days the gateway ran out of file descriptors, which reaches a remote session as `Resource temporarily unavailable` and makes input stall. The server's matching thread leaked alongside it, because the connection was never closed for the server to observe.\n- Writing to a remote session retries when the pipe is full. Ordinary back-pressure used to fail the session outright, which read as a dropped connection rather than as \"there is more output than the pipe can carry right now\".",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-macos-aarch64"
+      }
+    },
     "0.7.41": {
       "notes": "### Added\n- ZCode support: `herdr integration install zcode` registers a session hook and a permission hook in `~/.zcode/cli/config.json`, so panes get native session restore (`zcode --resume <sess_...>`) and approvals can be answered from the web UI. ZCode reads hooks only from its own config file; the `~/.claude/settings.json` it lists as legacy compatibility is never executed, and its project-scope hooks sit behind a workspace trust review that its CLI and TUI do not enable. Agent state stays with screen detection, the same split as Claude Code. `herdr agent` also detects ZCode panes from their screen.",
       "protocol": 22,
