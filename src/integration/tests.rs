@@ -1035,7 +1035,7 @@ fn claude_v1_integration_status_is_outdated() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(1));
-    assert_eq!(claude.expected_version, 8);
+    assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -1065,7 +1065,7 @@ fn claude_v2_integration_status_is_outdated() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(2));
-    assert_eq!(claude.expected_version, 8);
+    assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -1198,7 +1198,7 @@ fn codex_v2_integration_status_is_outdated() {
 
     assert_eq!(codex.path, hook_path);
     assert_eq!(codex.installed_version, Some(2));
-    assert_eq!(codex.expected_version, 8);
+    assert_eq!(codex.expected_version, CODEX_INTEGRATION_VERSION);
     assert_eq!(codex.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -2680,6 +2680,17 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(PI_EXTENSION_ASSET.contains("pi.on(\"agent_end\""));
     assert!(PI_EXTENSION_ASSET.contains("pane.release_agent"));
     assert!(PI_EXTENSION_ASSET.contains("pi.on(\"session_shutdown\""));
+
+    // The ask-user bridge must publish a deadline no longer than the window it
+    // polls for an answer. A longer one leaves a gap where the server still
+    // accepts a choice that the bridge has stopped collecting, so the answer is
+    // recorded and then silently dropped.
+    assert!(PI_EXTENSION_ASSET.contains("ttl_ms: askUserWaitMs,"));
+    assert!(!PI_EXTENSION_ASSET.contains("askUserWaitMs +"));
+    // `clear_interaction` must carry a sequence: the server refuses a clear whose
+    // sequence is not newer than the report's, and it answers `ok` while doing
+    // nothing, which would leave the panel behind until its deadline.
+    assert!(PI_EXTENSION_ASSET.contains("pane.clear_interaction"));
     assert!(OMP_EXTENSION_ASSET.contains("agent_session_path"));
     assert!(OMP_EXTENSION_ASSET.contains("agent_session_id"));
     assert!(OMP_EXTENSION_ASSET.contains("ctx?.hasUI !== true"));
@@ -2708,6 +2719,13 @@ fn bundled_integration_assets_report_session_refs() {
     );
     assert!(!CLAUDE_HOOK_ASSET.contains("\"state\": action"));
     assert!(!CLAUDE_HOOK_ASSET.contains("pane.release_agent"));
+
+    // The permission bridge must publish a deadline no longer than the window it
+    // polls for an answer, and its withdraw must carry a sequence: without one
+    // the server answers ok while doing nothing, leaving the panel behind.
+    assert!(CLAUDE_HOOK_ASSET.contains("\"ttl_ms\": wait_ms,"));
+    assert!(!CLAUDE_HOOK_ASSET.contains("wait_ms + 5_000"));
+    assert!(CLAUDE_HOOK_ASSET.contains("\"seq\": time.time_ns(),\n              },"));
     assert!(
         CODEX_HOOK_ASSET.contains("HERDR_HOOK_INPUT_FILE")
             || CODEX_HOOK_ASSET.contains("In.ReadToEnd")
@@ -2815,6 +2833,11 @@ fn bundled_integration_assets_report_session_refs() {
     // SubagentStop is not in ZCode's event set, so no branch may dispatch on it.
     assert!(!ZCODE_HOOK_ASSET.contains("== \"SubagentStop\""));
     assert!(!ZCODE_HOOK_ASSET.contains("pane.release_agent"));
+
+    // Same two invariants as Claude's permission bridge: the deadline matches the
+    // wait, and the withdraw carries a sequence so it is not silently ignored.
+    assert!(ZCODE_HOOK_ASSET.contains("\"ttl_ms\": wait_ms,"));
+    assert!(!ZCODE_HOOK_ASSET.contains("wait_ms + 5_000"));
 }
 
 #[test]
