@@ -4,6 +4,7 @@
 // the WebSocket, authentication, session binding, request/response correlation,
 // and subscription fan-out, so components work with plain promises.
 
+import { RequestTracker } from "./pending-requests";
 export const PROTOCOL_VERSION = 2;
 
 /**
@@ -15,6 +16,17 @@ export const PROTOCOL_VERSION = 2;
  */
 export const RECONNECT_BASE_DELAY_MS = 500;
 export const RECONNECT_MAX_DELAY_MS = 8000;
+
+/**
+ * How long one API request may stay unanswered.
+ *
+ * Generous compared with any real call, because it is a last resort rather than
+ * a latency budget: a request that reaches the server is answered in
+ * milliseconds, and the reads that do real work (a transcript, a large scroll
+ * range) are the reason this is not tighter. Its job is to release a caller that
+ * would otherwise wait forever.
+ */
+export const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface SessionSummary {
   name: string;
@@ -107,10 +119,14 @@ export class GatewayClient {
     if (this.credentials && !this.closedByUser) this.retryNow();
   };
 
-  private pending = new Map<
-    string,
-    { resolve: (value: ApiEnvelope) => void; reject: (err: Error) => void }
-  >();
+  /**
+   * Requests awaiting a reply, and the frames that could not be written yet.
+   *
+   * Both halves live together because they share the failure they guard
+   * against: a request registered while the connection is busy would otherwise
+   * never settle, since the server never saw it.
+   */
+  private requests = new RequestTracker();
   private eventHandlers = new Map<string, (payload: unknown) => void>();
   private sessionWaiters: { resolve: () => void; reject: (err: Error) => void }[] = [];
 
@@ -203,11 +219,7 @@ export class GatewayClient {
     socket.onclose = () => {
       if (this.socket !== socket) return; // A superseded socket.
       // Fail anything still waiting so callers do not hang forever.
-      const error = new Error("connection closed");
-      for (const { reject } of this.pending.values()) reject(error);
-      this.pending.clear();
-      for (const waiter of this.sessionWaiters) waiter.reject(error);
-      this.sessionWaiters = [];
+      this.dropQueued(new Error("connection closed"));
       this.socket = null;
       if (this.closedByUser) {
         this.setState("closed");
@@ -242,6 +254,11 @@ export class GatewayClient {
   private announceReady(): void {
     this.setState("ready");
     this.resendSubscriptions();
+    // Requests written before the handshake finished are released only now.
+    // `auth` is not enough: until the session is re-bound the gateway rejects
+    // them with "no session selected", so flushing any earlier would turn a
+    // request that used to be queued into a spurious failure.
+    this.flushOutbox();
   }
 
   /**
@@ -299,11 +316,7 @@ export class GatewayClient {
         break;
 
       case "api_result": {
-        const id = message.id ?? "";
-        const pending = this.pending.get(id);
-        if (!pending) return;
-        this.pending.delete(id);
-        pending.resolve((message.result ?? {}) as ApiEnvelope);
+        this.requests.resolve(message.id ?? "", message.result ?? {});
         break;
       }
 
@@ -334,10 +347,31 @@ export class GatewayClient {
     }
   }
 
+  /**
+   * Sends a frame, holding it until the connection can carry it.
+   *
+   * A socket that is still connecting would otherwise drop the frame silently,
+   * and a caller waiting on a reply would wait forever: the server never saw the
+   * request, so no `api_result` ever arrives, and the socket's own `onclose`
+   * cannot fail a request that was never sent over it. Components mount and fire
+   * their first request during exactly that window. Held frames are released by
+   * `announceReady`, after the session is bound, because the gateway rejects a
+   * request that arrives before that.
+   */
   private send(payload: unknown): void {
-    if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify(payload));
-    }
+    this.writeFrame(payload);
+  }
+
+  /** Writes the frames that were held before the handshake finished. */
+  private flushOutbox(): void {
+    this.requests.flush((frame) => this.writeFrame(frame));
+  }
+
+  /** Fails everything waiting on a connection that is being abandoned. */
+  private dropQueued(error: Error): void {
+    this.requests.failAll(error);
+    for (const waiter of this.sessionWaiters) waiter.reject(error);
+    this.sessionWaiters = [];
   }
 
   /** Lists known sessions. */
@@ -360,9 +394,33 @@ export class GatewayClient {
   api(method: string, params: Record<string, unknown> = {}): Promise<ApiEnvelope> {
     const id = randomId("api");
     return new Promise<ApiEnvelope>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.send({ type: "api", id, method, params });
+      // A request is completed by exactly one `api_result`, and by nothing else.
+      // The deadline is the backstop: a frame that never left the process, or a
+      // reply that never came, would otherwise leave the caller awaiting forever
+      // — which is what a view stuck on "loading" actually is.
+      const timer = window.setTimeout(() => {
+        this.requests.fail(id, new Error(`${method} timed out`));
+      }, REQUEST_TIMEOUT_MS);
+      const frame = { type: "api", id, method, params };
+      this.requests.register(
+        id,
+        {
+          resolve: (value) => resolve(value as ApiEnvelope),
+          reject,
+          cancelTimer: () => window.clearTimeout(timer),
+        },
+        frame,
+        () => this.writeFrame(frame),
+      );
     });
+  }
+
+  /** Writes one frame, reporting whether it left the process. */
+  private writeFrame(frame: unknown): boolean {
+    const socket = this.socket;
+    if (socket?.readyState !== WebSocket.OPEN) return false;
+    socket.send(JSON.stringify(frame));
+    return true;
   }
 
   /** Sends one API request, throwing when the API returns an error envelope. */
@@ -454,11 +512,7 @@ export class GatewayClient {
    * instead of inheriting a dead socket's pending requests.
    */
   private resetConnection(): void {
-    const error = new Error("connection reset");
-    for (const { reject } of this.pending.values()) reject(error);
-    this.pending.clear();
-    for (const waiter of this.sessionWaiters) waiter.reject(error);
-    this.sessionWaiters = [];
+    this.dropQueued(new Error("connection reset"));
     this.eventHandlers.clear();
     // `sessionName` is deliberately kept: it is what the reconnect re-binds to.
     this.socket = null;

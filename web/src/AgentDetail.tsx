@@ -686,19 +686,36 @@ export function AgentDetail({
    */
   const answerInteraction = useCallback(
     async (answers: InteractionAnswer[]) => {
-      if (!paneId || !interaction) return;
-      await client.call("pane.answer_interaction", {
-        pane_id: paneId,
-        request_id: interaction.requestId,
-        answers,
-      });
-      // The request is withdrawn once answered, so drop the panel rather than
-      // leaving a question the user already dealt with on screen. The server
-      // also emits `pane.updated`, but refreshing here means the panel closes
-      // even if that event is missed.
-      onChanged();
+      // A second submit before the first settles would name a request the server
+      // already withdrew, so an answer is refused while one is in flight. The
+      // panel's buttons read the same flag, but a click landing between the call
+      // and the re-render would otherwise get through.
+      if (!paneId || !interaction || busy) return;
+      setBusy(true);
+      try {
+        await client.call("pane.answer_interaction", {
+          pane_id: paneId,
+          request_id: interaction.requestId,
+          answers,
+        });
+        // The request is withdrawn once answered, so drop the panel rather than
+        // leaving a question the user already dealt with on screen. The server
+        // also emits `pane.updated`, but refreshing here means the panel closes
+        // even if that event is missed.
+        setError(null);
+        onChanged();
+      } catch (err) {
+        // Surfaced through `setError` so the panel shows it and the reader can try
+        // again; the panel also renders what `onAnswer` rejects with, so both paths
+        // report the same failure.
+        setError(err instanceof Error ? err.message : String(err));
+        throw err;
+      } finally {
+        // Cleared on failure too, so the reader can retry.
+        setBusy(false);
+      }
     },
-    [client, paneId, interaction, onChanged],
+    [client, paneId, interaction, onChanged, busy],
   );
 
   const transcript = pages
