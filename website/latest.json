@@ -1,14 +1,24 @@
 {
-  "version": "0.7.42",
+  "version": "0.7.43",
   "protocol": 22,
-  "notes": "### Added\n- `herdr web --detach` runs the gateway detached from the terminal that started it. A shell's `&` only backgrounds it: the gateway stays in that terminal's session and dies when the pane or tab closes. Without the flag `herdr web` is unchanged and still stops with Ctrl+C.\n\n### Fixed\n- A cancelled web subscription no longer keeps its thread and socket alive. Cancelling called `abort`, which does nothing for a task already blocked in a read, so a subscription to a pane with no activity never noticed it had been cancelled. Each page reload leaked a few, and after a couple of days the gateway ran out of file descriptors, which reaches a remote session as `Resource temporarily unavailable` and makes input stall. The server's matching thread leaked alongside it, because the connection was never closed for the server to observe.\n- Writing to a remote session retries when the pipe is full. Ordinary back-pressure used to fail the session outright, which read as a dropped connection rather than as \"there is more output than the pipe can carry right now\".",
+  "notes": "### Changed\n- A Feishu push is titled `herdr \u00b7 <project> \u00b7 <agent> <state>` rather than `herdr \u00b7 <agent> <state>`. A chat list is scanned for the workspace first, and the agent name alone does not say which one it is.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.42/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.43": {
+      "notes": "### Changed\n- A Feishu push is titled `herdr \u00b7 <project> \u00b7 <agent> <state>` rather than `herdr \u00b7 <agent> <state>`. A chat list is scanned for the workspace first, and the agent name alone does not say which one it is.",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-macos-aarch64"
+      }
+    },
     "0.7.42": {
       "notes": "### Added\n- `herdr web --detach` runs the gateway detached from the terminal that started it. A shell's `&` only backgrounds it: the gateway stays in that terminal's session and dies when the pane or tab closes. Without the flag `herdr web` is unchanged and still stops with Ctrl+C.\n\n### Fixed\n- A cancelled web subscription no longer keeps its thread and socket alive. Cancelling called `abort`, which does nothing for a task already blocked in a read, so a subscription to a pane with no activity never noticed it had been cancelled. Each page reload leaked a few, and after a couple of days the gateway ran out of file descriptors, which reaches a remote session as `Resource temporarily unavailable` and makes input stall. The server's matching thread leaked alongside it, because the connection was never closed for the server to observe.\n- Writing to a remote session retries when the pipe is full. Ordinary back-pressure used to fail the session outright, which read as a dropped connection rather than as \"there is more output than the pipe can carry right now\".",
       "protocol": 22,
