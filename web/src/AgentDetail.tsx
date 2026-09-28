@@ -974,9 +974,9 @@ export function AgentDetail({
         />
         <div className="composer-row">
           {/*
-            The field and the attach button share one box so the button can float
-            on the field's own corner: attaching belongs to the message being
-            written, and the row's own end is the send action.
+            The card is a column: the field on top, then a fixed row of controls
+            — attach at its start, send at its end, ZCode's own arrangement. The
+            buttons keep one place instead of riding up with a growing field.
           */}
           <div className="composer-field">
             <textarea
@@ -997,40 +997,36 @@ export function AgentDetail({
               }}
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
+                // An IME's Enter commits the candidate being typed; treating it
+                // as a send would swallow the character the reader is choosing.
+                if (event.nativeEvent.isComposing) return;
                 event.preventDefault();
 
-                // Ctrl/Cmd+Enter breaks the line, so a message can be laid out
-                // before it is sent. The browser has no default newline for that
-                // combination, so the break is inserted here: `setRangeText`
-                // leaves the caret after it and fires the input event React
-                // reads, which keeps the field controlled.
-                if (event.ctrlKey || event.metaKey) {
+                // Any modified Enter breaks the line, so a message can be laid
+                // out before it is sent — ZCode's own rule, where Shift, Ctrl
+                // and Cmd all decline to submit. The break goes through state
+                // rather than `setRangeText`: a controlled field ignores a
+                // DOM-only edit — React never hears about it, the height effect
+                // never runs, and the box refuses to grow with the text.
+                if (event.ctrlKey || event.metaKey || event.shiftKey) {
                   const field = event.currentTarget;
-                  field.setRangeText(
-                    "\n",
-                    field.selectionStart,
-                    field.selectionEnd,
-                    "end",
-                  );
+                  const start = field.selectionStart;
+                  const end = field.selectionEnd;
+                  setDraft(`${draft.slice(0, start)}\n${draft.slice(end)}`);
+                  // The caret follows the break once React has re-rendered.
+                  requestAnimationFrame(() => {
+                    field.selectionStart = start + 1;
+                    field.selectionEnd = start + 1;
+                  });
                   return;
                 }
 
                 void send();
               }}
             />
-            <button
-              type="button"
-              className="attach"
-              disabled={busy || preparing}
-              aria-label="Attach files"
-              title="Attach files"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Plus size={18} aria-hidden="true" />
-            </button>
             {/*
-              Hidden rather than styled away: a visible control would be a second
-              way to do the same thing, and the button above is the affordance.
+              Hidden rather than styled away: the visible control below is the
+              affordance, and a second one would do the same thing twice.
             */}
             <input
               ref={fileInputRef}
@@ -1045,26 +1041,38 @@ export function AgentDetail({
               }}
             />
           </div>
-          {canStop ? (
+          <div className="composer-actions">
             <button
               type="button"
-              className="stop"
-              disabled={busy}
-              aria-label="Stop the agent"
-              title="Stop the agent (sends Esc)"
-              onClick={() => void interrupt()}
+              className="attach"
+              disabled={busy || preparing}
+              aria-label="Attach files"
+              title="Attach files"
+              onClick={() => fileInputRef.current?.click()}
             >
-              <Square size={15} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+              <Plus size={18} aria-hidden="true" />
             </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={busy || preparing || (!draft.trim() && uploads.length === 0)}
-              aria-label="Send"
-            >
-              <Send size={18} aria-hidden="true" />
-            </button>
-          )}
+            {canStop ? (
+              <button
+                type="button"
+                className="stop"
+                disabled={busy}
+                aria-label="Stop the agent"
+                title="Stop the agent (sends Esc)"
+                onClick={() => void interrupt()}
+              >
+                <Square size={15} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={busy || preparing || (!draft.trim() && uploads.length === 0)}
+                aria-label="Send"
+              >
+                <Send size={18} aria-hidden="true" />
+              </button>
+            )}
+          </div>
         </div>
       </form>
 

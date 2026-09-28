@@ -27,6 +27,13 @@
    * use silently fell back to a hardcoded value that ignored the theme.
    */
   --danger: #ef4444;
+  /*
+   * Mono with CJK fallbacks, ZCode's stack: Consolas has no Chinese glyphs, so
+   * without the named CJK faces a code block with Chinese falls back to a
+   * serif font mid-line.
+   */
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", monospace;
   /* Text placed on top of an accent-filled control. */
   --on-accent: #0c1220;
   color-scheme: dark;
@@ -34,20 +41,29 @@
 
 /*
  * The reading column: how wide the conversation, the panels above the
- * composer, and the composer itself may grow. There is no sidebar to share the
- * page with (unlike ZCode, whose column is narrow because its rail takes the
- * rest), so on a desktop browser the column takes most of the page — 80% —
- * while a phone keeps the full width, where a percentage would eat the little
- * there is.
+ * composer, and the composer itself may grow. There is no sidebar, and the
+ * quick-jump rail is its own column beside this one, so the content takes the
+ * whole page and stops only at the rail.
  */
 :root {
   --reading-column: 100%;
 }
 
-@media (min-width: 64rem) {
-  :root {
-    --reading-column: 80%;
-  }
+/*
+ * Type scale.
+ *
+ * ZCode derives every size in its UI from one 14px base and a handful of
+ * steps, and keeps content text at 12px or above. herdr's chat surface had
+ * drifted into a spread of one-off fractions — 0.66, 0.68, 0.72, 0.74 — that
+ * read as slightly-off neighbours; the sizes on this screen now come from the
+ * steps below.
+ */
+:root {
+  --font-size-ui: 14px;
+  --text-ui-lg: calc(var(--font-size-ui) + 2px);
+  --text-ui-base: var(--font-size-ui);
+  --text-ui-caption: calc(var(--font-size-ui) - 1px);
+  --text-ui-sm: calc(var(--font-size-ui) - 2px);
 }
 
 /*
@@ -102,7 +118,8 @@ body {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "PingFang SC",
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans", "Noto Sans CJK SC", sans-serif;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
 }
@@ -178,7 +195,7 @@ textarea {
 }
 
 .interaction-label {
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -186,7 +203,7 @@ textarea {
 }
 
 .interaction-title {
-  font-size: 0.85rem;
+  font-size: var(--text-ui-base);
   font-weight: 600;
 }
 
@@ -196,8 +213,8 @@ textarea {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.74rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -219,7 +236,7 @@ textarea {
 }
 
 .interaction-chip {
-  font-size: 0.68rem;
+  font-size: var(--text-ui-sm);
   font-weight: 700;
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
@@ -229,7 +246,7 @@ textarea {
 }
 
 .interaction-text {
-  font-size: 0.88rem;
+  font-size: var(--text-ui-base);
   font-weight: 600;
   line-height: 1.45;
 }
@@ -275,18 +292,18 @@ textarea {
 }
 
 .interaction-option-label {
-  font-size: 0.85rem;
+  font-size: var(--text-ui-base);
   font-weight: 600;
 }
 
 .interaction-option-desc {
-  font-size: 0.76rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
   line-height: 1.45;
 }
 
 .interaction-preview {
-  font-size: 0.74rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
 }
 
@@ -329,7 +346,7 @@ textarea {
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: var(--text-ui-base);
 }
 
 .interaction-submit:disabled {
@@ -450,7 +467,7 @@ textarea {
 }
 
 .topbar-title .subtitle {
-  font-size: 0.75rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -465,8 +482,8 @@ textarea {
  * when that is resumed elsewhere.
  */
 .topbar-title .session-id {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
   color: var(--muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -481,8 +498,8 @@ textarea {
  */
 .web-version {
   flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
   color: var(--muted);
 }
 
@@ -1048,28 +1065,63 @@ textarea {
 .turn-nav__label {
   display: none;
   position: absolute;
-  left: calc(100% + 0.25rem);
+  left: calc(100% + 0.5rem);
   top: 50%;
   transform: translateY(-50%);
   z-index: 40;
-  width: max-content;
-  /* Wide enough to read a question, capped so a long one cannot cover the
-     transcript, and clamped so it never leaves the viewport on a narrow one. */
-  max-width: min(20rem, 60vw);
-  max-height: 5.4em;
-  overflow: hidden;
-  padding: 0.5rem 0.65rem;
+  /* ZCode's hover card: a fixed-width panel beside the tick, capped so a
+     narrow viewport still shows it whole. */
+  width: 20rem;
+  max-width: calc(100vw - 2rem);
+  padding: 0.75rem;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0.625rem;
   color: var(--text);
-  font-size: 0.75rem;
+  font-size: var(--text-ui-base);
   line-height: 1.5;
   text-align: left;
   white-space: normal;
   word-break: break-word;
-  box-shadow: 0 6px 20px rgb(0 0 0 / 45%);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
   pointer-events: none;
+  /* It rises into place rather than blinking, the way ZCode's card enters. */
+  animation: turn-nav-card-in 0.16s ease-out;
+}
+
+@keyframes turn-nav-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-50% + 6px)) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-nav__label {
+    animation: none;
+  }
+}
+
+/* The question, up to two lines — the same clamp ZCode's card applies. */
+.turn-nav__card-user {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0 0 0.4rem;
+  font-weight: 500;
+  white-space: pre-line;
+}
+
+/* What came back, up to three lines, receding behind the question. */
+.turn-nav__card-agent {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  color: color-mix(in srgb, var(--text) 72%, transparent);
+  white-space: pre-line;
 }
 
 .turn-nav__tick:hover .turn-nav__label,
@@ -1101,11 +1153,11 @@ textarea {
 
 .conversation-title {
   font-weight: 700;
-  font-size: 0.85rem;
+  font-size: var(--text-ui-base);
 }
 
 .conversation-provider {
-  font-size: 0.7rem;
+  font-size: var(--text-ui-sm);
   color: var(--accent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
   border-radius: 999px;
@@ -1113,19 +1165,19 @@ textarea {
 }
 
 .conversation-meta {
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
   margin-left: auto;
 }
 
 .conversation-cwd {
   margin: 0 0 0.75rem;
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
 }
 
 .conversation-error .hint {
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
   line-height: 1.5;
 }
@@ -1272,14 +1324,6 @@ textarea {
   }
 }
 
-.bubble-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-  /* ZCode's base UI size: 14px, with 1.6 leading for prose. */
-  font-size: 0.875rem;
-  line-height: 1.6;
-}
-
 .bubble-head {
   display: flex;
   align-items: baseline;
@@ -1288,18 +1332,18 @@ textarea {
 }
 
 .agent-name {
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
   font-weight: 700;
   color: var(--muted);
 }
 
 .agent-meta {
-  font-size: 0.68rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
 }
 
 .turn-status {
-  font-size: 0.66rem;
+  font-size: var(--text-ui-sm);
   padding: 0 0.4rem;
   border-radius: 999px;
   border: 1px solid var(--border);
@@ -1317,10 +1361,17 @@ textarea {
   border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
 }
 
+/*
+ * Markdown manages its own whitespace through its block elements, so the
+ * container must not preserve it: react-markdown puts a newline between block
+ * elements, and `pre-wrap` here rendered every one of them as a real blank
+ * line on top of the paragraph margins — the space between two paragraphs
+ * came out as 36px instead of the 6px the margins ask for.
+ */
 .agent-message {
-  white-space: pre-wrap;
+  white-space: normal;
   word-break: break-word;
-  font-size: 0.875rem;
+  font-size: var(--text-ui-base);
   line-height: 1.65;
   margin-bottom: 0.4rem;
 }
@@ -1330,12 +1381,12 @@ textarea {
    as a quote rather than as a draft answer. */
 .agent-message.reasoning {
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: var(--text-ui-base);
 }
 
 .turn-error {
   color: var(--danger);
-  font-size: 0.78rem;
+  font-size: var(--text-ui-caption);
   white-space: pre-wrap;
 }
 
@@ -1385,23 +1436,255 @@ textarea {
 
 .tool-kind {
   flex: none;
-  font-size: 0.74rem;
+  font-size: var(--text-ui-sm);
   font-weight: 550;
   color: var(--muted);
 }
 
 /*
- * The command, path, or query the call acted on: more subdued than the label
- * and set in mono, so a row of them reads as terminal history.
+ * A live reasoning row: the label shimmers so a running turn reads as active
+ * the way ZCode's "thinking" does. The gradient sweeps across the text, which
+ * is cheaper to notice than a spinner and does not change the row's width.
+ */
+.thinking-live {
+  background: linear-gradient(
+    90deg,
+    var(--text) 0%,
+    color-mix(in srgb, var(--text) 30%, transparent) 45%,
+    var(--text) 90%
+  );
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 1.8s linear infinite;
+}
+
+@keyframes thinking-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thinking-live {
+    animation: none;
+    background-position: 0 0;
+  }
+}
+
+/* How long a finished stretch of thinking took, beside its label. */
+.thinking-duration {
+  flex: none;
+  font-size: var(--text-ui-sm);
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+/*
+ * The folded work of a turn: a full-width row reading "worked for…" over a
+ * hairline, the way ZCode heads a turn's history. The reply's text stays below
+ * it; the thinking and tool calls it holds come back on a tap.
+ */
+.work-history {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  padding-bottom: 0.3rem;
+  margin-bottom: 1rem;
+}
+
+.work-summary {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+/*
+ * The expanded work. ZCode separates consecutive work rows (thinking and tool
+ * calls) with a fixed gap — its own comment calls it "统一 gap-4" — so the
+ * process reads as a list of steps rather than one grey block; the rows keep
+ * no margins of their own here.
+ *
+ * A closing rule mirrors the header's: with the fold open, the two lines
+ * bracket exactly what it holds, so where the work stops and the reply resumes
+ * is visible at a glance.
+ */
+.work-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  margin-bottom: 0.75rem;
+}
+
+.work-body .tool-call,
+.work-body .reasoning-group {
+  margin: 0;
+}
+
+/* Inside the fold the rows are the content, so they carry the base size. */
+.work-body .tool-kind,
+.work-body .tool-subject,
+.work-body .thinking-duration,
+.work-body .thinking-summary {
+  font-size: var(--text-ui-base);
+}
+
+/* The label is the row's whole point, so it reads a size up from a tool kind. */
+.work-summary .tool-kind {
+  font-size: var(--text-ui-base);
+  font-weight: 500;
+}
+
+/* Always visible here: the fold is the primary affordance, not a hover secret. */
+.work-summary .tool-chevron {
+  opacity: 0.7;
+}
+
+/*
+ * The newest line of reasoning, shown beside a collapsed live row so progress
+ * is visible without the block taking the space. It is a ticker: one line,
+ * parked at its right edge (the newest text) by the component, with both ends
+ * faded so the line reads as continuing rather than as cut off.
+ */
+.thinking-summary {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--text-ui-sm);
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    black 12px,
+    black calc(100% - 12px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    black 12px,
+    black calc(100% - 12px),
+    transparent 100%
+  );
+}
+
+/*
+ * The command, path, or query the call acted on. ZCode renders it in the UI
+ * sans face and truncates it — unlike a terminal, the row is a summary, and a
+ * long command should not wrap the list. A file subject adds its type icon,
+ * with the leaf name brighter than the directory it sits in.
  */
 .tool-subject {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-ui-sm);
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+.tool-text {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.74rem;
-  color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+.file-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: none;
+}
+
+.file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.file-dir {
+  flex: none;
+  white-space: nowrap;
+}
+
+/*
+ * Change counts on an edit row: added lines in the running green, removed in
+ * the danger red, the pair ZCode prints. Tabular figures keep the two columns
+ * from shifting as rows are compared.
+ */
+.diff-stats {
+  display: inline-flex;
+  gap: 0.4rem;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff-add {
+  color: var(--running);
+}
+
+.diff-del {
+  color: var(--danger);
+}
+
+.tool-failed {
+  flex: none;
+  color: var(--danger);
+}
+
+/*
+ * An edit rendered as a diff, ZCode-style: monospaced rows tinted the way the
+ * GitHub diff views tint them — added lines green, removed red, patch headers
+ * muted — so a change reads as a change instead of as a JSON payload.
+ */
+.diff {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  overflow: auto;
+  max-height: 24rem;
+  padding: 0.35rem 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+.diff-line {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0 0.6rem;
+}
+
+.diff-sign {
+  flex: none;
+  width: 0.7rem;
+  color: var(--muted);
+  user-select: none;
+}
+
+.diff-text {
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-line.add {
+  background: color-mix(in srgb, var(--running) 14%, transparent);
+}
+
+.diff-line.remove {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.diff-line.meta {
+  color: var(--muted);
 }
 
 /*
@@ -1451,13 +1734,22 @@ textarea {
   background: var(--surface-2);
   border: none;
   border-radius: 0.375rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 18rem;
   overflow: auto;
+}
+
+/*
+ * The rendered block tree owns its own spacing; a whitespace-preserving
+ * ancestor must not turn react-markdown's inter-block newlines into blank
+ * lines (see `.agent-message`).
+ */
+.markdown {
+  white-space: normal;
 }
 
 /* Markdown renders block-level elements, so collapse their outer margins. */
@@ -1483,7 +1775,7 @@ textarea {
 .markdown h3,
 .markdown h4 {
   margin: 0.6rem 0 0.3rem;
-  font-size: 0.9rem;
+  font-size: var(--text-ui-base);
 }
 
 .markdown ul,
@@ -1492,7 +1784,7 @@ textarea {
 }
 
 .markdown code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.82em;
   background: var(--surface-2);
   border-radius: 4px;
@@ -1554,7 +1846,7 @@ textarea {
 }
 
 .code-lang {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
   text-transform: lowercase;
   letter-spacing: 0.04em;
@@ -1573,7 +1865,7 @@ textarea {
 .markdown .code-block pre code {
   background: none;
   padding: 0;
-  font-size: 0.78rem;
+  font-size: var(--text-ui-caption);
   line-height: 1.55;
 }
 
@@ -1714,23 +2006,23 @@ textarea {
 }
 
 /*
- * A table in a scroll shell with a copy control. The control copies the table
- * as TSV — rows to lines, cells to tabs — which pastes straight into a sheet.
+ * A table with ZCode's controls: a toolbar above the frame — copy as Markdown,
+ * download as CSV, and a preview that lifts it out of the flow — and a shell
+ * that scrolls the body sideways without moving the toolbar with it.
  */
+.table-tools {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.15rem;
+  margin: 0.4rem 0 0.15rem;
+}
+
 .table-shell {
-  margin: 0.4rem 0;
+  margin: 0.15rem 0 0.4rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   background: var(--surface);
   overflow: hidden;
-}
-
-.table-shell-head {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0.15rem 0.3rem;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
 }
 
 .markdown .table-shell table {
@@ -1739,9 +2031,42 @@ textarea {
   width: 100%;
 }
 
+/*
+ * The preview: the same table, lifted over the page at full size. The backdrop
+ * both centers it and closes it — a tap anywhere is the way out, the same
+ * gesture the image lightbox uses.
+ */
+.table-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: rgb(0 0 0 / 0.55);
+}
+
+.table-overlay-panel {
+  max-width: 96vw;
+  max-height: 88vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.35);
+}
+
+.markdown .table-overlay-panel table {
+  margin: 0;
+  border-collapse: collapse;
+  font-size: var(--text-ui-caption);
+  white-space: normal;
+}
+
 .markdown table {
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: var(--text-ui-caption);
 }
 
 .markdown th,
@@ -1786,7 +2111,7 @@ textarea {
 
 .blocker-label {
   color: var(--accent);
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1794,7 +2119,7 @@ textarea {
 
 .blocker-hint {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
 }
 
 .blocker-text {
@@ -1803,8 +2128,8 @@ textarea {
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
@@ -1840,7 +2165,7 @@ textarea {
   border-radius: 9px;
   background: var(--surface-2);
   color: var(--text);
-  font-size: 0.85rem;
+  font-size: var(--text-ui-base);
   font-weight: 600;
   line-height: 1;
 }
@@ -1874,11 +2199,11 @@ textarea {
 /*
  * Jump to the newest output.
  *
- * Anchored to the bottom-right of the conversation area, above the composer and
- * the panels that sit over it, so it does not move when output arrives. Offset
- * from the bottom rather than placed in flow: appearing in flow would shift the
- * transcript the reader is looking at, which is the one thing this control
- * should not do.
+ * Centred over the conversation area, above the composer and the panels that
+ * sit over it, so it does not move when output arrives and reads as part of
+ * the column rather than as a floating aside. Offset from the bottom rather
+ * than placed in flow: appearing in flow would shift the transcript the reader
+ * is looking at, which is the one thing this control should not do.
  */
 /* ---- command palette ---- */
 
@@ -2118,7 +2443,7 @@ textarea {
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
   color: var(--text);
   font: inherit;
-  font-size: 0.7rem;
+  font-size: var(--text-ui-sm);
   cursor: grab;
   /* A drag must not select text or scroll the page under the pointer. */
   touch-action: none;
@@ -2215,7 +2540,7 @@ textarea {
   flex: none;
   padding: 0.05rem 0.35rem;
   border-radius: 999px;
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2380,12 +2705,17 @@ textarea {
 
 .session-activity__path {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--text-ui-sm);
 }
 
 .jump-to-latest {
   position: absolute;
-  right: 1rem;
+  /*
+   * Centred horizontally: half a button's width off the midpoint, so the
+   * button's own centre lands on the column's.
+   */
+  left: 50%;
+  transform: translateX(-50%);
   /* Just above the composer, inside the conversation area's own box. */
   bottom: 1rem;
   z-index: 5;
@@ -2426,13 +2756,13 @@ textarea {
   margin: 0 0 0.75rem;
   text-align: center;
   color: var(--muted);
-  font-size: 0.78rem;
+  font-size: var(--text-ui-caption);
 }
 
 .transcript pre {
   margin: 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
   line-height: 1.55;
   white-space: pre-wrap;
   word-break: break-word;
@@ -2448,7 +2778,7 @@ textarea {
 .todos {
   border-top: 1px solid var(--border);
   background: var(--surface);
-  font-size: 0.8rem;
+  font-size: var(--text-ui-caption);
   /*
    * Shares the conversation's measure so the bottom cluster (todos, subagent
    * bar, composer) reads as one column rather than one strip at the pane's
@@ -2475,7 +2805,7 @@ textarea {
 
 .todos-caret {
   color: var(--muted);
-  font-size: 0.7rem;
+  font-size: var(--text-ui-sm);
 }
 
 .todos-title {
@@ -2545,9 +2875,9 @@ textarea {
 }
 
 /*
- * The composer stacks the pending files above the input row. It is a column so
- * attachments sit above the field; `.composer-row` holds the row that used to
- * be the whole composer.
+ * The composer stacks the pending files above the input card. It is a column so
+ * attachments sit above the field; `.composer-row` is the card itself — field
+ * on top, the attach/send row beneath.
  *
  * ZCode's composer is a floating card, not a strip pinned to the viewport: no
  * top rule, the page background behind it, and the card carries the shadow. It
@@ -2567,25 +2897,33 @@ textarea {
 }
 
 /*
- * The input row is one rounded container holding the field and the send
- * control, the shape ZCode's composer uses (`rounded-2xl` with a soft shadow).
- * Focus is carried by the container, not the field: `:focus-within` is the
- * affordance, so the field itself draws nothing.
+ * The input row is one rounded container holding the field and a fixed row of
+ * controls beneath it — ZCode's composer shape: type at the top, buttons at
+ * the bottom. Focus is carried by the container, not the field: `:focus-within`
+ * is the affordance, so the field itself draws nothing.
  */
 .composer-row {
   display: flex;
-  align-items: flex-end;
-  gap: 0.35rem;
+  flex-direction: column;
+  align-items: stretch;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 1rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  padding: 0.3rem 0.35rem 0.3rem 0.3rem;
+  padding: 0.25rem;
   transition: border-color 0.15s ease;
 }
 
 .composer-row:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+/* The controls row: attach at its start, send or stop at its end. */
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.15rem 0.15rem 0.05rem;
 }
 
 .composer textarea {
@@ -2595,49 +2933,36 @@ textarea {
    * long unbroken line pushes the buttons off the edge of a phone screen.
    */
   min-width: 0;
-  min-height: 2.5rem;
   /*
-   * A ceiling rather than the old fixed two-line box: the field grows with what
-   * is typed, and this is where it stops and starts scrolling instead. Taller
-   * than half a phone screen would push the conversation out of view.
+   * Three lines of room from the start, so the composer reads as a message
+   * box rather than a search field, and it grows from there up to a fixed
+   * ceiling — the ceiling is ZCode's own (`max-h-40`), and a viewport-relative
+   * one would change size when a phone keyboard opens, which is exactly when
+   * it matters.
    */
-  max-height: 40vh;
+  min-height: 5.3rem;
+  max-height: 10rem;
   resize: none;
   background: transparent;
   border: none;
   border-radius: 0.6rem;
   color: var(--text);
-  padding: 0.55rem 0.7rem 0.55rem 0.75rem;
+  padding: 0.55rem 0.7rem;
   font-size: 16px; /* avoids iOS zoom on focus */
   line-height: 1.4;
   /* Height is driven by a measured `scrollHeight`, so the box must not also be
      free to resize itself or the two fight. */
   overflow-y: auto;
   /*
-   * The field only scrolls once `max-height` caps it. The browser's default
-   * scrollbar draws OS arrow buttons that read as a stray control sitting
-   * beside the text, so the thumb is restyled slim and buttonless. These two
-   * properties cover Firefox; the pseudo-elements below cover WebKit and Blink.
+   * No scrollbar chrome: the field only scrolls once the ceiling is reached,
+   * and until then a styled thumb shows up beside the send control as a stray
+   * widget (it did, at every height, because the measured height and a
+   * scrollbar's own 1px round asymmetrically). ZCode hides it too.
    */
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-width: none;
 }
 
 .composer textarea::-webkit-scrollbar {
-  width: 8px;
-}
-
-.composer textarea::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.composer textarea::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 4px;
-}
-
-/* The arrow buttons are the part that read as a stray widget. */
-.composer textarea::-webkit-scrollbar-button {
   display: none;
 }
 
@@ -2655,12 +2980,10 @@ textarea {
 .composer button[type="submit"] {
   width: 2.1rem;
   height: 2.1rem;
-  margin: 0.15rem 0.15rem 0.15rem 0;
   border-radius: 50%;
   background: var(--accent);
   color: var(--on-accent);
   flex: none;
-  align-self: flex-end;
   display: grid;
   place-items: center;
   /*
@@ -2686,13 +3009,11 @@ textarea {
 .composer button.stop {
   width: 2.1rem;
   height: 2.1rem;
-  margin: 0.15rem 0.15rem 0.15rem 0;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--danger);
   flex: none;
-  align-self: flex-end;
   display: grid;
   place-items: center;
   /*
@@ -2777,37 +3098,17 @@ textarea {
  * dependency. The size is in em so it scales with the button's font.
  */
 /*
- * The field and its button share one box, so the button can float on the field's
- * own corner instead of taking a column in the row.
+ * The field now holds only the textarea; the attach and send controls live in
+ * the row beneath it.
  */
 .composer-field {
   position: relative;
   display: flex;
-  flex: 1;
   min-width: 0;
 }
 
 .composer-field textarea {
   flex: 1;
-  /* Room for the floating mark, so the last line never runs under it. */
-  padding-left: 2.5rem;
-}
-
-/*
- * The attach control floats inside the field's left edge, centred on the field's
- * height: attaching belongs to the message being written, and the row's own end
- * is the send action.
- *
- * Centred with auto margins rather than a transform, so the mark lands on whole
- * pixels and stays crisp.
- */
-.composer button.attach {
-  position: absolute;
-  left: 0.3rem;
-  right: auto;
-  top: 0;
-  bottom: 0;
-  margin: auto 0;
 }
 
 /* ---- switching agents ---- */
@@ -3126,7 +3427,7 @@ textarea {
 }
 
 .pending-name {
-  font-size: 0.8rem;
+  font-size: var(--text-ui-sm);
   /* A long name must not widen the entry past the composer. */
   white-space: nowrap;
   overflow: hidden;
@@ -3134,7 +3435,7 @@ textarea {
 }
 
 .pending-size {
-  font-size: 0.7rem;
+  font-size: var(--text-ui-sm);
   color: var(--muted);
 }
 
@@ -3167,7 +3468,7 @@ textarea {
   inset: 0;
   display: grid;
   place-items: center;
-  font-size: 0.95rem;
+  font-size: var(--text-ui-lg);
   color: var(--accent);
   background: color-mix(in srgb, var(--bg) 78%, transparent);
   border: 2px dashed var(--accent);
@@ -3222,14 +3523,6 @@ textarea {
   .composer {
     padding: 0.75rem 2rem;
   }
-
-  /*
-   * The composer is its own centred column now, so the row has nothing left to
-   * centre: the field stretches to the column and the send control follows.
-   */
-  .composer-row {
-    align-items: flex-end;
-  }
 }
 
 /* ---- subagents ---- */
@@ -3260,7 +3553,7 @@ textarea {
   background: var(--surface-2);
   color: var(--text);
   font: inherit;
-  font-size: 0.74rem;
+  font-size: var(--text-ui-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -3308,7 +3601,7 @@ textarea {
   border: 0;
   border-top: 1px solid var(--border);
   color: var(--text);
-  font-size: 0.8rem;
+  font-size: var(--text-ui-caption);
   cursor: pointer;
   text-align: left;
 }
@@ -3391,7 +3684,7 @@ textarea {
 }
 
 .subagent-drawer__title {
-  font-size: 0.85rem;
+  font-size: var(--text-ui-base);
   font-weight: 600;
 }
 
@@ -3420,7 +3713,7 @@ textarea {
   align-items: center;
   flex-wrap: wrap;
   gap: 0.4rem;
-  font-size: 0.78rem;
+  font-size: var(--text-ui-caption);
 }
 
 .run-dot {
@@ -3454,12 +3747,12 @@ textarea {
 
 .run-metric {
   color: var(--muted);
-  font-size: 0.72rem;
+  font-size: var(--text-ui-sm);
 }
 
 .run-task {
   margin: 0.4rem 0 0.2rem;
-  font-size: 0.8rem;
+  font-size: var(--text-ui-caption);
   line-height: 1.45;
   word-break: break-word;
 }
@@ -3483,7 +3776,7 @@ textarea {
 
 .run-activity {
   margin: 0.35rem 0 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   color: var(--muted);
   word-break: break-all;
@@ -3557,7 +3850,7 @@ textarea {
 .run-tool-name {
   flex: none;
   color: var(--accent);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
 }
 
 .run-tools code {

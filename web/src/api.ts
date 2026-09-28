@@ -186,7 +186,9 @@ function transcriptPathOf(agent: Partial<AgentRecord>): string | undefined {
  * When the agent reports a path, the id is that file's name rather than the
  * path: the file is named after the session, so the stem is the identifier the
  * agent itself would print, while the directory says more about this machine's
- * layout than about the session.
+ * layout than about the session. Codex wraps its id in a rollout file name
+ * (`rollout-<timestamp>-<uuid>`), so the bare id is what gets shown — the
+ * timestamp prefix is a file-naming detail, not part of the identity.
  */
 function sessionIdOf(agent: Partial<AgentRecord>): string | undefined {
   const session = agent.agent_session;
@@ -195,7 +197,13 @@ function sessionIdOf(agent: Partial<AgentRecord>): string | undefined {
   if (session.kind === "id") return value;
   if (session.kind !== "path") return undefined;
   const name = value.split("/").pop() ?? value;
-  return name.endsWith(".jsonl") ? name.slice(0, -"jsonl".length - 1) : name;
+  const stem = name.endsWith(".jsonl") ? name.slice(0, -"jsonl".length - 1) : name;
+  // Codex wraps its id in a rollout file name (`rollout-<timestamp>-<uuid>`);
+  // the timestamp is a file-naming detail, not part of the identity. Pi's
+  // stems are shown as they are.
+  const rollout =
+    /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/iu.exec(stem);
+  return rollout ? rollout[1] : stem;
 }
 
 /** Human-readable label for a status value. */

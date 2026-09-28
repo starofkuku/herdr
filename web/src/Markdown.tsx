@@ -8,11 +8,11 @@
  * in the conversation is styled the same in an interaction preview.
  */
 
-import { isValidElement, useRef, useState, type ReactNode } from "react";
+import { isValidElement, useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { Check, Copy } from "lucide-react";
+import { Check, Copy, Download, Maximize2 } from "lucide-react";
 
 /**
  * Copies text, falling back to a hidden-field copy when the clipboard API is
@@ -98,16 +98,105 @@ function textFromChildren(node: ReactNode): string {
   return "";
 }
 
-/** Reads a rendered table back as TSV, cells separated by tabs. */
-function tableTsv(table: HTMLTableElement | null): string {
-  if (!table) return "";
-  return Array.from(table.querySelectorAll("tr"))
-    .map((row) =>
-      Array.from(row.querySelectorAll("th, td"))
-        .map((cell) => (cell.textContent ?? "").replace(/\t|\n/g, " ").trim())
-        .join("\t"),
-    )
+/** Reads a rendered table back as rows of trimmed cell text. */
+function tableRows(table: HTMLTableElement | null): string[][] {
+  if (!table) return [];
+  return Array.from(table.querySelectorAll("tr")).map((row) =>
+    Array.from(row.querySelectorAll("th, td")).map((cell) => (cell.textContent ?? "").trim()),
+  );
+}
+
+/** The table as a Markdown table, header row and separator included. */
+function tableMarkdown(table: HTMLTableElement | null): string {
+  const rows = tableRows(table);
+  if (rows.length === 0) return "";
+  const line = (cells: string[]) => `| ${cells.join(" | ")} |`;
+  const separator = `| ${rows[0].map(() => "---").join(" | ")} |`;
+  return [line(rows[0]), separator, ...rows.slice(1).map(line)].join("\n");
+}
+
+/** One CSV field: quoted when it carries a comma, quote, or newline. */
+function csvField(value: string): string {
+  return /[",\n]/u.test(value) ? `"${value.replace(/"/gu, '""')}"` : value;
+}
+
+/** The table as CSV, one line per row. */
+function tableCsv(table: HTMLTableElement | null): string {
+  return tableRows(table)
+    .map((cells) => cells.map(csvField).join(","))
     .join("\n");
+}
+
+/** Hands a text file to the browser's downloader. */
+function downloadText(name: string, text: string, mime: string): void {
+  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = name;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * A table with the controls ZCode gives one: a toolbar above the frame —
+ * copy as Markdown, download as CSV, and a preview that lifts the table out of
+ * the flow — with the body scrolling sideways inside its own shell.
+ */
+function TableShell({ children }: { children?: ReactNode }) {
+  const ref = useRef<HTMLTableElement | null>(null);
+  const [preview, setPreview] = useState(false);
+  // Esc closes the preview, the way every other overlay here does.
+  useEffect(() => {
+    if (!preview) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setPreview(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [preview]);
+  return (
+    <>
+      <div className="table-tools">
+        <CopyButton text={() => tableMarkdown(ref.current)} title="复制为 Markdown" />
+        <button
+          type="button"
+          className="copy-btn"
+          title="下载 CSV"
+          aria-label="下载 CSV"
+          onClick={() => downloadText("table.csv", tableCsv(ref.current), "text/csv")}
+        >
+          <Download size={13} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="copy-btn"
+          title="放大预览"
+          aria-label="放大预览"
+          onClick={() => setPreview(true)}
+        >
+          <Maximize2 size={13} aria-hidden="true" />
+        </button>
+      </div>
+      <div className="table-shell">
+        <table ref={ref}>{children}</table>
+      </div>
+      {preview ? (
+        <div
+          className="table-overlay"
+          role="dialog"
+          aria-label="表格预览"
+          onClick={() => setPreview(false)}
+        >
+          <div className="table-overlay-panel">
+            <table>{children}</table>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 /**
@@ -138,19 +227,6 @@ function CodeBlock({ children }: { children?: ReactNode }) {
 /** Anything `isValidElement` returns that we read `props.className` off. */
 interface ReactElementWithCode {
   props?: { className?: unknown; children?: ReactNode };
-}
-
-/** A table in a scroll shell, with a copy control that copies it as TSV. */
-function TableShell({ children }: { children?: ReactNode }) {
-  const ref = useRef<HTMLTableElement | null>(null);
-  return (
-    <div className="table-shell">
-      <div className="table-shell-head">
-        <CopyButton text={() => tableTsv(ref.current)} title="Copy table" />
-      </div>
-      <table ref={ref}>{children}</table>
-    </div>
-  );
 }
 
 /** Renders Markdown with the shared blocks and affordances. */

@@ -26,8 +26,22 @@ export interface ConversationToolCall {
   name?: string;
   /** Raw arguments as recorded by the agent. */
   arguments?: unknown;
+  /**
+   * The call's own input text, when the transcript keeps one apart from the
+   * arguments: for `apply_patch` this is the patch, which the row renders as a
+   * diff.
+   */
+  input?: string;
   /** Text the tool produced. */
   output?: string;
+  /** File the call touched, when the transcript names one. */
+  path?: string;
+  /** Lines the change added, when the transcript carries a count. */
+  added?: number;
+  /** Lines the change removed, same source as `added`. */
+  removed?: number;
+  /** True when the transcript records the change as failed. */
+  failed?: boolean;
   /**
    * Position of the call in the turn's raw entry stream, shared with the
    * messages' `order`, so the two can be interleaved in the order they
@@ -126,6 +140,41 @@ export function interleaveTurn(turn: ConversationTurn): TurnItem[] {
     (item.kind === "message" ? item.message.order : item.call.order) ?? 0;
   // Array sort is stable, so equal orders keep the block order above.
   return items.sort((a, b) => orderOf(a) - orderOf(b));
+}
+
+/**
+ * The last non-empty line of a reasoning stretch.
+ *
+ * Shown beside a collapsed, still-streaming thinking row so the reader can
+ * watch progress without the whole block taking the space — the newest line is
+ * the one that says what the agent is on right now.
+ */
+export function lastReasoningLine(messages: ConversationMessage[]): string {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const lines = (messages[index]?.text ?? "").replace(/\r\n?/gu, "\n").split("\n");
+    for (let line = lines.length - 1; line >= 0; line -= 1) {
+      const text = (lines[line] ?? "").trim();
+      if (text.length > 0) return text;
+    }
+  }
+  return "";
+}
+
+/**
+ * How long a finished reasoning stretch took, in whole seconds.
+ *
+ * Measured between the first and last message timestamps, which is the closest
+ * the transcript offers to a thinking timer. Null when there is nothing to
+ * measure (one message, or timestamps the transcript did not record), and the
+ * row then shows no duration rather than a made-up one.
+ */
+export function reasoningDurationSeconds(messages: ConversationMessage[]): number | null {
+  const times = messages
+    .map((message) => (message.timestamp ? Date.parse(message.timestamp) : Number.NaN))
+    .filter((time) => Number.isFinite(time));
+  if (times.length < 2) return null;
+  const seconds = Math.round((Math.max(...times) - Math.min(...times)) / 1000);
+  return seconds > 0 ? seconds : null;
 }
 
 /**

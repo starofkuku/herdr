@@ -3,7 +3,17 @@ import { ArrowDown, ChevronRight } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
 import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
 import { CopyButton, Markdown } from "./Markdown";
-import { ReasoningVisual, toolVisual } from "./toolView";
+import {
+  editDiffLines,
+  isEditVisual,
+  isReadVisual,
+  isTerminalVisual,
+  ReasoningVisual,
+  toolChangeStats,
+  toolOperationLabel,
+  toolVisual,
+} from "./toolView";
+import { fileIconDataUri, looksLikeFilePath, splitFilePath } from "./fileIcons";
 import {
   NAVIGATOR_DIM_DELAY_MS,
   POINTER_PITCH,
@@ -16,7 +26,9 @@ import { activity, runsByTurn, type SubagentRun } from "./subagents";
 import { useActiveTurn } from "./useActiveTurn";
 import {
   interleaveTurn,
+  lastReasoningLine,
   loadConversation,
+  reasoningDurationSeconds,
   ConversationError,
   PAGE_BYTES,
   type Conversation,
@@ -61,16 +73,58 @@ function clockTime(seconds: number | undefined): string | null {
   });
 }
 
-/** The first line of a tool call, used as a collapsed summary. */
-function toolSummary(name: string | undefined, args: unknown): string {
-  const label = name || "tool";
+/** A duration in the words the work rows use: 35 秒, 1 分 35 秒. */
+function chineseDuration(ms: number | undefined): string | null {
+  if (!ms || ms <= 0) return null;
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest > 0 ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`;
+}
+
+/**
+ * The assistant's side of an exchange, for the navigator's hover card.
+ *
+ * The final answer when the transcript recorded one, else the last thing the
+ * agent said outside its thinking, else a status word — ZCode shows the same
+ * pair of previews (question over answer) on its own rail.
+ */
+function assistantPreviewOf(turn: ConversationTurn): string {
+  const answer = (turn.final_answer ?? "").trim();
+  if (answer) return answer;
+  const messages = turn.agent_messages ?? [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.is_reasoning) continue;
+    const text = (message.text ?? "").trim();
+    if (text) return text;
+  }
+  return turn.status === "ongoing" ? "正在回复…" : "暂无回复内容";
+}
+
+/**
+ * The command, path, or query a tool call acted on.
+ *
+ * ZCode shows this text on its own — the tool name is the row's label, not a
+ * wrapper around the subject — so a shell call reads as its command rather than
+ * as `exec_command(...)`. A shell array (`["bash", "-lc", "…"]`) is unwrapped to
+ * the command it carries.
+ */
+function toolSubject(name: string | undefined, args: unknown): string {
   if (args && typeof args === "object") {
     const record = args as Record<string, unknown>;
-    const subject =
-      record.command ?? record.path ?? record.file_path ?? record.pattern ?? record.query;
-    if (typeof subject === "string") return `${label}(${subject.slice(0, 68)})`;
+    const raw =
+      record.command ?? record.cmd ?? record.path ?? record.file_path ?? record.pattern ?? record.query;
+    if (typeof raw === "string" && raw.trim()) return raw.trim();
+    if (Array.isArray(raw)) {
+      const parts = raw.filter((part): part is string => typeof part === "string");
+      const shellIndex = parts.findIndex((part) => part === "-lc");
+      const command = shellIndex >= 0 ? parts[shellIndex + 1] : parts.join(" ");
+      if (command) return command;
+    }
   }
-  return label;
+  return name ?? "tool";
 }
 
 /**
@@ -310,7 +364,12 @@ function TurnNavigator({
               <span className="turn-nav__bar" />
               {/* Not rendered on touch: a hover-only label can never appear
                   there, and showing it persistently would cover the text. */}
-              {coarse ? null : <span className="turn-nav__label">{label}</span>}
+              {coarse ? null : (
+                <span className="turn-nav__label" role="tooltip">
+                  <span className="turn-nav__card-user">{label}</span>
+                  <span className="turn-nav__card-agent">{assistantPreviewOf(turn)}</span>
+                </span>
+              )}
             </button>
           );
         })}
@@ -426,28 +485,92 @@ function PendingTurn({
   );
 }
 
-function ToolCall({
-  kind,
-  name,
-  args,
-  output,
-}: {
-  kind?: string;
-  name?: string;
-  args?: unknown;
-  output?: string;
-}) {
+/**
+ * The expanded payload of a tool call.
+ *
+ * Each tool's payload renders in the shape the tool produced, the way ZCode
+ * renders its own: an edit reads as a diff (tinted rows, one per changed
+ * line), a command or a read reads as its output, and only calls with no
+ * better shape fall back to the raw JSON the transcript recorded.
+ */
+function ToolDetail({ call }: { call: ConversationToolCall }) {
+  const visual = toolVisual(call.kind, call.name);
+  if (isEditVisual(visual)) {
+    const diff = editDiffLines(call);
+    if (diff) {
+      return (
+        <div className="diff">
+          {diff.lines.map((line, index) => (
+            <div key={index} className={`diff-line ${line.kind}`}>
+              <span className="diff-sign" aria-hidden="true">
+                {line.kind === "add" ? "+" : line.kind === "remove" ? "-" : line.kind === "meta" ? "" : " "}
+              </span>
+              <span className="diff-text">{line.text}</span>
+            </div>
+          ))}
+          {diff.omitted > 0 ? (
+            <div className="diff-line meta">
+              <span className="diff-sign" aria-hidden="true" />
+              <span className="diff-text">……（还有 {diff.omitted} 行未显示）</span>
+            </div>
+          ) : null}
+        </div>
+      );
+    }
+  }
+  const output = (call.output ?? "").replace(/\s+$/u, "");
+  if ((isTerminalVisual(visual) || isReadVisual(visual)) && output) {
+    // The command or the query is already the row's summary; the detail is
+    // what came back from it.
+    return <pre className="tool-body result">{output}</pre>;
+  }
+  const args = call.arguments;
+  const raw =
+    call.input ??
+    (args && typeof args === "object" ? JSON.stringify(args, null, 2) : String(args ?? ""));
+  return (
+    <>
+      {raw ? <pre className="tool-body">{raw}</pre> : null}
+      {output ? <pre className="tool-body result">{output}</pre> : null}
+    </>
+  );
+}
+
+function ToolCall({ call, onReveal }: { call: ConversationToolCall; onReveal?: () => void }) {
   const [open, setOpen] = useState(false);
-  const input = args && typeof args === "object" ? JSON.stringify(args, null, 2) : String(args ?? "");
+  const { kind, name, arguments: args, output } = call;
   const visual = toolVisual(kind, name);
   const Icon = visual.icon;
+  /*
+   * A call that names a file gets the file treatment: type icon, leaf name,
+   * directory — and, for an edit, the change counts. Codex patches carry no
+   * arguments (the patch is its own field server-side), so the server's `path`
+   * is what makes their rows readable at all.
+   */
+  const subject = toolSubject(name, args);
+  const filePath = call.path ?? (looksLikeFilePath(subject) ? subject : null);
+  const parts = filePath ? splitFilePath(filePath) : null;
+  const icon = filePath ? fileIconDataUri(filePath) : null;
+  const stats = isEditVisual(visual) ? toolChangeStats(call) : null;
+  // A whole-file write is its own verb; an edit stays 编辑.
+  const label = (isEditVisual(visual) ? toolOperationLabel(call) : null) ?? visual.label;
+  // What a copy of the detail copies: the call's own input text when the
+  // transcript kept one (a patch), otherwise the raw arguments, plus output.
+  const rawInput =
+    call.input ??
+    (args && typeof args === "object" ? JSON.stringify(args, null, 2) : String(args ?? ""));
+  const copyPayload = [rawInput, output]
+    .filter((part): part is string => !!part && part.length > 0)
+    .join("\n\n");
+  useExpandReveal(open, onReveal);
   return (
     <div className="tool-call">
       {/*
         ZCode's tool summary anatomy: an inline row of glyph, category label,
-        and the command or path — no card chrome, so a run of tool calls reads
-        as a log of actions inside the reply rather than a stack of boxes. The
-        chevron appears on hover and rotates once the detail is open.
+        and the command or file the call acted on — no card chrome, so a run of
+        tool calls reads as a log of actions inside the reply rather than a
+        stack of boxes. The chevron appears on hover and rotates once the detail
+        is open.
       */}
       <button
         type="button"
@@ -456,20 +579,33 @@ function ToolCall({
         onClick={() => setOpen((value) => !value)}
       >
         <Icon size={14} className="tool-icon" aria-hidden="true" />
-        <span className="tool-kind">{visual.label}</span>
-        <span className="tool-subject">{toolSummary(name, args)}</span>
+        <span className="tool-kind">{label}</span>
+        <span className="tool-subject">
+          {parts ? (
+            <>
+              {icon ? <img className="file-icon" src={icon} alt="" aria-hidden="true" /> : null}
+              <span className="file-name">{parts.name}</span>
+              {parts.dir ? <span className="file-dir">{parts.dir}</span> : null}
+            </>
+          ) : (
+            <span className="tool-text">{subject}</span>
+          )}
+        </span>
+        {stats ? (
+          <span className="diff-stats">
+            <span className="diff-add">+{stats.added}</span>
+            <span className="diff-del">-{stats.removed}</span>
+          </span>
+        ) : null}
+        {call.failed ? <span className="tool-failed">执行失败</span> : null}
         <ChevronRight size={14} className={`tool-chevron${open ? " open" : ""}`} aria-hidden="true" />
       </button>
       {open ? (
         <div className="tool-detail">
           <div className="tool-detail-actions">
-            <CopyButton
-              text={[input, output].filter((part) => part && part.length > 0).join("\n\n")}
-              title="Copy tool call"
-            />
+            <CopyButton text={copyPayload} title="Copy tool call" />
           </div>
-          <pre className="tool-body">{input}</pre>
-          {output ? <pre className="tool-body result">{output}</pre> : null}
+          <ToolDetail call={call} />
         </div>
       ) : null}
     </div>
@@ -483,21 +619,61 @@ type TurnGroup =
   | { kind: "tool"; call: ConversationToolCall };
 
 /**
+ * The rule for what happens to the scroll when a row is expanded, taken from
+ * ZCode's timeline (`timelineScrollAnchor.ts`): a reader who is at the bottom
+ * is carried along — the new height makes the view stick to the bottom, which
+ * reveals the detail from below and pushes the row that was clicked upward; a
+ * reader who has scrolled up keeps their place, and nothing moves under them.
+ */
+function useExpandReveal(open: boolean, onReveal: (() => void) | undefined) {
+  useEffect(() => {
+    if (open) onReveal?.();
+  }, [open, onReveal]);
+}
+
+/**
  * One collapsible stretch of thinking, set wherever it happened in the reply.
  *
  * Consecutive reasoning coalesces into one segment so a run of thinking
  * paragraphs gets one toggle rather than one per block. It starts collapsed:
  * thinking is the longest part of a turn and the answer is what the reader came
  * for, so the reasoning stays one tap away instead of pushing the reply down.
+ *
+ * The collapsed row still reports, ZCode-style: a live segment shows a shimmering
+ * "thinking" and the newest line of the reasoning as a ticker, while a finished
+ * one shows how long it took. Expanding always wins — it is the reader asking
+ * for the text.
  */
-function ReasoningSegment({ messages }: { messages: ConversationMessage[] }) {
+function ReasoningSegment({
+  messages,
+  streaming,
+  onReveal,
+}: {
+  messages: ConversationMessage[];
+  /** True for the segment the agent is still writing reasoning into. */
+  streaming: boolean;
+  onReveal?: () => void;
+}) {
   const [open, setOpen] = useState(false);
+  // The ticker only exists while collapsed: expanded, the newest line is on
+  // screen already.
+  const summary = streaming && !open ? lastReasoningLine(messages) : "";
+  const duration = streaming ? null : reasoningDurationSeconds(messages);
+  // The newest line of a ticker is its right edge, so the viewport is parked
+  // there whenever the text grows.
+  const tickerRef = useRef<HTMLSpanElement | null>(null);
+  useEffect(() => {
+    const element = tickerRef.current;
+    if (element) element.scrollLeft = element.scrollWidth;
+  }, [summary]);
+  useExpandReveal(open, onReveal);
   return (
     <div className="activity reasoning-group">
       {/*
         Thinking gets the same row anatomy as a tool call — ZCode shows it as a
         brain glyph and a label, not as italic prose, so it reads as another
-        collapsible step in the reply.
+        collapsible step in the reply. The labels are ZCode's own: 正在思考
+        while it streams behind a shimmer, then 思考 · 持续了 N 秒.
       */}
       <button
         type="button"
@@ -506,7 +682,19 @@ function ReasoningSegment({ messages }: { messages: ConversationMessage[] }) {
         onClick={() => setOpen((value) => !value)}
       >
         <ReasoningVisual.icon size={14} className="tool-icon" aria-hidden="true" />
-        <span className="tool-kind">{ReasoningVisual.label}</span>
+        <span className={`tool-kind${streaming ? " thinking-live" : ""}`}>
+          {streaming ? "正在思考" : "思考"}
+        </span>
+        {!streaming ? (
+          <span className="thinking-duration">
+            · {duration !== null ? `持续了 ${duration} 秒` : "持续了几秒"}
+          </span>
+        ) : null}
+        {summary ? (
+          <span className="thinking-summary" ref={tickerRef}>
+            {summary}
+          </span>
+        ) : null}
         <ChevronRight
           size={14}
           className={`tool-chevron${open ? " open" : ""}`}
@@ -530,6 +718,7 @@ function Turn({
   onPreviewImage,
   subagents,
   onOpenSubagents,
+  onReveal,
 }: {
   turn: ConversationTurn;
   index?: number;
@@ -537,6 +726,8 @@ function Turn({
   /** Finished runs that started during this turn, shown as their own record. */
   subagents?: SubagentRun[];
   onOpenSubagents?: () => void;
+  /** What happens to the scroll when a row here is expanded. */
+  onReveal?: () => void;
 }) {
   const allMessages = (turn.agent_messages ?? []).filter((message) => (message.text ?? "").trim());
   const messages = allMessages.filter((message) => !message.is_reasoning);
@@ -572,6 +763,82 @@ function Turn({
       groups.push({ kind: "answer", message });
     }
   }
+  /*
+   * While the turn is still running, the last segment is the one being written.
+   * It is live only when it is reasoning: a tool call after the thinking means
+   * the agent has moved on to doing something with it.
+   */
+  const lastGroup = groups[groups.length - 1];
+  const liveReasoning = turn.status === "ongoing" && lastGroup?.kind === "reasoning";
+
+  /*
+   * A turn separates into the reply and the work behind it, the way ZCode folds
+   * a turn: the text the reader came for stays visible, while thinking and tool
+   * calls fold under one "worked for…" row. A running turn keeps its work open
+   * — watching it is the point of a live turn — and finishing folds it away,
+   * unless the reader has opened it themselves, which always outlasts the
+   * automatic fold.
+   */
+  const running = turn.status === "ongoing";
+  const processGroups = groups
+    .map((group, position) => ({ group, position }))
+    .filter(({ group }) => group.kind !== "answer");
+  const answerGroups = groups
+    .map((group, position) => ({ group, position }))
+    .filter(({ group }) => group.kind === "answer");
+  const hasAnswerText = messages.length > 0 || (turn.final_answer ?? "").trim().length > 0;
+  // A work-only turn opens its work: folding it would leave nothing on screen.
+  const [historyOpen, setHistoryOpen] = useState(() => running || !hasAnswerText);
+  const historyTouched = useRef(false);
+  const previousStatus = useRef(turn.status);
+  useEffect(() => {
+    const previous = previousStatus.current;
+    previousStatus.current = turn.status;
+    if (previous === "ongoing" && turn.status !== "ongoing" && !historyTouched.current) {
+      setHistoryOpen(false);
+    }
+  }, [turn.status]);
+  // The worked-for label counts up while the turn runs.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+  const workedMs = running
+    ? turn.started_at
+      ? now - turn.started_at * 1000
+      : undefined
+    : turn.duration_ms;
+  // ZCode's wording for the fold: 工作中 while it runs, 已工作 once it is done.
+  const workedFor = chineseDuration(workedMs);
+  const workedLabel = workedFor
+    ? `${running ? "工作中" : "已工作"} ${workedFor}`
+    : running
+      ? "工作中"
+      : "已工作";
+
+  const renderGroup = (group: TurnGroup, position: number) => {
+    if (group.kind === "tool") {
+      return (
+        <ToolCall key={group.call.call_id ?? position} call={group.call} onReveal={onReveal} />
+      );
+    }
+    if (group.kind === "reasoning") {
+      return (
+        <ReasoningSegment
+          key={position}
+          messages={group.messages}
+          streaming={liveReasoning && position === groups.length - 1}
+        />
+      );
+    }
+    return (
+      <div key={position} className="agent-message">
+        <Markdown text={group.message.text ?? ""} />
+      </div>
+    );
+  };
 
   return (
     <div className="turn" data-turn-index={index}>
@@ -593,29 +860,40 @@ function Turn({
           {copyText ? <CopyButton text={copyText} title="Copy message" /> : null}
         </div>
 
-        {groups.map((group, position) => {
-          if (group.kind === "tool") {
-            return (
-              <ToolCall
-                key={group.call.call_id ?? position}
-                kind={group.call.kind}
-                name={group.call.name}
-                args={group.call.arguments}
-                output={group.call.output}
+        {/*
+          The work row: how long the turn has been running, and the fold that
+          holds everything the agent did to get to the reply. The expanded rows
+          sit in `.work-body`, which spaces them the way ZCode's history does —
+          its rows are separated (gap-4), not stacked.
+        */}
+        {processGroups.length > 0 ? (
+          <div className="work-history">
+            <button
+              type="button"
+              className="tool-summary work-summary"
+              aria-expanded={historyOpen}
+              onClick={() => {
+                historyTouched.current = true;
+                setHistoryOpen((value) => !value);
+              }}
+            >
+              <span className="tool-kind">{workedLabel}</span>
+              <ChevronRight
+                size={14}
+                className={`tool-chevron${historyOpen ? " open" : ""}`}
+                aria-hidden="true"
               />
-            );
-          }
-          if (group.kind === "reasoning") {
-            // The segment starts expanded, so a reasoning-only turn shows its
-            // substance the way the flat view did rather than hiding it.
-            return <ReasoningSegment key={position} messages={group.messages} />;
-          }
-          return (
-            <div key={position} className="agent-message">
-              <Markdown text={group.message.text ?? ""} />
-            </div>
-          );
-        })}
+            </button>
+          </div>
+        ) : null}
+
+        {historyOpen ? (
+          <div className="work-body">
+            {processGroups.map(({ group, position }) => renderGroup(group, position))}
+          </div>
+        ) : null}
+
+        {answerGroups.map(({ group, position }) => renderGroup(group, position))}
 
         {/* A turn can carry only reasoning; then the answer preview is all there
             is to show and it must not be hidden behind the reasoning toggle. */}
@@ -1000,6 +1278,17 @@ export function ConversationView({
   const activeTurn = useActiveTurn(scrollRef, turns.length);
 
   /**
+   * What an expansion does to the scroll, ZCode's rule: a reader at the bottom
+   * is carried along (the view keeps sticking to the bottom, so the new detail
+   * is revealed and the row that was clicked rises); a reader who has scrolled
+   * up keeps their place and nothing moves under them.
+   */
+  const revealExpanded = useCallback(() => {
+    const element = scrollRef.current;
+    if (element && pinnedToBottom.current) element.scrollTop = element.scrollHeight;
+  }, []);
+
+  /**
    * Brings a turn to the top of the transcript.
    *
    * The rail is only useful if the reader can land on the turn they picked, so
@@ -1105,6 +1394,7 @@ export function ConversationView({
               onPreviewImage={onPreviewImage}
               subagents={subagentsByTurn.get(turn.turn_id)}
               onOpenSubagents={onOpenSubagents}
+              onReveal={revealExpanded}
             />
           ))}
           {pending ? (
