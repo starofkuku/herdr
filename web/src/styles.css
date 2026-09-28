@@ -33,6 +33,24 @@
 }
 
 /*
+ * The reading column: how wide the conversation, the panels above the
+ * composer, and the composer itself may grow. There is no sidebar to share the
+ * page with (unlike ZCode, whose column is narrow because its rail takes the
+ * rest), so on a desktop browser the column takes most of the page — 80% —
+ * while a phone keeps the full width, where a percentage would eat the little
+ * there is.
+ */
+:root {
+  --reading-column: 100%;
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --reading-column: 80%;
+  }
+}
+
+/*
  * Light palette.
  *
  * Only the variables change; every rule below reads them, so nothing needs a
@@ -1068,15 +1086,15 @@ textarea {
 }
 
 /*
- * The reading column. On a phone it is the full width; on a desktop browser the
- * turns stay at a readable measure instead of stretching edge to edge, the same
- * restraint ZCode's timeline applies with its own max width.
+ * The reading column. On a phone it is the full width; on a desktop browser
+ * the turns take most of the page (`--reading-column`), since nothing else
+ * shares the width.
  */
 .conversation-bar,
 .turns,
 .conversation-cwd {
   width: 100%;
-  max-width: 46rem;
+  max-width: var(--reading-column);
   margin-left: auto;
   margin-right: auto;
 }
@@ -2433,11 +2451,11 @@ textarea {
   font-size: 0.8rem;
   /*
    * Shares the conversation's measure so the bottom cluster (todos, subagent
-   * bar, composer) reads as one column on a wide screen rather than one strip
-   * at the pane's full width and a card at the text's width.
+   * bar, composer) reads as one column rather than one strip at the pane's
+   * full width and a card at the text's width.
    */
   width: 100%;
-  max-width: 46rem;
+  max-width: var(--reading-column);
   margin-left: auto;
   margin-right: auto;
 }
@@ -2541,7 +2559,7 @@ textarea {
   flex-direction: column;
   gap: 0.5rem;
   width: 100%;
-  max-width: 46rem;
+  max-width: var(--reading-column);
   margin: 0 auto;
   padding: 0.5rem 0.75rem;
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
@@ -3282,7 +3300,7 @@ textarea {
   align-items: center;
   gap: 0.45rem;
   width: 100%;
-  max-width: 46rem;
+  max-width: var(--reading-column);
   margin-left: auto;
   margin-right: auto;
   padding: 0.35rem 0.75rem;
