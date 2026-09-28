@@ -1,9 +1,25 @@
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
 const MAX_SESSION_ID_LEN: usize = 512;
 const MAX_SESSION_PATH_LEN: usize = 4096;
+
+/// How long a failed transcript lookup is remembered before scanning again.
+///
+/// The file appears only once the agent writes its first message, so a miss is
+/// ordinary at session start and must be retried soon; the window keeps a burst
+/// of agent-list refreshes from walking the log tree on every frame.
+const TRANSCRIPT_LOOKUP_MISS_TTL: Duration = Duration::from_secs(3);
+
+/// Ceiling on directory entries visited for one codex lookup, so a machine with
+/// months of sessions cannot stall the caller that asked.
+const TRANSCRIPT_LOOKUP_MAX_ENTRIES: usize = 20_000;
+/// How deep the log tree is walked; codex nests year/month/day.
+const TRANSCRIPT_LOOKUP_MAX_DEPTH: usize = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSessionRef {
@@ -67,6 +83,123 @@ pub fn session_ref_from_report(
     }
 
     agent_session_id.and_then(AgentSessionRef::id)
+}
+
+/// A lookup result kept between calls: hits forever (a file does not move),
+/// misses only briefly (it may still be about to appear).
+#[derive(Default)]
+struct TranscriptLookupMemo {
+    hits: HashMap<(String, String), PathBuf>,
+    misses: HashMap<(String, String), Instant>,
+}
+
+fn transcript_lookup_memo() -> Option<std::sync::MutexGuard<'static, TranscriptLookupMemo>> {
+    static MEMO: OnceLock<Mutex<TranscriptLookupMemo>> = OnceLock::new();
+    // A poisoned lock only means another thread panicked while resolving; the
+    // caller then scans without the memo rather than failing the lookup.
+    MEMO.get_or_init(|| Mutex::new(TranscriptLookupMemo::default()))
+        .lock()
+        .ok()
+}
+
+/// The transcript file a reported session id names, for the agents whose logs
+/// land in a known place on disk.
+///
+/// This is the one link codex and claude panes were missing: their hooks report
+/// only a session id, but codex names each rollout file after the id and Claude
+/// Code names the file exactly after it, so the file can be found without any
+/// help from the agent. Pi (and omp) already report a path, and agents whose
+/// logs are not discoverable — zcode's transcript is a scratch file that is
+/// deleted when its hook returns — stay id-only.
+pub fn resolve_transcript_path(agent: &str, id: &str) -> Option<String> {
+    if id.is_empty() || id.len() > MAX_SESSION_ID_LEN {
+        return None;
+    }
+    let key = (agent.to_string(), id.to_string());
+    if let Some(memo) = transcript_lookup_memo() {
+        if let Some(path) = memo.hits.get(&key) {
+            return Some(path.display().to_string());
+        }
+        if let Some(checked_at) = memo.misses.get(&key) {
+            if checked_at.elapsed() < TRANSCRIPT_LOOKUP_MISS_TTL {
+                return None;
+            }
+        }
+    }
+    let resolved = resolve_transcript_path_uncached(agent, id);
+    if let Some(mut memo) = transcript_lookup_memo() {
+        match resolved.as_ref() {
+            Some(path) => {
+                memo.misses.remove(&key);
+                memo.hits.insert(key, path.clone());
+            }
+            None => {
+                memo.misses.insert(key, Instant::now());
+            }
+        }
+    }
+    resolved.map(|path| path.display().to_string())
+}
+
+fn resolve_transcript_path_uncached(agent: &str, id: &str) -> Option<PathBuf> {
+    let provider = codex_trace_parser::provider::Provider::from_id(agent)?;
+    let root = provider.default_dir()?;
+    match provider {
+        // Each project directory holds files named after their session.
+        codex_trace_parser::provider::Provider::Claude => find_direct_file(&root, id),
+        // Codex groups sessions by date, so the file is found by walking the
+        // tree for the id in a rollout's name.
+        codex_trace_parser::provider::Provider::Codex => find_file_in_tree(&root, id),
+        codex_trace_parser::provider::Provider::Pi => None,
+    }
+}
+
+/// `~/.claude/projects/<project>/<id>.jsonl` — one existence check per project.
+fn find_direct_file(root: &Path, id: &str) -> Option<PathBuf> {
+    let file_name = format!("{id}.jsonl");
+    for entry in std::fs::read_dir(root).ok()?.flatten() {
+        let directory = entry.path();
+        if !directory.is_dir() {
+            continue;
+        }
+        let candidate = directory.join(&file_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Walks a log tree for a `.jsonl` whose name carries `id`, bounded on both
+/// entries visited and depth so the cost is capped on any machine.
+fn find_file_in_tree(root: &Path, id: &str) -> Option<PathBuf> {
+    let mut stack = vec![(root.to_path_buf(), 0_usize)];
+    let mut visited = 0_usize;
+    while let Some((directory, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            visited += 1;
+            if visited > TRANSCRIPT_LOOKUP_MAX_ENTRIES {
+                return None;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                if depth < TRANSCRIPT_LOOKUP_MAX_DEPTH {
+                    stack.push((path, depth + 1));
+                }
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.ends_with(".jsonl") && name.contains(id) {
+                return Some(path);
+            }
+        }
+    }
+    None
 }
 
 pub fn normalize_session_start_source(value: Option<String>) -> Option<String> {
