@@ -828,6 +828,11 @@ pub struct PaneSessionMessage {
     pub is_reasoning: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<String>,
+    /// Position of this message in the raw entry stream, shared with the tool
+    /// calls' `order`, so a client can interleave the two in the order they
+    /// actually happened rather than in separate blocks.
+    #[serde(default)]
+    pub order: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -845,6 +850,12 @@ pub struct PaneSessionToolCall {
     /// Text the tool produced, when the transcript records it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Position of the call's first appearance in the raw entry stream, shared
+    /// with the messages' `order`. `usize::MAX` when the parser could not place
+    /// it, so an unplaced call renders after everything it could not be
+    /// interleaved with rather than before.
+    #[serde(default)]
+    pub order: usize,
 }
 
 /// A question an agent is waiting on the user to answer.

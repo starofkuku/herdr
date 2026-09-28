@@ -2511,17 +2511,27 @@ fn pane_session_turn(turn: &codex_trace_parser::turn::CodexTurn) -> PaneSessionT
                 text: message.text.clone(),
                 is_reasoning: message.is_reasoning,
                 timestamp: Some(message.timestamp.clone()),
+                order: message.order,
             })
             .collect(),
         tool_calls: turn
             .tool_calls
             .iter()
-            .map(|call| PaneSessionToolCall {
+            .enumerate()
+            .map(|(index, call)| PaneSessionToolCall {
                 call_id: Some(call.call_id.clone()),
                 kind: Some(format!("{:?}", call.kind).to_lowercase()),
                 name: Some(call.name.clone()),
                 arguments: Some(call.arguments.clone()),
                 output: call.output.clone(),
+                // The parser reports the call's entry-stream position in a
+                // parallel vector; a call it could not place goes last rather
+                // than interleaving at a meaningless position.
+                order: turn
+                    .tool_call_orders
+                    .get(index)
+                    .copied()
+                    .unwrap_or(usize::MAX),
             })
             .collect(),
         final_answer: turn.final_answer.clone(),

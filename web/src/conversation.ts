@@ -28,6 +28,12 @@ export interface ConversationToolCall {
   arguments?: unknown;
   /** Text the tool produced. */
   output?: string;
+  /**
+   * Position of the call in the turn's raw entry stream, shared with the
+   * messages' `order`, so the two can be interleaved in the order they
+   * happened. Absent from older servers.
+   */
+  order?: number;
 }
 
 /** One message the agent produced during a turn. */
@@ -35,6 +41,8 @@ export interface ConversationMessage {
   text: string;
   is_reasoning?: boolean;
   timestamp?: string;
+  /** Entry-stream position shared with the tool calls' `order`. */
+  order?: number;
 }
 
 /** One exchange: a user message plus everything the agent did in response. */
@@ -88,6 +96,36 @@ export class ConversationError extends Error {
     super(message);
     this.name = "ConversationError";
   }
+}
+
+/** One item of a turn's interleaved timeline: a message, or a tool call. */
+export type TurnItem =
+  | { kind: "message"; message: ConversationMessage }
+  | { kind: "tool"; call: ConversationToolCall };
+
+/**
+ * Merges a turn's messages and tool calls into the order they happened.
+ *
+ * The API carries them as two arrays; the shared `order` index — the position
+ * in the agent's raw entry stream — is what says a command ran between two
+ * paragraphs of the reply. Items without an order (an older server, or a call
+ * the parser could not place) sort to their fallback position: a stable sort
+ * keeps messages ahead of tools on equal order, which is the old
+ * messages-then-tools layout, so absence of the field degrades to the previous
+ * rendering instead of to a shuffle.
+ */
+export function interleaveTurn(turn: ConversationTurn): TurnItem[] {
+  const items: TurnItem[] = [];
+  for (const message of turn.agent_messages ?? []) {
+    items.push({ kind: "message", message });
+  }
+  for (const call of turn.tool_calls ?? []) {
+    items.push({ kind: "tool", call });
+  }
+  const orderOf = (item: TurnItem): number =>
+    (item.kind === "message" ? item.message.order : item.call.order) ?? 0;
+  // Array sort is stable, so equal orders keep the block order above.
+  return items.sort((a, b) => orderOf(a) - orderOf(b));
 }
 
 /**

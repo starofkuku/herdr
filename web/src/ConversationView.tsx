@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ChevronRight, Wrench } from "lucide-react";
+import { ArrowDown, ChevronRight } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
 import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
 import { CopyButton, Markdown } from "./Markdown";
@@ -15,10 +15,13 @@ import { splitMessage } from "./attachments";
 import { activity, runsByTurn, type SubagentRun } from "./subagents";
 import { useActiveTurn } from "./useActiveTurn";
 import {
+  interleaveTurn,
   loadConversation,
   ConversationError,
   PAGE_BYTES,
   type Conversation,
+  type ConversationMessage,
+  type ConversationToolCall,
   type ConversationTurn,
 } from "./conversation";
 
@@ -473,6 +476,54 @@ function ToolCall({
   );
 }
 
+/** One stretch of the interleaved reply: thinking, an answer block, or a tool. */
+type TurnGroup =
+  | { kind: "reasoning"; messages: ConversationMessage[] }
+  | { kind: "answer"; message: ConversationMessage }
+  | { kind: "tool"; call: ConversationToolCall };
+
+/**
+ * One collapsible stretch of thinking, set wherever it happened in the reply.
+ *
+ * Consecutive reasoning coalesces into one segment so a run of thinking
+ * paragraphs gets one toggle rather than one per block. It starts expanded to
+ * match what the terminal shows: reasoning is where an agent that explains
+ * itself puts the substance, and hiding it by default would leave fragments.
+ */
+function ReasoningSegment({ messages }: { messages: ConversationMessage[] }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="activity reasoning-group">
+      {/*
+        Thinking gets the same row anatomy as a tool call — ZCode shows it as a
+        brain glyph and a label, not as italic prose, so it reads as another
+        collapsible step in the reply.
+      */}
+      <button
+        type="button"
+        className="tool-summary"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <ReasoningVisual.icon size={14} className="tool-icon" aria-hidden="true" />
+        <span className="tool-kind">{ReasoningVisual.label}</span>
+        <ChevronRight
+          size={14}
+          className={`tool-chevron${open ? " open" : ""}`}
+          aria-hidden="true"
+        />
+      </button>
+      {open
+        ? messages.map((message, index) => (
+            <div key={index} className="agent-message reasoning">
+              <Markdown text={message.text ?? ""} />
+            </div>
+          ))
+        : null}
+    </div>
+  );
+}
+
 function Turn({
   turn,
   index,
@@ -487,20 +538,8 @@ function Turn({
   subagents?: SubagentRun[];
   onOpenSubagents?: () => void;
 }) {
-  const [showActivity, setShowActivity] = useState(false);
-  // Reasoning is thinking out loud. It is the bulk of a turn's text for an agent
-  // that explains itself, and for some agents it is where the turn's substance
-  // lands: their plain text is only connective narration, so hiding this by
-  // default leaves the reader with fragments and no answer. It starts expanded
-  // to match what the terminal shows, and collapses on request.
-  const [showReasoning, setShowReasoning] = useState(true);
-  const tools = turn.tool_calls ?? [];
   const allMessages = (turn.agent_messages ?? []).filter((message) => (message.text ?? "").trim());
   const messages = allMessages.filter((message) => !message.is_reasoning);
-  const reasoning = allMessages.filter((message) => message.is_reasoning);
-  // A turn can be reasoning only; if so there is nothing else to show and
-  // collapsing it would hide the whole turn.
-  const hasAnswer = messages.length > 0 || (turn.final_answer ?? "").trim().length > 0;
   const meta = [clockTime(turn.started_at), duration(turn.duration_ms), turn.model].filter(
     Boolean,
   );
@@ -510,6 +549,29 @@ function Turn({
     [turn.final_answer, ...messages.map((message) => message.text)]
       .filter((part): part is string => !!part && part.trim().length > 0)
       .join("\n\n") || allMessages.map((message) => message.text ?? "").join("\n\n");
+
+  /*
+   * The reply renders as one timeline: each message and each tool call in the
+   * order they actually happened, so a command shows between the paragraphs it
+   * belongs to instead of the whole batch being parked at the end. The order
+   * comes from the shared entry-stream index; without it (an older server) the
+   * stable sort keeps messages ahead of tools, which is the old layout.
+   */
+  const groups: TurnGroup[] = [];
+  for (const item of interleaveTurn({ ...turn, agent_messages: allMessages })) {
+    if (item.kind === "tool") {
+      groups.push({ kind: "tool", call: item.call });
+      continue;
+    }
+    const message = item.message;
+    if (message.is_reasoning) {
+      const previous = groups[groups.length - 1];
+      if (previous && previous.kind === "reasoning") previous.messages.push(message);
+      else groups.push({ kind: "reasoning", messages: [message] });
+    } else {
+      groups.push({ kind: "answer", message });
+    }
+  }
 
   return (
     <div className="turn" data-turn-index={index}>
@@ -531,42 +593,29 @@ function Turn({
           {copyText ? <CopyButton text={copyText} title="Copy message" /> : null}
         </div>
 
-        {reasoning.length && hasAnswer ? (
-          <div className="activity reasoning-group">
-            {/*
-              Thinking gets the same row anatomy as a tool call — ZCode shows
-              it as a brain glyph and a label, not as italic prose, so it reads
-              as another collapsible step in the reply.
-            */}
-            <button
-              type="button"
-              className="tool-summary"
-              aria-expanded={showReasoning}
-              onClick={() => setShowReasoning((value) => !value)}
-            >
-              <ReasoningVisual.icon size={14} className="tool-icon" aria-hidden="true" />
-              <span className="tool-kind">{ReasoningVisual.label}</span>
-              <ChevronRight
-                size={14}
-                className={`tool-chevron${showReasoning ? " open" : ""}`}
-                aria-hidden="true"
+        {groups.map((group, position) => {
+          if (group.kind === "tool") {
+            return (
+              <ToolCall
+                key={group.call.call_id ?? position}
+                kind={group.call.kind}
+                name={group.call.name}
+                args={group.call.arguments}
+                output={group.call.output}
               />
-            </button>
-            {showReasoning
-              ? reasoning.map((message, index) => (
-                  <div key={index} className="agent-message reasoning">
-                    <Markdown text={message.text ?? ""} />
-                  </div>
-                ))
-              : null}
-          </div>
-        ) : null}
-
-        {(!hasAnswer ? allMessages : messages).map((message, index) => (
-          <div key={index} className={`agent-message ${message.is_reasoning ? "reasoning" : ""}`}>
-            <Markdown text={message.text ?? ""} />
-          </div>
-        ))}
+            );
+          }
+          if (group.kind === "reasoning") {
+            // The segment starts expanded, so a reasoning-only turn shows its
+            // substance the way the flat view did rather than hiding it.
+            return <ReasoningSegment key={position} messages={group.messages} />;
+          }
+          return (
+            <div key={position} className="agent-message">
+              <Markdown text={group.message.text ?? ""} />
+            </div>
+          );
+        })}
 
         {/* A turn can carry only reasoning; then the answer preview is all there
             is to show and it must not be hidden behind the reasoning toggle. */}
@@ -582,43 +631,6 @@ function Turn({
         {/* The parser marks the in-progress turn `ongoing`, so this is real
             state off the transcript rather than a guess from the send. */}
         {turn.status === "ongoing" ? <Responding /> : null}
-
-        {tools.length ? (
-          <div className="activity">
-            {/*
-              The group header uses the same row anatomy as the calls beneath
-              it, with the fallback wrench as its glyph: the count is a summary
-              of tool work, the way ZCode's grouped rows summarise theirs.
-            */}
-            <button
-              type="button"
-              className="tool-summary"
-              aria-expanded={showActivity}
-              onClick={() => setShowActivity((value) => !value)}
-            >
-              <Wrench size={14} className="tool-icon" aria-hidden="true" />
-              <span className="tool-kind">
-                {tools.length} tool {tools.length === 1 ? "call" : "calls"}
-              </span>
-              <ChevronRight
-                size={14}
-                className={`tool-chevron${showActivity ? " open" : ""}`}
-                aria-hidden="true"
-              />
-            </button>
-            {showActivity
-              ? tools.map((call, index) => (
-                  <ToolCall
-                    key={call.call_id ?? index}
-                    kind={call.kind}
-                    name={call.name}
-                    args={call.arguments}
-                    output={call.output}
-                  />
-                ))
-              : null}
-          </div>
-        ) : null}
 
         {/*
           Subagents this turn spawned, recorded under the turn that asked for
