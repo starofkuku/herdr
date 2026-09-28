@@ -8526,6 +8526,13 @@
               "description": "True when the message is reasoning rather than user-visible output.",
               "type": "boolean"
             },
+            "order": {
+              "default": 0,
+              "description": "Position of this message in the raw entry stream, shared with the tool\ncalls' `order`, so a client can interleave the two in the order they\nactually happened rather than in separate blocks.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
             "text": {
               "type": "string"
             },
@@ -8650,6 +8657,13 @@
                 "string",
                 "null"
               ]
+            },
+            "order": {
+              "default": 0,
+              "description": "Position of the call's first appearance in the raw entry stream, shared\nwith the messages' `order`. `usize::MAX` when the parser could not place\nit, so an unplaced call renders after everything it could not be\ninterleaved with rather than before.",
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
             },
             "output": {
               "description": "Text the tool produced, when the transcript records it.",
