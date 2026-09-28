@@ -2518,20 +2518,28 @@ fn pane_session_turn(turn: &codex_trace_parser::turn::CodexTurn) -> PaneSessionT
             .tool_calls
             .iter()
             .enumerate()
-            .map(|(index, call)| PaneSessionToolCall {
-                call_id: Some(call.call_id.clone()),
-                kind: Some(format!("{:?}", call.kind).to_lowercase()),
-                name: Some(call.name.clone()),
-                arguments: Some(call.arguments.clone()),
-                output: call.output.clone(),
-                // The parser reports the call's entry-stream position in a
-                // parallel vector; a call it could not place goes last rather
-                // than interleaving at a meaningless position.
-                order: turn
-                    .tool_call_orders
-                    .get(index)
-                    .copied()
-                    .unwrap_or(usize::MAX),
+            .map(|(index, call)| {
+                let (added, removed) = tool_change_counts(call);
+                PaneSessionToolCall {
+                    call_id: Some(call.call_id.clone()),
+                    kind: Some(format!("{:?}", call.kind).to_lowercase()),
+                    name: Some(call.name.clone()),
+                    arguments: Some(call.arguments.clone()),
+                    input: call.input_text.clone(),
+                    output: call.output.clone(),
+                    path: tool_change_path(call),
+                    added,
+                    removed,
+                    failed: call.patch_success.map(|succeeded| !succeeded),
+                    // The parser reports the call's entry-stream position in a
+                    // parallel vector; a call it could not place goes last rather
+                    // than interleaving at a meaningless position.
+                    order: turn
+                        .tool_call_orders
+                        .get(index)
+                        .copied()
+                        .unwrap_or(usize::MAX),
+                }
             })
             .collect(),
         final_answer: turn.final_answer.clone(),
@@ -2539,6 +2547,139 @@ fn pane_session_turn(turn: &codex_trace_parser::turn::CodexTurn) -> PaneSessionT
         error: turn.error.clone(),
         aborted_reason: turn.aborted_reason.clone(),
     }
+}
+
+/// The file an edit-like call touched.
+///
+/// Three sources, in the order they become available: Codex's per-file change
+/// stats, the `*** Update File:` headers a patch carries, and the path an
+/// edit's arguments name (Claude-style tools). The first file of a multi-file
+/// patch is the one the row can speak for.
+fn tool_change_path(call: &codex_trace_parser::toolcall::ToolCall) -> Option<String> {
+    fn first_change_path(value: &serde_json::Value) -> Option<String> {
+        match value {
+            serde_json::Value::Object(map) => {
+                if let Some(path) = map.get("path").and_then(serde_json::Value::as_str) {
+                    if !path.trim().is_empty() {
+                        return Some(path.to_string());
+                    }
+                }
+                map.values().find_map(first_change_path)
+            }
+            serde_json::Value::Array(items) => items.iter().find_map(first_change_path),
+            _ => None,
+        }
+    }
+
+    if let Some(changes) = call.patch_changes.as_ref() {
+        if let Some(path) = first_change_path(changes) {
+            return Some(path);
+        }
+    }
+    if let Some(text) = call.input_text.as_deref() {
+        for line in text.lines() {
+            let header = line.trim_start();
+            for marker in ["*** Update File:", "*** Add File:", "*** Delete File:"] {
+                if let Some(path) = header.strip_prefix(marker) {
+                    let path = path.trim();
+                    if !path.is_empty() {
+                        return Some(path.to_string());
+                    }
+                }
+            }
+        }
+    }
+    for key in ["path", "file_path", "filePath", "file", "target_file"] {
+        if let Some(value) = call.arguments.get(key).and_then(serde_json::Value::as_str) {
+            if !value.trim().is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Added and removed line counts for an edit-like call, from whichever source
+/// the transcript carries: Codex's change stats, the patch text itself, or a
+/// Claude-style old/new string pair. `(None, None)` when nothing counts.
+fn tool_change_counts(call: &codex_trace_parser::toolcall::ToolCall) -> (Option<u64>, Option<u64>) {
+    fn collect_counts(
+        value: &serde_json::Value,
+        added: &mut u64,
+        removed: &mut u64,
+        seen: &mut bool,
+    ) {
+        match value {
+            serde_json::Value::Object(map) => {
+                let add = map
+                    .get("added")
+                    .and_then(serde_json::Value::as_u64)
+                    .or_else(|| map.get("additions").and_then(serde_json::Value::as_u64));
+                let remove = map
+                    .get("removed")
+                    .and_then(serde_json::Value::as_u64)
+                    .or_else(|| map.get("deletions").and_then(serde_json::Value::as_u64));
+                if add.is_some() || remove.is_some() {
+                    *seen = true;
+                    *added += add.unwrap_or(0);
+                    *removed += remove.unwrap_or(0);
+                    return;
+                }
+                for child in map.values() {
+                    collect_counts(child, added, removed, seen);
+                }
+            }
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    collect_counts(item, added, removed, seen);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn count_patch_lines(text: &str) -> (u64, u64) {
+        let (mut added, mut removed) = (0_u64, 0_u64);
+        for line in text.lines() {
+            // `+++`/`---` are file headers, not content.
+            if line.starts_with("+++") || line.starts_with("---") {
+                continue;
+            }
+            if line.starts_with('+') {
+                added += 1;
+            } else if line.starts_with('-') {
+                removed += 1;
+            }
+        }
+        (added, removed)
+    }
+
+    if let Some(changes) = call.patch_changes.as_ref() {
+        let (mut added, mut removed, mut seen) = (0_u64, 0_u64, false);
+        collect_counts(changes, &mut added, &mut removed, &mut seen);
+        if seen {
+            return (Some(added), Some(removed));
+        }
+    }
+    let patch_text = call
+        .input_text
+        .as_deref()
+        .filter(|text| !text.is_empty())
+        .or_else(|| {
+            ["patch", "input"]
+                .iter()
+                .find_map(|key| call.arguments.get(*key).and_then(serde_json::Value::as_str))
+        });
+    if let Some(text) = patch_text {
+        let (added, removed) = count_patch_lines(text);
+        if added + removed > 0 {
+            return (Some(added), Some(removed));
+        }
+    }
+    // An old/new pair is deliberately left to the client: the true counts are
+    // an LCS over the two sides, which the renderer already runs for the diff,
+    // and a naive block-size count here would disagree with that picture.
+    (None, None)
 }
 
 impl App {

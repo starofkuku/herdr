@@ -847,9 +847,28 @@ pub struct PaneSessionToolCall {
     /// Raw arguments as recorded by the agent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arguments: Option<serde_json::Value>,
+    /// The call's own input text, when the transcript keeps one apart from the
+    /// arguments: for `apply_patch` this is the patch, which is what an edit
+    /// row renders as a diff.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
     /// Text the tool produced, when the transcript records it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// File the call touched, when it names one: the first file of a patch, or
+    /// an edit's path argument. Lets a client label the row with the file and
+    /// its icon instead of the raw tool input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// Lines the change added, when the transcript carries a count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added: Option<u64>,
+    /// Lines the change removed, same source as `added`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub removed: Option<u64>,
+    /// True when the transcript records the change as failed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed: Option<bool>,
     /// Position of the call's first appearance in the raw entry stream, shared
     /// with the messages' `order`. `usize::MAX` when the parser could not place
     /// it, so an unplaced call renders after everything it could not be

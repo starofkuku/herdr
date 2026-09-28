@@ -8636,10 +8636,33 @@
         },
         "PaneSessionToolCall": {
           "properties": {
+            "added": {
+              "description": "Lines the change added, when the transcript carries a count.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "arguments": {
               "description": "Raw arguments as recorded by the agent."
             },
             "call_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "failed": {
+              "description": "True when the transcript records the change as failed.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "input": {
+              "description": "The call's own input text, when the transcript keeps one apart from the\narguments: for `apply_patch` this is the patch, which is what an edit\nrow renders as a diff.",
               "type": [
                 "string",
                 "null"
@@ -8669,6 +8692,22 @@
               "description": "Text the tool produced, when the transcript records it.",
               "type": [
                 "string",
+                "null"
+              ]
+            },
+            "path": {
+              "description": "File the call touched, when it names one: the first file of a patch, or\nan edit's path argument. Lets a client label the row with the file and\nits icon instead of the raw tool input.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "removed": {
+              "description": "Lines the change removed, same source as `added`.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
                 "null"
               ]
             }
