@@ -486,12 +486,12 @@ type TurnGroup =
  * One collapsible stretch of thinking, set wherever it happened in the reply.
  *
  * Consecutive reasoning coalesces into one segment so a run of thinking
- * paragraphs gets one toggle rather than one per block. It starts expanded to
- * match what the terminal shows: reasoning is where an agent that explains
- * itself puts the substance, and hiding it by default would leave fragments.
+ * paragraphs gets one toggle rather than one per block. It starts collapsed:
+ * thinking is the longest part of a turn and the answer is what the reader came
+ * for, so the reasoning stays one tap away instead of pushing the reply down.
  */
 function ReasoningSegment({ messages }: { messages: ConversationMessage[] }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(false);
   return (
     <div className="activity reasoning-group">
       {/*
