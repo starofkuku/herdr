@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { ArrowDown, ChevronRight, Wrench } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
 import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
+import { CopyButton, Markdown } from "./Markdown";
+import { ReasoningVisual, toolVisual } from "./toolView";
 import {
   NAVIGATOR_DIM_DELAY_MS,
   POINTER_PITCH,
@@ -331,14 +331,6 @@ function ScrubLabel({ text, offsetY }: { text: string; offsetY: number }) {
   );
 }
 
-function Markdown({ text }: { text: string }) {
-  return (
-    <div className="markdown">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
-    </div>
-  );
-}
-
 /**
  * A message's text, with any uploaded images shown as previews.
  *
@@ -432,27 +424,50 @@ function PendingTurn({
 }
 
 function ToolCall({
+  kind,
   name,
   args,
   output,
 }: {
+  kind?: string;
   name?: string;
   args?: unknown;
   output?: string;
 }) {
   const [open, setOpen] = useState(false);
   const input = args && typeof args === "object" ? JSON.stringify(args, null, 2) : String(args ?? "");
+  const visual = toolVisual(kind, name);
+  const Icon = visual.icon;
   return (
     <div className="tool-call">
-      <button type="button" className="tool-head" onClick={() => setOpen((value) => !value)}>
-        <span className="tool-caret">{open ? "▾" : "▸"}</span>
-        <code>{toolSummary(name, args)}</code>
+      {/*
+        ZCode's tool summary anatomy: an inline row of glyph, category label,
+        and the command or path — no card chrome, so a run of tool calls reads
+        as a log of actions inside the reply rather than a stack of boxes. The
+        chevron appears on hover and rotates once the detail is open.
+      */}
+      <button
+        type="button"
+        className="tool-summary"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Icon size={14} className="tool-icon" aria-hidden="true" />
+        <span className="tool-kind">{visual.label}</span>
+        <span className="tool-subject">{toolSummary(name, args)}</span>
+        <ChevronRight size={14} className={`tool-chevron${open ? " open" : ""}`} aria-hidden="true" />
       </button>
       {open ? (
-        <>
+        <div className="tool-detail">
+          <div className="tool-detail-actions">
+            <CopyButton
+              text={[input, output].filter((part) => part && part.length > 0).join("\n\n")}
+              title="Copy tool call"
+            />
+          </div>
           <pre className="tool-body">{input}</pre>
           {output ? <pre className="tool-body result">{output}</pre> : null}
-        </>
+        </div>
       ) : null}
     </div>
   );
@@ -489,6 +504,12 @@ function Turn({
   const meta = [clockTime(turn.started_at), duration(turn.duration_ms), turn.model].filter(
     Boolean,
   );
+  // What a copy of this turn copies: everything the agent said, answer first,
+  // so pasting it elsewhere reads as the reply rather than as the scratchpad.
+  const copyText =
+    [turn.final_answer, ...messages.map((message) => message.text)]
+      .filter((part): part is string => !!part && part.trim().length > 0)
+      .join("\n\n") || allMessages.map((message) => message.text ?? "").join("\n\n");
 
   return (
     <div className="turn" data-turn-index={index}>
@@ -505,17 +526,31 @@ function Turn({
           {turn.status && turn.status !== "complete" ? (
             <span className={`turn-status ${turn.status}`}>{turn.status}</span>
           ) : null}
+          {/* Copy reads the turn without quoting it on a phone, where press-
+              and-hold selects the whole conversation instead. */}
+          {copyText ? <CopyButton text={copyText} title="Copy message" /> : null}
         </div>
 
         {reasoning.length && hasAnswer ? (
           <div className="activity reasoning-group">
+            {/*
+              Thinking gets the same row anatomy as a tool call — ZCode shows
+              it as a brain glyph and a label, not as italic prose, so it reads
+              as another collapsible step in the reply.
+            */}
             <button
               type="button"
-              className="activity-toggle"
+              className="tool-summary"
               aria-expanded={showReasoning}
               onClick={() => setShowReasoning((value) => !value)}
             >
-              {showReasoning ? "▾" : "▸"} thinking
+              <ReasoningVisual.icon size={14} className="tool-icon" aria-hidden="true" />
+              <span className="tool-kind">{ReasoningVisual.label}</span>
+              <ChevronRight
+                size={14}
+                className={`tool-chevron${showReasoning ? " open" : ""}`}
+                aria-hidden="true"
+              />
             </button>
             {showReasoning
               ? reasoning.map((message, index) => (
@@ -550,17 +585,32 @@ function Turn({
 
         {tools.length ? (
           <div className="activity">
+            {/*
+              The group header uses the same row anatomy as the calls beneath
+              it, with the fallback wrench as its glyph: the count is a summary
+              of tool work, the way ZCode's grouped rows summarise theirs.
+            */}
             <button
               type="button"
-              className="activity-toggle"
+              className="tool-summary"
+              aria-expanded={showActivity}
               onClick={() => setShowActivity((value) => !value)}
             >
-              {showActivity ? "▾" : "▸"} {tools.length} tool {tools.length === 1 ? "call" : "calls"}
+              <Wrench size={14} className="tool-icon" aria-hidden="true" />
+              <span className="tool-kind">
+                {tools.length} tool {tools.length === 1 ? "call" : "calls"}
+              </span>
+              <ChevronRight
+                size={14}
+                className={`tool-chevron${showActivity ? " open" : ""}`}
+                aria-hidden="true"
+              />
             </button>
             {showActivity
               ? tools.map((call, index) => (
                   <ToolCall
                     key={call.call_id ?? index}
+                    kind={call.kind}
                     name={call.name}
                     args={call.arguments}
                     output={call.output}

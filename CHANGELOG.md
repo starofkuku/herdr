@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- A Feishu push is titled `herdr · <project> · <agent> <state>` rather than `herdr · <agent> <state>`. A chat list is scanned for the workspace first, and the agent name alone does not say which one it is.
+
 ## [0.7.42] - 2026-09-27
 
 ### Added

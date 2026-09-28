@@ -1,29 +1,34 @@
 :root {
-  --bg: #0b0b0f;
-  --surface: #15151c;
-  --surface-2: #1d1d26;
-  --border: #2a2a35;
-  --text: #e6e6ef;
-  --muted: #8b8b9e;
-  --accent: #7aa2f7;
-  --ok: #9ece6a;
-  --warn: #e0af68;
-  --err: #f7768e;
+  /*
+   * ZCode-inspired neutral palette: a warm-less grey ramp with a sky accent,
+   * replacing the earlier blue-violet scheme. Borders are alpha mixes so they
+   * sit on any surface the way ZCode's `--color-border` does.
+   */
+  --bg: #171717;
+  --surface: #1f1f1f;
+  --surface-2: #262626;
+  --border: rgba(255, 255, 255, 0.1);
+  --text: #e5e5e5;
+  --muted: #969696;
+  --accent: #38bdf8;
+  --ok: #4ade80;
+  --warn: #facc15;
+  --err: #f87171;
   /*
    * "Working" state.
    *
    * Green rather than the original blue, so a running agent reads as active
    * instead of blending into the blue accent used by ordinary controls.
    */
-  --running: #7ee787;
+  --running: #22c55e;
   /*
    * Destructive-action colour (stop, escape). Kept separate from --err so the
    * two can diverge; previously this was referenced but never defined, so every
    * use silently fell back to a hardcoded value that ignored the theme.
    */
-  --danger: #ff5263;
+  --danger: #ef4444;
   /* Text placed on top of an accent-filled control. */
-  --on-accent: #101018;
+  --on-accent: #0c1220;
   color-scheme: dark;
 }
 
@@ -36,18 +41,18 @@
  * contrast on white.
  */
 :root[data-theme="light"] {
-  --bg: #f6f6f8;
+  --bg: #fafafa;
   --surface: #ffffff;
-  --surface-2: #eeeef2;
-  --border: #d8d8e0;
-  --text: #1b1b22;
-  --muted: #6a6a7a;
-  --accent: #2f6fd0;
-  --ok: #3f7d1f;
-  --warn: #9a6100;
-  --err: #c02b3f;
-  --running: #1f883d;
-  --danger: #d12036;
+  --surface-2: #f4f4f5;
+  --border: rgba(0, 0, 0, 0.1);
+  --text: #3f3f46;
+  --muted: #71717a;
+  --accent: #0284c7;
+  --ok: #16a34a;
+  --warn: #ca8a04;
+  --err: #dc2626;
+  --running: #16a34a;
+  --danger: #dc2626;
   /* The light accent is dark, so text on it must be light. */
   --on-accent: #ffffff;
   color-scheme: light;
@@ -1062,6 +1067,20 @@ textarea {
   margin-bottom: 0.15rem;
 }
 
+/*
+ * The reading column. On a phone it is the full width; on a desktop browser the
+ * turns stay at a readable measure instead of stretching edge to edge, the same
+ * restraint ZCode's timeline applies with its own max width.
+ */
+.conversation-bar,
+.turns,
+.conversation-cwd {
+  width: 100%;
+  max-width: 46rem;
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .conversation-title {
   font-weight: 700;
   font-size: 0.85rem;
@@ -1093,10 +1112,15 @@ textarea {
   line-height: 1.5;
 }
 
+/*
+ * ZCode's timeline packs rows tightly (`px-4 py-1`); a chat reads as a
+ * conversation rather than a stack of isolated cards at this spacing.
+ */
 .turns {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
 }
 
 .turn {
@@ -1105,14 +1129,26 @@ textarea {
   gap: 0.4rem;
 }
 
-/* The user's message is right-aligned, matching the desktop app. */
+/*
+ * The user's message is right-aligned, matching the desktop app.
+ *
+ * ZCode's bubble: a surface-coloured card with a hairline border, `rounded-xl`
+ * everywhere except a pinched top-right corner that acts as the tail, and
+ * generous `px-4 py-3` padding.
+ */
 .bubble.user {
   align-self: flex-end;
   max-width: 85%;
-  background: var(--surface-2);
+  background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px 12px 2px 12px;
-  padding: 0.5rem 0.7rem;
+  border-radius: 0.75rem;
+  border-top-right-radius: 0.25rem;
+  padding: 0.7rem 1rem;
+  /*
+   * Lifted off the page the way a ZCode card is: barely, so it still reads as
+   * flat design rather than as a floating dialog.
+   */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 /*
@@ -1152,14 +1188,18 @@ textarea {
   outline-offset: 2px;
 }
 
+/*
+ * The agent's reply is not a bubble. ZCode renders assistant output as plain
+ * full-width prose — only the user's side of the exchange is carded, which is
+ * what keeps a long answer readable edge to edge.
+ */
 .bubble.agent {
   align-self: stretch;
-  border-left: 2px solid var(--border);
-  padding: 0 0 0 0.7rem;
+  padding: 0;
 }
 
 .bubble.agent.ongoing {
-  border-left-color: var(--running);
+  padding: 0;
 }
 
 /*
@@ -1217,8 +1257,9 @@ textarea {
 .bubble-text {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 0.84rem;
-  line-height: 1.55;
+  /* ZCode's base UI size: 14px, with 1.6 leading for prose. */
+  font-size: 0.875rem;
+  line-height: 1.6;
 }
 
 .bubble-head {
@@ -1261,16 +1302,17 @@ textarea {
 .agent-message {
   white-space: pre-wrap;
   word-break: break-word;
-  font-size: 0.84rem;
-  line-height: 1.6;
+  font-size: 0.875rem;
+  line-height: 1.65;
   margin-bottom: 0.4rem;
 }
 
-/* Reasoning is secondary detail, so it recedes. */
+/* Reasoning is secondary detail, so it recedes — muted, not italicised: it
+   renders as Markdown like the answer does, and slanting a block of it reads
+   as a quote rather than as a draft answer. */
 .agent-message.reasoning {
   color: var(--muted);
-  font-style: italic;
-  font-size: 0.8rem;
+  font-size: 0.84rem;
 }
 
 .turn-error {
@@ -1291,52 +1333,106 @@ textarea {
   margin-bottom: 0.5rem;
 }
 
-.reasoning-group .activity-toggle {
-  font-style: italic;
-}
-
-.activity-toggle {
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--muted);
-  font-size: 0.74rem;
-}
-
+/*
+ * A tool call is an inline row, not a card. ZCode's tool summary is
+ * `[glyph] [category label] [command or path] [chevron]` sitting in the reply's
+ * flow with no chrome — quiet enough to scan past, structured enough to read as
+ * a log of what the agent did.
+ */
 .tool-call {
-  margin: 0.3rem 0 0 0.9rem;
-  border-left: 1px solid var(--border);
-  padding-left: 0.6rem;
+  margin: 0.25rem 0;
 }
 
-.tool-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  background: transparent;
-  border: none;
-  padding: 0;
-  color: var(--text);
+.tool-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.4rem;
+  color: var(--muted);
   text-align: left;
+  transition: background-color 0.12s ease;
 }
 
-.tool-head code {
-  font-size: 0.76rem;
-  color: var(--muted);
-  word-break: break-all;
-}
-
-.tool-caret {
-  color: var(--muted);
-  font-size: 0.7rem;
-}
-
-.tool-body {
-  margin: 0.3rem 0 0;
-  padding: 0.5rem;
+.tool-summary:hover {
   background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+}
+
+.tool-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.tool-kind {
+  flex: none;
+  font-size: 0.74rem;
+  font-weight: 550;
+  color: var(--muted);
+}
+
+/*
+ * The command, path, or query the call acted on: more subdued than the label
+ * and set in mono, so a row of them reads as terminal history.
+ */
+.tool-subject {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+/*
+ * The disclosure chevron stays hidden until the row is hovered — ZCode's
+ * affordance — and, once open, stays and rotates to point down.
+ */
+.tool-chevron {
+  flex: none;
+  color: var(--muted);
+  opacity: 0;
+  transform: rotate(0deg);
+  transition:
+    opacity 0.15s ease,
+    transform 0.2s ease;
+}
+
+.tool-summary:hover .tool-chevron,
+.tool-summary:focus-visible .tool-chevron,
+.tool-chevron.open {
+  opacity: 1;
+}
+
+.tool-chevron.open {
+  transform: rotate(90deg);
+}
+
+.tool-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 0.2rem 0 0.3rem 1.55rem;
+}
+
+.tool-detail-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/*
+ * The payload sits below the summary row, inset rather than bordered: the row
+ * above already frames it, and a second frame would make the detail a card
+ * inside a card.
+ */
+.tool-body {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  background: var(--surface-2);
+  border: none;
+  border-radius: 0.375rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.72rem;
   line-height: 1.5;
@@ -1385,24 +1481,249 @@ textarea {
   padding: 0.1rem 0.25rem;
 }
 
-.markdown pre {
+/*
+ * The copy control shared by code blocks, tables, messages, and tool cards.
+ * Quiet by default — an icon in the muted colour — so it does not compete with
+ * the content it copies, and confirms in the running green.
+ */
+.copy-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  flex: none;
+}
+
+.copy-btn:hover:not(:disabled) {
   background: var(--surface-2);
+  color: var(--text);
+}
+
+.copy-btn.copied {
+  color: var(--running);
+}
+
+/* In the message head the copy follows the metadata, pinned to the row's end. */
+.bubble-head .copy-btn {
+  margin-left: auto;
+}
+
+/*
+ * A fenced code block: a card with a header carrying the language and the copy
+ * control, then the code. The header says what the block is, the way ZCode's
+ * code chrome does, and the copy spares the reader a selection gesture.
+ */
+.code-block {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.55rem 0.65rem;
+  border-radius: 0.5rem;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.code-block-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.25rem 0.4rem 0.25rem 0.7rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.code-lang {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.markdown .code-block pre {
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 0;
+  border-radius: 0;
   overflow-x: auto;
 }
 
-.markdown pre code {
+.markdown .code-block pre code {
   background: none;
   padding: 0;
+  font-size: 0.78rem;
+  line-height: 1.55;
+}
+
+/* ---- syntax highlighting (highlight.js tokens, both themes) ---- */
+
+/*
+ * A hand-tuned pair approximating the palettes ZCode's shiki themes use:
+ * GitHub-dark on the dark theme, GitHub-light on the light one. Tokens are
+ * muted rather than saturated so long code reads as text, not as a rainbow.
+ */
+.hljs-comment,
+.hljs-quote {
+  color: #7d8590;
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-formula {
+  color: #ff7b72;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-meta .hljs-string {
+  color: #a5d6ff;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-link {
+  color: #79c0ff;
+}
+
+.hljs-title,
+.hljs-title.class_,
+.hljs-title.function_,
+.hljs-section,
+.hljs-name {
+  color: #d2a8ff;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-type,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-params {
+  color: #ffa657;
+}
+
+.hljs-tag {
+  color: #7ee787;
+}
+
+.hljs-meta,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: #79c0ff;
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+.hljs-deletion {
+  color: #ffdcd7;
+}
+
+:root[data-theme="light"] .hljs-comment,
+:root[data-theme="light"] .hljs-quote {
+  color: #6e7781;
+}
+
+:root[data-theme="light"] .hljs-keyword,
+:root[data-theme="light"] .hljs-selector-tag,
+:root[data-theme="light"] .hljs-literal,
+:root[data-theme="light"] .hljs-doctag,
+:root[data-theme="light"] .hljs-formula {
+  color: #cf222e;
+}
+
+:root[data-theme="light"] .hljs-string,
+:root[data-theme="light"] .hljs-regexp,
+:root[data-theme="light"] .hljs-addition,
+:root[data-theme="light"] .hljs-meta .hljs-string {
+  color: #0a3069;
+}
+
+:root[data-theme="light"] .hljs-number,
+:root[data-theme="light"] .hljs-symbol,
+:root[data-theme="light"] .hljs-bullet,
+:root[data-theme="light"] .hljs-variable,
+:root[data-theme="light"] .hljs-template-variable,
+:root[data-theme="light"] .hljs-link {
+  color: #0550ae;
+}
+
+:root[data-theme="light"] .hljs-title,
+:root[data-theme="light"] .hljs-title.class_,
+:root[data-theme="light"] .hljs-title.function_,
+:root[data-theme="light"] .hljs-section,
+:root[data-theme="light"] .hljs-name {
+  color: #8250df;
+}
+
+:root[data-theme="light"] .hljs-attr,
+:root[data-theme="light"] .hljs-attribute,
+:root[data-theme="light"] .hljs-type,
+:root[data-theme="light"] .hljs-built_in,
+:root[data-theme="light"] .hljs-builtin-name,
+:root[data-theme="light"] .hljs-params {
+  color: #953800;
+}
+
+:root[data-theme="light"] .hljs-tag {
+  color: #116329;
+}
+
+:root[data-theme="light"] .hljs-meta,
+:root[data-theme="light"] .hljs-selector-id,
+:root[data-theme="light"] .hljs-selector-class {
+  color: #0550ae;
+}
+
+:root[data-theme="light"] .hljs-deletion {
+  color: #82071e;
+}
+
+/*
+ * A table in a scroll shell with a copy control. The control copies the table
+ * as TSV — rows to lines, cells to tabs — which pastes straight into a sheet.
+ */
+.table-shell {
+  margin: 0.4rem 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.table-shell-head {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0.15rem 0.3rem;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.markdown .table-shell table {
+  margin: 0;
+  display: table;
+  width: 100%;
 }
 
 .markdown table {
   border-collapse: collapse;
   font-size: 0.8rem;
-  display: block;
-  overflow-x: auto;
 }
 
 .markdown th,
@@ -2110,6 +2431,15 @@ textarea {
   border-top: 1px solid var(--border);
   background: var(--surface);
   font-size: 0.8rem;
+  /*
+   * Shares the conversation's measure so the bottom cluster (todos, subagent
+   * bar, composer) reads as one column on a wide screen rather than one strip
+   * at the pane's full width and a card at the text's width.
+   */
+  width: 100%;
+  max-width: 46rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .todos-head {
@@ -2200,21 +2530,44 @@ textarea {
  * The composer stacks the pending files above the input row. It is a column so
  * attachments sit above the field; `.composer-row` holds the row that used to
  * be the whole composer.
+ *
+ * ZCode's composer is a floating card, not a strip pinned to the viewport: no
+ * top rule, the page background behind it, and the card carries the shadow. It
+ * also keeps the conversation's measure, so the input lines up with the turns
+ * above it on a wide screen.
  */
 .composer {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  padding: 0.6rem 0.75rem;
-  padding-bottom: max(0.6rem, env(safe-area-inset-bottom));
-  border-top: 1px solid var(--border);
-  background: var(--surface);
+  width: 100%;
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 0.5rem 0.75rem;
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+  background: transparent;
 }
 
+/*
+ * The input row is one rounded container holding the field and the send
+ * control, the shape ZCode's composer uses (`rounded-2xl` with a soft shadow).
+ * Focus is carried by the container, not the field: `:focus-within` is the
+ * affordance, so the field itself draws nothing.
+ */
 .composer-row {
   display: flex;
   align-items: flex-end;
-  gap: 0.5rem;
+  gap: 0.35rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 0.3rem 0.35rem 0.3rem 0.3rem;
+  transition: border-color 0.15s ease;
+}
+
+.composer-row:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
 }
 
 .composer textarea {
@@ -2232,11 +2585,11 @@ textarea {
    */
   max-height: 40vh;
   resize: none;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0.6rem;
   color: var(--text);
-  padding: 0.6rem 0.75rem;
+  padding: 0.55rem 0.7rem 0.55rem 0.75rem;
   font-size: 16px; /* avoids iOS zoom on focus */
   line-height: 1.4;
   /* Height is driven by a measured `scrollHeight`, so the box must not also be
@@ -2271,22 +2624,25 @@ textarea {
 }
 
 .composer textarea:focus {
-  border-color: var(--accent);
   outline: none;
 }
 
 /*
- * The send button is the same size and shape as the stop button beside it, so
- * it needs the same centring: without `grid` the arrow glyph sits on the text
- * baseline and reads as off-centre.
+ * The send button lives inside the composer card now, so it is a compact circle
+ * that sits in the card's bottom-right corner rather than a peer of the card.
+ * It keeps the same size and shape as the stop button beside it, so it needs
+ * the same centring: without `grid` the arrow glyph sits on the text baseline
+ * and reads as off-centre.
  */
 .composer button[type="submit"] {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin: 0.15rem 0.15rem 0.15rem 0;
   border-radius: 50%;
   background: var(--accent);
   color: var(--on-accent);
   flex: none;
+  align-self: flex-end;
   display: grid;
   place-items: center;
   /*
@@ -2299,7 +2655,7 @@ textarea {
 }
 
 .composer button[type="submit"]:disabled {
-  background: var(--border);
+  background: var(--surface-2);
   color: var(--muted);
 }
 
@@ -2310,13 +2666,15 @@ textarea {
  * primary action.
  */
 .composer button.stop {
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.1rem;
+  height: 2.1rem;
+  margin: 0.15rem 0.15rem 0.15rem 0;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--danger);
   flex: none;
+  align-self: flex-end;
   display: grid;
   place-items: center;
   /*
@@ -2414,11 +2772,11 @@ textarea {
 .composer-field textarea {
   flex: 1;
   /* Room for the floating mark, so the last line never runs under it. */
-  padding-right: 2.2rem;
+  padding-left: 2.5rem;
 }
 
 /*
- * The attach control floats inside the field's right edge, centred on the field's
+ * The attach control floats inside the field's left edge, centred on the field's
  * height: attaching belongs to the message being written, and the row's own end
  * is the send action.
  *
@@ -2427,7 +2785,8 @@ textarea {
  */
 .composer button.attach {
   position: absolute;
-  right: 0.2rem;
+  left: 0.3rem;
+  right: auto;
   top: 0;
   bottom: 0;
   margin: auto 0;
@@ -2846,16 +3205,11 @@ textarea {
     padding: 0.75rem 2rem;
   }
 
-  .composer-row input,
-  .composer-field,
-  .composer button[type="submit"] {
-    max-width: 52rem;
-  }
-
+  /*
+   * The composer is its own centred column now, so the row has nothing left to
+   * centre: the field stretches to the column and the send control follows.
+   */
   .composer-row {
-    justify-content: center;
-    /* The field grows, so the row must be free to centre its contents rather
-       than stretch them across the pane. */
     align-items: flex-end;
   }
 }
@@ -2928,6 +3282,9 @@ textarea {
   align-items: center;
   gap: 0.45rem;
   width: 100%;
+  max-width: 46rem;
+  margin-left: auto;
+  margin-right: auto;
   padding: 0.35rem 0.75rem;
   background: var(--surface);
   border: 0;

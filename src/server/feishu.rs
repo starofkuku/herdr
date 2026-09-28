@@ -16,6 +16,17 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use base64::Engine as _;
 use sha2::{Digest, Sha256};
 
+/// The headline for a push.
+///
+/// The project leads, because in a busy chat list the reader is looking for
+/// which workspace this is before anything else, and the agent name alone reads
+/// like any other message. The separator matches the card's own footer.
+///
+/// Pure, so the wording is testable without building a card.
+pub(crate) fn push_title(project: &str, agent: &str, event: &str) -> String {
+    format!("herdr · {project} · {agent} {event}")
+}
+
 /// Everything a push says, already resolved to text.
 pub(crate) struct Push {
     /// Headline, which also carries the state for a glance.
@@ -325,6 +336,20 @@ mod tests {
             accepted("<html>gateway</html>"),
             Outcome::Failed(_)
         ));
+    }
+
+    #[test]
+    fn the_title_names_the_project_before_the_agent() {
+        // A chat list is scanned for the workspace first, so the project cannot
+        // be left out of the headline even though the card repeats it below.
+        assert_eq!(
+            push_title("herdr", "pi", "finished"),
+            "herdr · herdr · pi finished"
+        );
+        assert_eq!(
+            push_title("ZCode", "pi", "needs attention"),
+            "herdr · ZCode · pi needs attention"
+        );
     }
 
     #[test]

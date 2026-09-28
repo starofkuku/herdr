@@ -1,7 +1,6 @@
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { InteractionAnswer, InteractionQuestion, InteractionRequest } from "./interaction";
+import { Markdown } from "./Markdown";
 
 /**
  * The panel that shows an agent's question with the options it offered.
@@ -117,9 +116,7 @@ export function InteractionPanel({
                     {option.preview ? (
                       <details className="interaction-preview">
                         <summary>preview</summary>
-                        <div className="markdown">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{option.preview}</ReactMarkdown>
-                        </div>
+                        <Markdown text={option.preview} />
                       </details>
                     ) : null}
                   </button>
