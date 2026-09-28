@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## [0.7.46] - 2026-09-29
+
+### Added
+- Codex and Claude Code panes get the transcript view. Their hooks report only a session id, so `pane.session` had nothing to read and the web UI fell back to raw terminal text. The id is now resolved to the agent's own log on disk — codex names each rollout after its session id, Claude Code names the file exactly after it — which is the link pi and omp already had through a reported path. Lookups are memoised: hits forever, misses for a few seconds so a session file that appears after the hook still takes over. The reported identity, resume, and persistence are untouched.
+- The web UI renders tool calls the way ZCode does: a glyph and label per kind (终端, 编辑, 写入, 读取, 搜索, 子智能体, 待办), the file's own type icon with its name and directory, `+N -M` from a real line diff, a diff view for edits (patch text, old/new pairs, `edits` arrays, and whole-file writes as all-additions), an output-only detail for commands and reads, and a 500-row cap that says how many lines were left out.
+- Tables carry ZCode's toolbar: copy as a Markdown table, download as CSV, and a preview that lifts the table over the page.
+- The turn navigator's rail raises a hover card beside a tick: the question, then the assistant's reply.
+- Thinking rows report ZCode-style: a shimmering 正在思考 beside the newest reasoning line while the segment streams, then 思考 · 持续了 N 秒 once it finishes. Consecutive thinking folds into one segment.
+
+### Changed
+- A turn's work history folds under one 工作中/已工作 row: open while the turn runs, folded when it finishes (unless the reader opened it themselves), with a closing rule so the fold's contents are bounded on both sides.
+- The composer follows ZCode: three lines tall by default, the attach and send controls on their own row beneath the field, growing with the text up to ZCode's own ceiling (10rem), and no scrollbar chrome. It takes the full page width along with the conversation.
+- Expanding a row follows ZCode's scroll rule: a reader at the bottom is carried along, so the detail opens from below and the row rises; a reader who has scrolled up keeps their place.
+- UI type now comes from one 14px scale, with CJK-aware mono and sans stacks, instead of a spread of one-off sizes. The jump-to-newest control sits centred above the composer.
+
+### Fixed
+- A modified Enter (Shift, Ctrl, or Cmd) inserts a newline instead of sending, and an IME's Enter no longer sends the message being composed. The composer grows through state rather than a DOM-only edit React never saw, so the box actually expands with the text.
+- Paragraph spacing in rendered Markdown: a leftover `white-space: pre-wrap` turned react-markdown's inter-block newlines into a blank line, so two paragraphs sat 36px apart instead of 6px.
+- The composer's field no longer collapses to the right edge. A leftover wide-screen rule kept `align-items: flex-end` from the old horizontal layout, which shrink-wrapped the field and its controls to the right side.
+
 ## [0.7.45] - 2026-09-28
 
 ### Added
