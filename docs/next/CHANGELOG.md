@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.7.45] - 2026-09-28
+
+### Added
+- The web UI renders a turn as one timeline: each tool call appears between the paragraphs it happened between, in the agent's own entry order, instead of every call sitting collapsed at the end of the reply. `pane.session` now reports that position as `order` on each message and tool call; a server that does not send it falls back to the previous layout.
+
+### Changed
+- The conversation, the todo panel, the subagent bar, and the composer in the web UI share one reading column that takes 80% of the page on a desktop browser. There is no sidebar taking the other share, so the old fixed narrow measure wasted most of a wide window; a phone keeps the full width.
+- Thinking in the web UI starts collapsed. It is the longest part of a turn and the answer is what the conversation was opened for, so the reasoning stays one tap away instead of pushing the reply off screen.
+
 ## [0.7.43] - 2026-09-28
 
 ### Changed
