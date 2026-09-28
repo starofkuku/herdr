@@ -1,14 +1,24 @@
 {
-  "version": "0.7.43",
+  "version": "0.7.45",
   "protocol": 22,
-  "notes": "### Changed\n- A Feishu push is titled `herdr \u00b7 <project> \u00b7 <agent> <state>` rather than `herdr \u00b7 <agent> <state>`. A chat list is scanned for the workspace first, and the agent name alone does not say which one it is.",
+  "notes": "### Added\n- The web UI renders a turn as one timeline: each tool call appears between the paragraphs it happened between, in the agent's own entry order, instead of every call sitting collapsed at the end of the reply. `pane.session` now reports that position as `order` on each message and tool call; a server that does not send it falls back to the previous layout.\n\n### Changed\n- The conversation, the todo panel, the subagent bar, and the composer in the web UI share one reading column that takes 80% of the page on a desktop browser. There is no sidebar taking the other share, so the old fixed narrow measure wasted most of a wide window; a phone keeps the full width.\n- Thinking in the web UI starts collapsed. It is the longest part of a turn and the answer is what the conversation was opened for, so the reasoning stays one tap away instead of pushing the reply off screen.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.43/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-macos-aarch64"
   },
   "releases": {
+    "0.7.45": {
+      "notes": "### Added\n- The web UI renders a turn as one timeline: each tool call appears between the paragraphs it happened between, in the agent's own entry order, instead of every call sitting collapsed at the end of the reply. `pane.session` now reports that position as `order` on each message and tool call; a server that does not send it falls back to the previous layout.\n\n### Changed\n- The conversation, the todo panel, the subagent bar, and the composer in the web UI share one reading column that takes 80% of the page on a desktop browser. There is no sidebar taking the other share, so the old fixed narrow measure wasted most of a wide window; a phone keeps the full width.\n- Thinking in the web UI starts collapsed. It is the longest part of a turn and the answer is what the conversation was opened for, so the reasoning stays one tap away instead of pushing the reply off screen.",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.7.45/herdr-macos-aarch64"
+      }
+    },
     "0.7.43": {
       "notes": "### Changed\n- A Feishu push is titled `herdr \u00b7 <project> \u00b7 <agent> <state>` rather than `herdr \u00b7 <agent> <state>`. A chat list is scanned for the workspace first, and the agent name alone does not say which one it is.",
       "protocol": 22,
