@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
 import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
@@ -962,6 +962,8 @@ export function ConversationView({
   sentMessage,
   working = false,
   onPreviewImage,
+  status,
+  files,
 }: {
   client: DetailClient;
   /** Every run recorded for this pane, running or finished. */
@@ -982,6 +984,17 @@ export function ConversationView({
   working?: boolean;
   /** Opens an uploaded image referenced in a message, full size. */
   onPreviewImage?: (url: string) => void;
+  /**
+   * The session's live state — the todo list and running subagents — which
+   * floats over the conversation's top right (ZCode's status panel). Rendered
+   * by the detail view because the data is polled there.
+   */
+  status?: ReactNode;
+  /**
+   * The project's file tree, floating in the slack left of the reading column.
+   * Rendered by the detail view because it needs the pane's client and cwd.
+   */
+  files?: ReactNode;
 }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   /**
@@ -1307,12 +1320,53 @@ export function ConversationView({
     container.scrollTo({ top: Math.max(0, top - margin), behavior: "smooth" });
   }, []);
 
+  /*
+   * Ctrl/Cmd+ArrowUp and Ctrl/Cmd+ArrowDown walk the rail's anchors: up to the
+   * previous question, down to the next. The position it starts from is the one
+   * the rail highlights — the last question at or before the active turn.
+   *
+   * A focused field keeps the chord: Cmd+Up is beginning-of-document in a text
+   * field, and the composer is exactly where that is wanted.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+      if (!event.ctrlKey && !event.metaKey) return;
+      const focused = document.activeElement;
+      if (
+        focused instanceof HTMLElement &&
+        (focused.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/u.test(focused.tagName))
+      ) {
+        return;
+      }
+      const anchors = turns
+        .map((turn, index) => ({ index, question: (turn.user_message ?? "").trim() }))
+        .filter((anchor) => anchor.question.length > 0);
+      if (anchors.length === 0) return;
+      event.preventDefault();
+      let position = 0;
+      for (const [order, anchor] of anchors.entries()) {
+        if (activeTurn === null || anchor.index <= activeTurn) position = order;
+        else break;
+      }
+      const next =
+        event.key === "ArrowUp"
+          ? Math.max(0, position - 1)
+          : Math.min(anchors.length - 1, position + 1);
+      jumpToTurn(anchors[next].index);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [turns, activeTurn, jumpToTurn]);
+
   // Any touch brings the rail back to full strength, so a reader who wants to
   // jump can touch the screen and then grab the rail instead of having to scroll
   // first. While dimmed the rail ignores pointer events, so without this there
   // would be no way to reach it other than by scrolling.
   return (
     <div className="conversation-wrap" onTouchStart={wakeNavigator}>
+      {files}
+      {status}
       {/* The rail is a sibling of the scroll container rather than a child, so it
           stays put while the transcript moves under it. */}
       <TurnNavigator
@@ -1401,6 +1455,7 @@ export function ConversationView({
             <PendingTurn message={sentMessage ?? ""} onPreviewImage={onPreviewImage} />
           ) : null}
         </div>
+
       </div>
     </div>
   );

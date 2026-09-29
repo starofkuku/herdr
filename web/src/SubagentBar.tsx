@@ -1,4 +1,3 @@
-import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 import {
   activity,
@@ -8,44 +7,6 @@ import {
   shortPath,
   type SubagentRun,
 } from "./subagents";
-
-/**
- * The subagent indicator, pinned beside the todo list above the composer.
- *
- * Collapsed it is one icon and a count, which is the whole story on a phone.
- * Tapping it opens a drawer with a card per run: what it was asked to do, what
- * it is doing, and the commands it has run. Nothing renders when the agent has
- * no runs, so panes that never spawn a subagent gain no chrome.
- */
-export function SubagentBar({
-  active,
-  runs,
-  onOpen,
-}: {
-  active: number;
-  runs: SubagentRun[];
-  onOpen: () => void;
-}) {
-  if (runs.length === 0) return null;
-
-  return (
-    <button
-      type="button"
-      className={`subagent-bar${active > 0 ? " live" : ""}`}
-      onClick={onOpen}
-      aria-label={
-        active > 0
-          ? `${active} subagents working, open details`
-          : `${runs.length} subagents, open details`
-      }
-    >
-      <LoaderCircle size={14} className={active > 0 ? "spinner" : undefined} aria-hidden="true" />
-      <span className="subagent-label">
-        {active > 0 ? `${active} 个子 agent 工作中` : `${runs.length} 个子 agent`}
-      </span>
-    </button>
-  );
-}
 
 /**
  * The run list, in a drawer over the conversation.

@@ -1,12 +1,14 @@
 :root {
   /*
-   * ZCode-inspired neutral palette: a warm-less grey ramp with a sky accent,
-   * replacing the earlier blue-violet scheme. Borders are alpha mixes so they
-   * sit on any surface the way ZCode's `--color-border` does.
+   * ZCode's neutral scale: page at neutral-900, cards and popovers at
+   * neutral-800, insets a step above them, with a sky accent. Borders are alpha
+   * mixes so they sit on any surface the way ZCode's `--color-border` does.
    */
   --bg: #171717;
-  --surface: #1f1f1f;
-  --surface-2: #262626;
+  --surface: #262626;
+  --surface-2: #2f2f2f;
+  /* Page chrome — ZCode's dark header is the page colour, so no band shows. */
+  --chrome: #171717;
   --border: rgba(255, 255, 255, 0.1);
   --text: #e5e5e5;
   --muted: #969696;
@@ -41,12 +43,16 @@
 
 /*
  * The reading column: how wide the conversation, the panels above the
- * composer, and the composer itself may grow. There is no sidebar, and the
- * quick-jump rail is its own column beside this one, so the content takes the
- * whole page and stops only at the rail.
+ * composer, and the composer itself may grow.
+ *
+ * Capped and centred, the way ZCode caps its timeline: at full width a line of
+ * prose ran to ~157 characters on a desktop window, nearly twice a comfortable
+ * measure, and a message stopped reading as a block in a conversation — which
+ * is what makes a short user question and a long agent reply hard to tell
+ * apart. A phone keeps the full width, where the cap never binds.
  */
 :root {
-  --reading-column: 100%;
+  --reading-column: min(72rem, 100%);
 }
 
 /*
@@ -77,10 +83,13 @@
 :root[data-theme="light"] {
   --bg: #fafafa;
   --surface: #ffffff;
-  --surface-2: #f4f4f5;
-  --border: rgba(0, 0, 0, 0.1);
-  --text: #3f3f46;
-  --muted: #71717a;
+  --surface-2: #f5f5f5;
+  --border: rgba(10, 10, 10, 0.1);
+  --text: #404040;
+  --muted: #737373;
+  /* Page chrome — ZCode's header tone, a shade under the page and separate
+     from the white cards that sit on it. */
+  --chrome: #f5f5f5;
   --accent: #0284c7;
   --ok: #16a34a;
   --warn: #ca8a04;
@@ -444,21 +453,32 @@ textarea {
   padding: 0.6rem 0.75rem;
   padding-top: max(0.6rem, env(safe-area-inset-top));
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--chrome);
   position: sticky;
   top: 0;
   /* Above the list it titles, below overlays and the activity rail. */
   z-index: 10;
 }
 
+/*
+ * One line: the agent's name, the project and directory, then the session id.
+ *
+ * Stacked, the three parts made the header several lines tall beside a row of
+ * icon-sized controls; side by side they fit one line. The pieces that can
+ * spare room truncate before the name does — the session id gives up its width
+ * first, then the directory.
+ */
 .topbar-title {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 0.5rem;
 }
 
 .topbar-title .title {
+  flex: none;
   font-weight: 600;
   font-size: 1rem;
   overflow: hidden;
@@ -467,6 +487,8 @@ textarea {
 }
 
 .topbar-title .subtitle {
+  flex: 0 1 auto;
+  min-width: 0;
   font-size: var(--text-ui-sm);
   color: var(--muted);
   overflow: hidden;
@@ -475,13 +497,16 @@ textarea {
 }
 
 /*
- * The agent's own session id, under its title.
+ * The agent's own session id, beside its title.
  *
  * Monospace, because it is a value to match against rather than prose, and the
  * id identifies the session rather than the pane — it follows the conversation
- * when that is resumed elsewhere.
+ * when that is resumed elsewhere. It is the first thing to truncate: the name
+ * and the directory are what the header is for.
  */
 .topbar-title .session-id {
+  flex: 0 10 auto;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--text-ui-sm);
   color: var(--muted);
@@ -926,6 +951,27 @@ textarea {
 }
 
 /*
+ * On a wide screen the rail sits just beside the reading column.
+ *
+ * The column is capped and centred, which leaves slack on both sides; pinned to
+ * the window edge, the rail drifted further from the text the wider the window
+ * grew. It moves into the left slack, with the conversation keeping the full
+ * width so the column's own centring — and the centred jump control anchored to
+ * it — are unchanged. Narrow windows keep the in-flow rail, where the column
+ * already runs edge to edge and there is no slack to move into.
+ */
+@media (min-width: 80rem) {
+  .turn-nav:not(.turn-nav--coarse) {
+    position: absolute;
+    /* The rail's own width plus the gap to the column (28px + 24px). */
+    left: calc(50% - (var(--reading-column) / 2) - 3.25rem);
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+  }
+}
+
+/*
  * On a coarse pointer the rail floats over the transcript instead of taking a
  * column of its own.
  *
@@ -1184,19 +1230,25 @@ textarea {
 
 /*
  * ZCode's timeline packs rows tightly (`px-4 py-1`); a chat reads as a
- * conversation rather than a stack of isolated cards at this spacing.
+ * conversation rather than a stack of isolated cards at this spacing. The
+ * separation between exchanges is ZCode's own gap (gap-5).
  */
 .turns {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 1.25rem;
   padding-bottom: 0.75rem;
 }
 
+/*
+ * Inside one exchange: the question, then the reply. The gap is roomier than
+ * the 6px it was, so the pair reads as question-and-answer rather than as one
+ * run of text with a small box embedded in it.
+ */
 .turn {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 1rem;
 }
 
 /*
@@ -2069,11 +2121,33 @@ textarea {
   font-size: var(--text-ui-caption);
 }
 
+/*
+ * Cells carry horizontal rules only; the shell is the frame.
+ *
+ * With a full 1px border on every cell and another 1px on the shell, the
+ * table's outer edge was drawn twice — a 2px line that read as noticeably
+ * heavier than the rules inside it. ZCode draws one frame and separates rows
+ * with a single rule, which is what a table needs to be scanned.
+ */
 .markdown th,
 .markdown td {
-  border: 1px solid var(--border);
-  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.65rem;
   text-align: left;
+}
+
+.markdown tbody tr:last-child th,
+.markdown tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* The header is told apart by weight and a slightly darker rule, not a box. */
+.markdown thead th {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: color-mix(in srgb, var(--border) 100%, transparent);
+  background: var(--surface-2);
 }
 
 .markdown blockquote {
@@ -2770,108 +2844,243 @@ textarea {
 }
 
 /*
- * The agent's todo list, pinned above the composer the way the CLI pins it
- * above its input. Collapsed it is a single line, which is what is usually
- * wanted: it says how far along the agent is without taking the screen the
- * conversation needs. Nothing renders when the agent keeps no list.
+ * The session's live state, floating over the conversation's top right:
+ * ZCode's status panel, holding the todo list and the running subagents.
+ *
+ * Collapsed it is ZCode's capsule — one 2rem row, rounded like a card, whose
+ * leading glyph swaps to an expand mark on hover — and expanded it is the panel
+ * those sections live in. Floating rather than docked so the reading column
+ * keeps its width.
  */
-.todos {
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-  font-size: var(--text-ui-caption);
-  /*
-   * Shares the conversation's measure so the bottom cluster (todos, subagent
-   * bar, composer) reads as one column rather than one strip at the pane's
-   * full width and a card at the text's width.
-   */
-  width: 100%;
-  max-width: var(--reading-column);
-  margin-left: auto;
-  margin-right: auto;
-}
-
-.todos-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.4rem;
-  width: 100%;
-  padding: 0.35rem 0.75rem;
-  background: none;
-  border: 0;
-  color: var(--text);
-  cursor: pointer;
-  text-align: left;
-}
-
-.todos-caret {
-  color: var(--muted);
-  font-size: var(--text-ui-sm);
-}
-
-.todos-title {
-  font-weight: 600;
-}
-
-.todos-count {
-  color: var(--muted);
+.status-pill,
+.status-panel {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 25;
 }
 
 /*
- * A live dot while a task is in flight, so a collapsed head still reads as
- * running rather than as a finished count.
+ * The capsule: a summary row in the shape ZCode draws its own
+ * (`h-8`, `pl-2 pr-3`, `gap-1.5`, `text-ui-base`, `rounded-2xl`).
  */
-.todos-running {
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: 50%;
-  background: var(--running);
-  align-self: center;
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  max-width: min(20rem, calc(100vw - 2rem));
+  padding: 0 0.75rem 0 0.5rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-ui-base);
+  /* ZCode's `shadow-md`, which is a lift rather than a drop. */
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  transition: background-color 0.15s ease;
 }
 
-.todos-list {
-  list-style: none;
-  margin: 0;
-  padding: 0 0.75rem 0.5rem;
-  max-height: 40vh;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+.status-pill:hover {
+  background: var(--surface-2);
 }
 
-.todos-item {
-  display: flex;
-  gap: 0.5rem;
-  padding: 0.15rem 0;
-  line-height: 1.4;
-}
-
-.todos-mark {
+/* The leading glyph becomes an expand mark while the pointer is on the pill. */
+.status-pill__icon {
+  position: relative;
   flex: none;
-  width: 0.9rem;
+  width: 1rem;
+  height: 1rem;
+}
+
+.status-pill__icon > * {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.15s ease;
+}
+
+.status-pill__icon-expand {
+  opacity: 0;
+}
+
+.status-pill:hover .status-pill__icon-mark,
+.status-pill:focus-visible .status-pill__icon-mark {
+  opacity: 0;
+}
+
+.status-pill:hover .status-pill__icon-expand,
+.status-pill:focus-visible .status-pill__icon-expand {
+  opacity: 1;
+}
+
+.status-pill__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-pill__count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
 
-/* Completed work recedes: it is history, not what is being watched. */
-.todos-item.completed .todos-mark {
+.status-panel {
+  width: 20rem;
+  max-width: calc(100vw - 2rem);
+  max-height: min(64dvh, 32rem);
+  overflow-y: auto;
+  padding: 0.35rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.status-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  height: 2rem;
+  padding: 0 0.25rem 0 0.5rem;
+}
+
+.status-panel__title {
+  font-size: var(--text-ui-base);
+  color: var(--muted);
+}
+
+.status-panel__collapse {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.status-panel__collapse:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.status-section + .status-section {
+  margin-top: 0.15rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Section heads follow the panel's section rows: a 2rem line, title left,
+   count hard right. */
+.status-section__head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  font-size: var(--text-ui-base);
+  color: var(--muted);
+}
+
+.status-section__label {
+  font-weight: 500;
+}
+
+.status-section__count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-ui-sm);
+  color: color-mix(in srgb, var(--muted) 72%, transparent);
+}
+
+/* The todo rows: a tick, an arrow, or a ring, and the task beside it. */
+.todo-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0 0.5rem 0.3rem;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.1rem 0;
+  font-size: var(--text-ui-base);
+  line-height: 1.5;
+}
+
+.todo-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+/* A task in flight keeps the reading colour; a finished one recedes. */
+.todo-item.in_progress .todo-mark {
+  color: var(--text);
+}
+
+.todo-item.completed .todo-mark {
   color: var(--running);
 }
 
-.todos-item.completed .todos-subject {
-  color: var(--muted);
+.todo-item.completed .todo-subject {
+  color: color-mix(in srgb, var(--muted) 75%, transparent);
   text-decoration: line-through;
 }
 
-.todos-item.in_progress .todos-mark {
-  color: var(--accent);
+.todo-item.pending .todo-subject {
+  color: var(--muted);
 }
 
-.todos-item.in_progress .todos-subject {
-  font-weight: 600;
-}
-
-.todos-subject {
+.todo-subject {
   min-width: 0;
   word-break: break-word;
+}
+
+/* Running subagents: one row each, opening the drawer. */
+.status-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0 0.25rem 0.3rem;
+}
+
+.status-run {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.25rem 0.35rem;
+  border-radius: 0.5rem;
+  text-align: left;
+  font-size: var(--text-ui-base);
+}
+
+.status-run:hover {
+  background: var(--surface-2);
+}
+
+.status-run__agent {
+  flex: none;
+  color: var(--text);
+}
+
+.status-run__activity {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-sm);
+  color: color-mix(in srgb, var(--muted) 78%, transparent);
 }
 
 /*
@@ -2926,6 +3135,43 @@ textarea {
   padding: 0.15rem 0.15rem 0.05rem;
 }
 
+/* The expand control and the send action sit together at the row's end. */
+.composer-actions__end {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/*
+ * The taller floor the expand control asks for: three lines of room.
+ *
+ * The compound selector is deliberate: a bare `.composer--tall textarea` ties
+ * with `.composer textarea` on specificity, and that rule comes later in the
+ * file, so the taller floor silently lost and the control did nothing.
+ */
+.composer.composer--tall textarea {
+  min-height: 5.3rem;
+}
+
+/* The expand control shares the attach button's quiet shape. */
+.composer button.expand {
+  width: 2rem;
+  height: 2rem;
+  border: 0;
+  border-radius: 6px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: none;
+  color: var(--muted);
+  padding: 0;
+}
+
+.composer button.expand:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .composer textarea {
   flex: 1;
   /*
@@ -2934,13 +3180,13 @@ textarea {
    */
   min-width: 0;
   /*
-   * Three lines of room from the start, so the composer reads as a message
-   * box rather than a search field, and it grows from there up to a fixed
+   * One line of room from the start, growing with the text up to a fixed
    * ceiling — the ceiling is ZCode's own (`max-h-40`), and a viewport-relative
    * one would change size when a phone keyboard opens, which is exactly when
-   * it matters.
+   * it matters. A reader who wants more room up front asks for it with the
+   * expand control, which raises this floor to three lines.
    */
-  min-height: 5.3rem;
+  min-height: 2.5rem;
   max-height: 10rem;
   resize: none;
   background: transparent;
@@ -3109,6 +3355,323 @@ textarea {
 
 .composer-field textarea {
   flex: 1;
+}
+
+/* ---- project file tree ---- */
+
+/*
+ * The project's files, in the slack left of the reading column.
+ *
+ * The column is capped at `--reading-column` and centred, which leaves equal
+ * slack on both sides; this panel lives in the left half of it. It is absolutely
+ * positioned rather than a flex sibling on purpose: as a sibling it would shrink
+ * `.conversation` and pull the auto-marginned column off-centre.
+ *
+ * Below the wide breakpoint there is no slack to live in, so the panel would
+ * cover the text — there it starts collapsed behind a button instead, and
+ * opening it floats over the conversation the way the status panel does.
+ */
+.file-tree,
+.file-tree-launcher {
+  position: absolute;
+  top: 1rem;
+  z-index: 22;
+}
+
+/* The breakpoint is arithmetic: the panel needs its own 17rem plus a 1rem
+   gutter inside the slack beside the reading column, and the rail needs 3.25rem
+   of that same slack — so the panel docks once the window is wider than
+   `72rem + 2 × 21.25rem` ≈ 114.5rem. Below that it would cover the text. */
+@media (min-width: 114.5rem) {
+  .file-tree {
+    left: calc(50% - (var(--reading-column) / 2) - 18rem);
+    bottom: 1rem;
+    width: 17rem;
+  }
+}
+
+/* Narrower windows: the panel floats over the conversation, above its top-left. */
+@media (max-width: 114.499rem) {
+  .file-tree {
+    left: 1rem;
+    top: 3.5rem;
+    max-height: min(60dvh, 30rem);
+    width: min(17rem, calc(100vw - 2rem));
+  }
+}
+
+.file-tree-launcher {
+  left: 1rem;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: 0.5rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.file-tree-launcher:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  overflow: hidden;
+}
+
+.file-tree__head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  padding: 0.35rem 0.3rem 0.35rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-tree__root {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.file-tree__branch {
+  flex: none;
+  max-width: 7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.file-tree__action {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-left: auto;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.file-tree__action + .file-tree__action {
+  margin-left: 0;
+}
+
+.file-tree__action:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.file-tree__action .spinning {
+  animation: file-tree-spin 1s linear infinite;
+}
+
+@keyframes file-tree-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.file-tree__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.file-tree__note {
+  margin: 0.4rem 0.6rem;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.file-tree__row {
+  display: block;
+}
+
+.file-tree__entry {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.35rem;
+  text-align: left;
+  font-size: var(--text-ui-sm);
+  color: var(--text);
+}
+
+.file-tree__entry:hover {
+  background: var(--surface-2);
+}
+
+.file-tree__caret {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 0.85rem;
+  height: 0.85rem;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.file-tree__caret.open {
+  transform: rotate(90deg);
+}
+
+/* A folder mark drawn in CSS: no icon dependency for the tree's own chrome. */
+.file-tree__folder {
+  flex: none;
+  width: 0.85rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 65%, transparent);
+}
+
+.file-tree__icon {
+  flex: none;
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.file-tree__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The git mark: one letter, coloured the way ZCode colours its own statuses —
+ * a modification loudest, an untracked file quietest.
+ */
+.file-tree__mark {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  font-weight: 600;
+}
+
+.file-tree__mark.modified {
+  color: var(--warn);
+}
+
+.file-tree__mark.added {
+  color: var(--ok);
+}
+
+.file-tree__mark.untracked {
+  color: var(--running);
+}
+
+.file-tree__mark.deleted {
+  color: var(--danger);
+}
+
+.file-tree__mark.renamed {
+  color: var(--accent);
+}
+
+/* ---- file preview ---- */
+
+.file-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.file-preview__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 0;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.file-preview__panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(48rem, 92vw);
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -12px 0 32px rgb(0 0 0 / 0.3);
+}
+
+.file-preview__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-preview__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.file-preview__path,
+.file-preview__size {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.file-preview__head .copy-btn {
+  margin-left: auto;
+}
+
+.file-preview__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.75rem;
+}
+
+.file-preview__code {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
 }
 
 /* ---- switching agents ---- */
@@ -3582,59 +4145,6 @@ textarea {
 }
 
 
-
-/*
- * The subagent indicator, sitting beside the todo list above the composer. It
- * is one line collapsed, because on a phone the count is the whole story; the
- * drawer is where the detail lives.
- */
-.subagent-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  max-width: var(--reading-column);
-  margin-left: auto;
-  margin-right: auto;
-  padding: 0.35rem 0.75rem;
-  background: var(--surface);
-  border: 0;
-  border-top: 1px solid var(--border);
-  color: var(--text);
-  font-size: var(--text-ui-caption);
-  cursor: pointer;
-  text-align: left;
-}
-
-.subagent-bar.live {
-  color: var(--running);
-}
-
-/* A dot that pulses only while something is actually running. */
-/*
- * The subagent mark turns while a subagent is working.
- *
- * Rotation rather than the old opacity pulse: the mark is a loader ring now, and
- * a ring that turns reads as work in progress where a fading one reads as a
- * stalled connection.
- */
-.spinner {
-  color: var(--running);
-  animation: subagent-spin 1.1s linear infinite;
-}
-
-@keyframes subagent-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.subagent-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* The drawer: a panel over the conversation, dismissed by tapping outside. */
 .subagent-drawer {

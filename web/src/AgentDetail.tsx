@@ -5,12 +5,13 @@ import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type Agent
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
-import { Plus, Send, Square } from "lucide-react";
+import { Maximize2, Minimize2, Plus, Send, Square } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { PendingUploads } from "./PendingUploads";
-import { TodoPanel } from "./TodoPanel";
-import { SubagentBar, SubagentDrawer } from "./SubagentBar";
+import { FileTreePanel } from "./FileTreePanel";
+import { SubagentDrawer } from "./SubagentBar";
+import { StatusPanel } from "./StatusPanel";
 import { SUBAGENT_POLL_MS, isRunning, loadSubagents, type SubagentRun } from "./subagents";
 import { TODO_POLL_MS, loadTodos, type TodoItem } from "./todos";
 import { ThemeToggle } from "./ThemeToggle";
@@ -178,6 +179,8 @@ export function AgentDetail({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [exhausted, setExhausted] = useState(false);
   const [draft, setDraft] = useState("");
+  /** Whether the reader asked for a taller field; the text grows it either way. */
+  const [tall, setTall] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [blockerText, setBlockerText] = useState("");
@@ -927,6 +930,20 @@ export function AgentDetail({
           onPreviewImage={setLightbox}
           subagents={subagents.runs}
           onOpenSubagents={() => setDrawerOpen(true)}
+          files={
+            <FileTreePanel
+              client={client}
+              paneId={paneId ?? ""}
+              cwd={agent?.cwd ?? ""}
+            />
+          }
+          status={
+            <StatusPanel
+              todos={todos}
+              runs={subagents.runs.filter(isRunning)}
+              onOpenSubagents={() => setDrawerOpen(true)}
+            />
+          }
         />
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
@@ -936,27 +953,8 @@ export function AgentDetail({
         </div>
       )}
 
-      {/*
-        The todo list sits directly above the composer, the same place the CLI
-        puts it, so it stays visible while reading without displacing the input.
-      */}
-      <TodoPanel todos={todos} />
-      {/*
-        Only the runs that are still going.
-
-        A finished run belongs to the turn that asked for it, which is where the
-        conversation records it; leaving it here as well kept a bar pinned above
-        the composer announcing work that was over. What is left is the live
-        count, which is the thing worth interrupting the reader for.
-      */}
-      <SubagentBar
-        active={subagents.active}
-        runs={subagents.runs.filter(isRunning)}
-        onOpen={() => setDrawerOpen(true)}
-      />
-
       <form
-        className="composer"
+        className={`composer${tall ? " composer--tall" : ""}`}
         onSubmit={(event) => {
           event.preventDefault();
           void send();
@@ -1052,26 +1050,46 @@ export function AgentDetail({
             >
               <Plus size={18} aria-hidden="true" />
             </button>
-            {canStop ? (
+            {/*
+              The reader decides how much room the field starts with: one line
+              by default, three when there is a longer message to lay out. The
+              text grows the field either way; this only moves the floor.
+            */}
+            <div className="composer-actions__end">
               <button
                 type="button"
-                className="stop"
-                disabled={busy}
-                aria-label="Stop the agent"
-                title="Stop the agent (sends Esc)"
-                onClick={() => void interrupt()}
+                className="expand"
+                aria-label={tall ? "缩小输入框" : "放大输入框"}
+                title={tall ? "缩小输入框" : "放大输入框"}
+                onClick={() => setTall((value) => !value)}
               >
-                <Square size={15} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+                {tall ? (
+                  <Minimize2 size={16} aria-hidden="true" />
+                ) : (
+                  <Maximize2 size={16} aria-hidden="true" />
+                )}
               </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={busy || preparing || (!draft.trim() && uploads.length === 0)}
-                aria-label="Send"
-              >
-                <Send size={18} aria-hidden="true" />
-              </button>
-            )}
+              {canStop ? (
+                <button
+                  type="button"
+                  className="stop"
+                  disabled={busy}
+                  aria-label="Stop the agent"
+                  title="Stop the agent (sends Esc)"
+                  onClick={() => void interrupt()}
+                >
+                  <Square size={15} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={busy || preparing || (!draft.trim() && uploads.length === 0)}
+                  aria-label="Send"
+                >
+                  <Send size={18} aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </form>

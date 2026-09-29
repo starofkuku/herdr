@@ -218,6 +218,41 @@ export default function App() {
     [],
   );
 
+  /*
+   * A pane whose agent reported a session id that has not turned into a
+   * transcript yet gets a short run of quiet retries.
+   *
+   * The agent's log lands on disk a beat after its hook announces the session,
+   * and an idle agent produces no further pane events — so without this, the
+   * first (losing) lookup stood until the reader's own next message brought an
+   * event. A few retries over a handful of seconds let the structured view take
+   * over on its own; the budget is per session id, and an agent that never
+   * resolves simply stops being asked.
+   */
+  const resolveRetries = useRef<Map<string, number>>(new Map());
+  useEffect(() => {
+    const pending = agents.filter((agent) => agent.sessionId && !agent.transcriptPath);
+    if (pending.length === 0) {
+      resolveRetries.current.clear();
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const live = new Set<string>();
+      for (const agent of pending) {
+        const key = `${agent.paneId}:${agent.sessionId}`;
+        live.add(key);
+        const used = resolveRetries.current.get(key) ?? 0;
+        if (used >= 8) continue;
+        resolveRetries.current.set(key, used + 1);
+      }
+      for (const key of [...resolveRetries.current.keys()]) {
+        if (!live.has(key)) resolveRetries.current.delete(key);
+      }
+      void refreshAgents();
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [agents, refreshAgents]);
+
   const connect = useCallback(
     (url: string, key: string, remember: boolean) => {
       const next: StoredSettings = {
