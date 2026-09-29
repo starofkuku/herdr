@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## [0.7.47] - 2026-09-29
+
+### Added
+- Read-only project files in the web UI: a file tree floating in the slack left of the reading column, with lazy-loaded directories, each file's own type icon, and git status marks (M/A/D/R/U) on files and the directories above them. Clicking a file opens a read-only preview drawer. Three new API methods back it — `files.list`, `files.read`, and `git.status` — scoped to one pane's project root, with build output and dependency stores pruned, and every path checked to stay inside that root. Git calls are bounded by a timeout; a directory that is not a repository answers `available: false` rather than an error.
+- The session's live state moves into a floating status panel at the conversation's top right, ZCode's own shape: a collapsible capsule whose leading glyph turns into an expand mark on hover, and a panel holding the agent's todo list (a tick, a static arrow, or a ring per task) and its running subagents. It starts open on a wide window and collapsed on a narrow one.
+- Codex and Claude Code panes get their transcript view resolved from the agent's own log on disk, by the session id their hooks report.
+
+### Changed
+- The conversation column is capped and centred (ZCode's own `max-w-6xl`), so a line of prose reads at ~95 characters instead of stretching to ~157 on a wide window; turns and the pair inside one exchange sit at ZCode's own gaps. The header carries the agent, project, and session id on one line. The palette moves to ZCode's pure neutral scale, and shadows drop to ZCode's own `shadow-md`.
+- Tool calls render per kind with the file's own type icon, a real LCS diff for edits, and an output-only detail for commands and reads; a turn's work folds under one `工作中/已工作` row that opens while the turn runs and folds when it finishes. Thinking reports ZCode-style: a shimmering `正在思考` beside the newest reasoning line while it streams, then `思考 · 持续了 N 秒`.
+- Tables carry ZCode's toolbar: copy as a Markdown table, download as CSV, and a preview that lifts the table over the page. The turn navigator's rail raises a hover card beside a tick, and expands follow ZCode's scroll rule: a reader at the bottom is carried along, a reader who has scrolled up keeps their place.
+- The composer follows ZCode: one line tall by default with an expand control that raises it to three, the attach and send controls on their own row beneath the field, and a fixed ceiling that does not move when a phone keyboard opens.
+
+### Fixed
+- A modified Enter (Shift, Ctrl, or Cmd) inserts a newline instead of sending, and an IME's Enter no longer sends the message being composed. Paragraph spacing in rendered Markdown, which a leftover `white-space: pre-wrap` had inflated to a blank line per block. The composer's field no longer collapses to the right edge from a leftover wide-screen rule.
+
 ## [0.7.46] - 2026-09-29
 
 ### Added
