@@ -3,6 +3,7 @@ use std::time::{Duration, Instant};
 
 mod agents;
 mod env;
+mod files;
 mod integrations;
 mod layouts;
 mod panes;
@@ -1009,6 +1010,9 @@ impl App {
             Method::WorkspaceClose(target) => {
                 return self.handle_workspace_close(request.id, target)
             }
+            Method::FilesList(params) => return self.handle_files_list(request.id, params),
+            Method::FilesRead(params) => return self.handle_files_read(request.id, params),
+            Method::GitStatus(params) => return self.handle_git_status(request.id, params),
             Method::WorktreeList(params) => return self.handle_worktree_list(request.id, params),
             Method::WorktreeCreate(params) => {
                 let _ = params;

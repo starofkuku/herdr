@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub mod agents;
 pub mod common;
 pub mod events;
+pub mod files;
 pub mod integrations;
 pub mod panes;
 pub mod plugins;
@@ -16,6 +17,7 @@ pub mod worktrees;
 pub use agents::*;
 pub use common::*;
 pub use events::*;
+pub use files::*;
 pub use integrations::*;
 pub use panes::*;
 pub use plugins::*;
@@ -83,6 +85,12 @@ pub enum Method {
     WorkspaceReportMetadata(WorkspaceReportMetadataParams),
     #[serde(rename = "workspace.close")]
     WorkspaceClose(WorkspaceTarget),
+    #[serde(rename = "files.list")]
+    FilesList(FilesListParams),
+    #[serde(rename = "files.read")]
+    FilesRead(FilesReadParams),
+    #[serde(rename = "git.status")]
+    GitStatus(GitStatusParams),
     #[serde(rename = "worktree.list")]
     WorktreeList(WorktreeListParams),
     #[serde(rename = "worktree.create")]

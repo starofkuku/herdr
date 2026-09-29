@@ -101,6 +101,7 @@ Raw socket method names use dot notation:
 | Client | `client.window_title.set`, `client.window_title.clear` |
 | Session | `session.snapshot` |
 | Workspace | `workspace.create`, `workspace.list`, `workspace.get`, `workspace.focus`, `workspace.rename`, `workspace.move`, `workspace.report_metadata`, `workspace.close` |
+| Files | `files.list`, `files.read`, `git.status` |
 | Worktree | `worktree.list`, `worktree.create`, `worktree.open`, `worktree.remove` |
 | Tab | `tab.create`, `tab.list`, `tab.get`, `tab.focus`, `tab.rename`, `tab.move`, `tab.close` |
 | Pane | `pane.split`, `pane.swap`, `pane.move`, `pane.zoom`, `pane.layout`, `pane.process_info`, `pane.neighbor`, `pane.edges`, `pane.focus_direction`, `pane.resize`, `pane.list`, `pane.current`, `pane.get`, `pane.rename`, `pane.send_text`, `pane.send_keys`, `pane.send_input`, `pane.read`, `pane.session`, `pane.report_agent`, `pane.report_agent_session`, `pane.report_metadata`, `pane.report_diagnostic`, `pane.clear_diagnostic`, `pane.report_interaction`, `pane.clear_interaction`, `pane.answer_interaction`, `pane.take_interaction_answer`, `pane.clear_agent_authority`, `pane.release_agent`, `pane.close`, `pane.wait_for_output` |
@@ -335,6 +336,8 @@ Remove a linked checkout:
 ```json
 {"id":"req_3","method":"worktree.remove","params":{"workspace_id":"2","force":false}}
 ```
+
+`files.list`, `files.read`, and `git.status` are read-only and scoped to one pane: each takes a `pane_id` and resolves its project root from that pane's working directory (falling back to the workspace's own directory). `files.list` takes an optional `path` relative to that root and returns one directory's entries, sorted directories-first; `files.read` takes a `path` and returns the file's text, with `binary` or `too_large` set instead of content when the file cannot be shown. Paths that are absolute, contain `..`, or resolve outside the project root through a symlink are refused with `path_outside_workspace` or `invalid_request`. `git.status` reports the changed files under the project root, each with `modified`, `added`, `deleted`, `renamed`, or `untracked`; a directory that is not a repository answers with `available: false` rather than an error.
 
 Use at most one of `workspace_id` or `cwd` for `worktree.list`, `worktree.create`, and `worktree.open`; omit both to use the active workspace. Use exactly one of `path` or `branch` for `worktree.open`. Raw socket `cwd` and `path` values must be absolute; the CLI expands relative `--cwd` and `--path` values before sending requests. Workspace responses include optional `worktree` provenance when a workspace belongs to a Herdr worktree group. Worktree commands can emit `workspace.updated` when an existing workspace gains or changes worktree provenance.
 

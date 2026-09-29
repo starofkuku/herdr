@@ -2032,6 +2032,62 @@
           ],
           "type": "object"
         },
+        "FilesListParams": {
+          "description": "Which pane's project to read.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            },
+            "path": {
+              "description": "Directory to list, relative to the pane's project root. Absent lists the\nroot itself.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "FilesReadParams": {
+          "properties": {
+            "max_bytes": {
+              "description": "Largest file worth reading, in bytes. Defaults to the handler's cap.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "path": {
+              "description": "File to read, relative to the project root.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "path"
+          ],
+          "type": "object"
+        },
+        "GitStatusParams": {
+          "description": "The project's git status, as the file tree marks it.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "IntegrationInstallParams": {
           "properties": {
             "target": {
@@ -4992,6 +5048,54 @@
         {
           "properties": {
             "method": {
+              "const": "files.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FilesListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "files.read",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FilesReadParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "git.status",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/GitStatusParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "worktree.list",
               "type": "string"
             },
@@ -7302,6 +7406,142 @@
             "layout_updated"
           ],
           "type": "string"
+        },
+        "FileEntryInfo": {
+          "description": "One entry in a directory.",
+          "properties": {
+            "kind": {
+              "description": "`file` or `dir`.",
+              "type": "string"
+            },
+            "name": {
+              "description": "The entry's own name, as shown.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Path relative to the project root, with `/` separators.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "kind"
+          ],
+          "type": "object"
+        },
+        "FilesListResult": {
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/FileEntryInfo"
+              },
+              "type": "array"
+            },
+            "path": {
+              "description": "The directory that was listed, relative to the root (empty at the root).",
+              "type": "string"
+            },
+            "root": {
+              "description": "The project root these paths are relative to.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "root",
+            "path",
+            "entries"
+          ],
+          "type": "object"
+        },
+        "FilesReadResult": {
+          "properties": {
+            "binary": {
+              "description": "True when the file holds NUL bytes, so it is not text.",
+              "type": "boolean"
+            },
+            "content": {
+              "description": "The file's text, empty when `binary` or `too_large`.",
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "size": {
+              "description": "Size on disk, for the reader's context.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "too_large": {
+              "description": "True when the file was larger than the cap outright.",
+              "type": "boolean"
+            },
+            "truncated": {
+              "description": "True when the file was longer than the cap and `content` is a prefix.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "path",
+            "content",
+            "truncated",
+            "binary",
+            "too_large",
+            "size"
+          ],
+          "type": "object"
+        },
+        "GitChangedFileInfo": {
+          "description": "One changed file.",
+          "properties": {
+            "path": {
+              "description": "Path relative to the project root, with `/` separators.",
+              "type": "string"
+            },
+            "status": {
+              "description": "`modified`, `added`, `deleted`, `renamed`, or `untracked`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "status"
+          ],
+          "type": "object"
+        },
+        "GitStatusResult": {
+          "properties": {
+            "available": {
+              "description": "False when the project is not inside a git repository — the ordinary\ncase for a scratch directory, not an error.",
+              "type": "boolean"
+            },
+            "branch": {
+              "description": "The checked-out branch, when one is.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "files": {
+              "description": "Changed files that live inside the project root, each path relative to it.",
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/GitChangedFileInfo"
+              },
+              "type": "array"
+            },
+            "repo_root": {
+              "description": "The repository's root, when there is one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "available"
+          ],
+          "type": "object"
         },
         "InstalledPluginInfo": {
           "properties": {
@@ -9827,6 +10067,54 @@
               "required": [
                 "type",
                 "workspaces"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "files": {
+                  "$ref": "#/schemas/success_response/$defs/FilesListResult"
+                },
+                "type": {
+                  "const": "files_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "files"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "file": {
+                  "$ref": "#/schemas/success_response/$defs/FilesReadResult"
+                },
+                "type": {
+                  "const": "files_read",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "file"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "status": {
+                  "$ref": "#/schemas/success_response/$defs/GitStatusResult"
+                },
+                "type": {
+                  "const": "git_status",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "status"
               ],
               "type": "object"
             },
