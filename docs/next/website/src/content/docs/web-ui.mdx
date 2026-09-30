@@ -143,25 +143,32 @@ just web-publish 0.7.24
 
 ## Connecting
 
-Open the gateway URL in a browser, enter the key, then pick a session or type a new name.
+The page opens on a list of gateways you have saved — one card each, showing the name you gave it, its address, and its state. **New** adds one: a name, the gateway's address, and its key. The name is required and is derived from the address until you type your own, so saving a gateway is one field of real typing.
 
 - Opening a session that is not running starts its server.
 - Session names use letters, numbers, `.`, `_`, and `-`.
 - Several clients can attach to one session and share its state.
 
-When you store the key, the UI also remembers the session you opened and returns to it after a page reload. Leaving a session with the back button clears that memory, so a reload keeps you on the picker.
+Saving several gateways is the point: each gets its own connection, its own session list, and its own remembered session, so a conversation on one is unaffected by what happens on another. The name you gave a gateway is shown on every screen behind it, because session names repeat across gateways and a page that did not say which one it was showing would be ambiguous.
+
+When you store a key, that gateway reconnects on load and returns to the session you left it in. Each gateway remembers its own session; leaving one with the back button clears only that memory.
 
 ### Addresses and reloads
 
-The screen you are on is in the URL, so a reload lands where you were rather than back at the key form:
+The screen you are on is in the URL, so a reload lands where you were rather than back at the list:
 
 ```
-#                      pick a session
-#/<session>            that session's agents
-#/<session>/<pane>     one agent's conversation
+#                              the saved gateways
+#/<gateway>                    that gateway's sessions
+#/<gateway>/<session>          that session's agents
+#/<gateway>/<session>/<pane>   one agent's conversation
 ```
 
-Opening a conversation adds a history entry, so the browser's Back and Forward buttons move through the app. A link to a conversation can be shared or bookmarked, and opening one directly works as long as the connection is remembered. Without a remembered key there is nothing to reconnect with, so the key form is shown first.
+The gateway is part of the address because it is part of the identity: two gateways can both have a session called `main`, and a link that named only the session could not say which. Links written before gateways were addressable — `#/<session>` — no longer resolve and land on the gateway list.
+
+Opening a conversation adds a history entry, so the browser's Back and Forward buttons move through the app. A link to a conversation can be shared or bookmarked, and opening one directly works as long as the connection is remembered. Without a remembered key there is nothing to reconnect with, so the gateway's form is opened first.
+
+The jump palette (`Ctrl`/`Cmd`+`K`) and the agent switcher both list every agent on every saved gateway, grouped by gateway, so reaching a pane does not require knowing which one it is on.
 
 ### Losing the connection
 
@@ -171,15 +178,41 @@ A phone browser suspends a backgrounded tab, which drops the WebSocket, so retur
 
 The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every screen is built from the JSON API.
 
+**Gateways.** The saved gateways, one card each: the name you gave it, its address, and what it is doing — how many sessions it has, and how many agents are active once you have opened a session on it. A card leads to that gateway's sessions. Each card can be edited or deleted, and a gateway whose key was not stored says so and opens its form rather than failing to connect.
+
 **Sessions.** Every session Herdr knows about, with whether it is running, plus a field to open an existing session or start a new one.
 
 **Agents.** The agents in the selected session, grouped by workspace and showing each one's current state. A running agent is tinted green — its name, its status dot, and the border of the panel it is in — so activity is visible while scanning the list instead of only in the small status pill. Tap an agent to open it.
 
-**Agent rail.** A handle pinned to an edge of every screen that opens into a list of every pane in the session. Panes that are working or waiting come first, then the rest by which changed most recently; tap a row to jump to that pane. It is closed by default and opens over the page rather than pushing it, so opening it does not reflow the conversation. When an agent finishes, the rail opens itself and flashes that row, because a list that is usually closed cannot otherwise report a finish. Working panes are red and finished ones green, since the two states are shown side by side.
+**Agent rail.** A handle pinned to an edge of every screen that opens into a list of every pane you have open, across every gateway, with each row naming the gateway it belongs to. Panes that are working or waiting come first, then the rest by which changed most recently; tap a row to jump to that pane. It is closed by default and opens over the page rather than pushing it, so opening it does not reflow the conversation. When an agent finishes, the rail opens itself and flashes that row, because a list that is usually closed cannot otherwise report a finish. Working panes are red and finished ones green, since the two states are shown side by side.
 
 Drag the handle to move the rail. Releasing it within 100px of an edge attaches it to that edge — a gradient band shows which edges would hold it — and anywhere else it stays where it was dropped. Horizontal and vertical attach independently, so it can sit along the top edge at any horizontal position, and the position is remembered across reloads. Clicking outside an open list closes it. On a wide window the agent switcher is hidden in favour of the rail; on a phone the rail is a thin handle whose list would cover the conversation, so the switcher remains.
 
-**Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below. Its header carries the agent's own mark, the id of the session its conversation belongs to, and a switcher for the other agents in the same session.
+**Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below. Its header names the agent's working directory and carries the agent's own mark; the full path and the session id are one click away on that name, each with its own copy button.
+
+## The files panel
+
+A conversation opens beside the project's own file tree, so the checkout an agent is working in can be read without leaving the page. It is read-only: nothing here writes, renames, or deletes, and no file is opened for editing.
+
+Which directory the tree shows is the pane's working directory, so it follows the agent when it changes directory. Directories load when you open them rather than all at once, and build output, dependencies, and version-control internals are pruned — `node_modules`, `target`, `dist`, `.git` and the rest — so the tree shows the code rather than everything on disk.
+
+Git status is marked beside each file and aggregated up to the folder that contains it, so a change several levels down is still visible from the top. A file opens in a preview column beside the conversation, which takes half the width the way an editor split does; the preview renders Markdown as Markdown and everything else as highlighted code, and large or binary files say so instead of showing nothing.
+
+On a narrow window the tree collapses to a button, and the preview covers the conversation rather than splitting it. On a phone both are hidden.
+
+`Ctrl`/`Cmd`+`E` searches the project by file name from anywhere in the conversation, which is the browser's own find-in-page chord — the tree has to be reachable without hunting for it. `Ctrl`/`Cmd`+`F` is left alone, because searching the transcript you are reading is what that chord is for.
+
+## Switching agents
+
+`Shift`+`Tab` in a conversation opens a switcher over the page: hold the chord, the candidates turn past, release and the highlighted one opens. It works the way the Windows window switcher does, and for the same reason — a chord that opened something on every press would fill the history with screens you only passed through on the way.
+
+Releasing either half of the chord commits, and `Esc` cancels without going anywhere. If the window loses focus while the chord is held the switcher is abandoned rather than committed, because a lost focus does not say what you chose.
+
+The candidates are every agent you have open on every saved gateway, not just the ones in this session, ordered by who needs you: waiting first, then working, then the rest. So the first press reaches whoever is blocked, wherever they are. The card for the conversation you are in is marked **当前**, and the cards are titled by working directory — six panes of one agent are six cards called `pi`, and the directory is what tells them apart.
+
+Pointing at a card turns the ring to it, and clicking one opens it directly. The ring only turns to a card the pointer has actually moved onto, so a pointer resting on the panel does not spin the switcher by itself.
+
+With fewer than two agents open the chord keeps its ordinary meaning rather than being swallowed.
 
 ## The agent console
 
@@ -261,6 +294,8 @@ The keys are sent to the pane as raw terminal input, so they behave the same as 
 ## Reading the conversation
 
 Agents that publish their native session file — pi, Claude Code, and Codex, when their Herdr integration is installed — can be shown as a structured conversation instead of a terminal screen: one exchange per turn, with tool calls you can expand and the token count for the session.
+
+ZCode is shown the same way, but it is read differently: it keeps its sessions in a SQLite database rather than a file per session, and the only JSONL it writes is a model-I/O diagnostic log that is truncated as it rotates. So it is the one agent whose conversation Herdr reads itself rather than through the transcript parser. The database is opened read-only, and ZCode's own rule for what belongs in a transcript is applied, so hidden runtime traffic such as todo reminders does not surface as conversation.
 
 The transcript is parsed on the server from the agent's own session log, so it reflects what the agent recorded rather than what its TUI happens to be painting. Deep links into that conversation are available through the pane right-click menu; see [codex-trace links](/docs/configuration/#codex-trace-links).
 

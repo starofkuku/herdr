@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## [0.7.48] - 2026-09-30
+
+### Added
+- ZCode panes get the structured conversation view, and ZCode gets its own mark. ZCode keeps its sessions in a SQLite database rather than a file per session — the only JSONL it writes is a model-I/O diagnostic log that is truncated as it rotates — so it is the first agent whose conversation Herdr reads itself instead of through the transcript parser. The store is opened read-only, and ZCode's own rule for what belongs in a transcript is applied, so hidden runtime traffic such as todo reminders does not surface as conversation. A new `store` session kind says a session's conversation lives in an agent's own store, which is what lets `pane.session` serve it; what an agent reports, and what herdr persists for `--resume`, stays an id. The mark is traced from ZCode's official application icon, which ships only as a bitmap.
+- The web UI connects to several saved gateways at once. The page opens on a list of them — a name, an address, and a key each — and every screen behind one says which gateway it is, because session names repeat across gateways. Each keeps its own connection, session list, and remembered session. The gateway is part of the address (`#/<gateway>/<session>/<pane>`), so a link names the one it means; links written before gateways were addressable no longer resolve.
+- `Shift`+`Tab` in a conversation opens a window switcher over the page: hold the chord, the candidates turn past on a ring, release and the highlighted one opens. The candidates are every agent open on every saved gateway, ordered by who needs you — waiting, then working, then the rest — so the first press reaches whoever is blocked. `Esc` cancels; pointing at a card turns the ring to it and clicking one opens it directly.
+- The agent rail, the jump palette, and both switcher menus span every saved gateway, grouped by gateway, and each row carries the agent's own mark.
+- A search over every file in the project (`files.search`), scoped to one pane's project root with the same pruning and path checks as `files.list`.
+- The conversation header hides the agent's full working directory and session id behind a click on the directory name, each with its own copy button.
+
+### Changed
+- Agents are identified by their own mark rather than by their name, which repeats — six panes of one agent all read `pi`. Rows in the rail and the palette are named by project and directory, which is what actually tells those panes apart.
+- The conversation header names an agent by its working directory rather than by a workspace label that may be the only name its panes share.
+- This is the first release built against a bundled SQLite, which is the only database Herdr opens.
+
 ## [0.7.47] - 2026-09-29
 
 ### Added
