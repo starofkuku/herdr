@@ -1,0 +1,19 @@
+# Build-script environment for the one C library herdr compiles.
+#
+# ZCode keeps its sessions in SQLite, so herdr builds a bundled SQLite. SQLite
+# supports large files by default, and on a glibc target that means calling the
+# LFS64 entry points (`open64`, `stat64`, `mmap64`, and so on). musl has no such
+# symbols, so the aarch64-musl release build -- which links with an
+# aarch64-linux-gnu-gcc cross compiler -- fails with those nine undefined
+# references.
+#
+# Turning LFS off removes them. It is safe here because every target herdr ships
+# is 64-bit, where `off_t` and `stat` are already 64-bit wide; the switch only
+# changes which entry point is named, not what the file access can address.
+# SQLite documents the switch as being for exactly this case.
+#
+# `[env]` sets this for every process cargo runs, not for one crate only. It is
+# still contained in effect: `LIBSQLITE3_FLAGS` is read by libsqlite3-sys's build
+# script and by nothing else, so no other C dependency is affected.
+[env]
+LIBSQLITE3_FLAGS = "SQLITE_DISABLE_LFS=1"

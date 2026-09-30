@@ -1279,7 +1279,11 @@ impl App {
         // from there, and returns before any of the file handling below.
         let (path, reported_agent) = match conversation {
             PaneConversation::File { path, agent } => (path, agent),
-            PaneConversation::Store { database, session, agent } => {
+            PaneConversation::Store {
+                database,
+                session,
+                agent,
+            } => {
                 return self.pane_session_from_store(
                     id,
                     params,
@@ -1525,16 +1529,15 @@ impl App {
         let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
         let info = crate::app::creation::terminal_agent_session_info(terminal)?;
         match info.kind {
-            crate::agent_resume::AgentSessionRefKind::Path => {
-                Some(PaneConversation::File { path: info.value, agent: info.agent })
-            }
-            crate::agent_resume::AgentSessionRefKind::Store => {
-                Some(PaneConversation::Store {
-                    database: crate::zcode_transcript::database_path()?,
-                    session: info.value,
-                    agent: info.agent,
-                })
-            }
+            crate::agent_resume::AgentSessionRefKind::Path => Some(PaneConversation::File {
+                path: info.value,
+                agent: info.agent,
+            }),
+            crate::agent_resume::AgentSessionRefKind::Store => Some(PaneConversation::Store {
+                database: crate::zcode_transcript::database_path()?,
+                session: info.value,
+                agent: info.agent,
+            }),
             crate::agent_resume::AgentSessionRefKind::Id => None,
         }
     }

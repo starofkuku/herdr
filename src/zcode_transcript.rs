@@ -105,9 +105,11 @@ pub(crate) fn read_session(
 /// The working directory this session ran in, for the header.
 fn session_directory(connection: &Connection, session_id: &str) -> Option<String> {
     connection
-        .query_row("SELECT directory FROM session WHERE id = ?1", [session_id], |row| {
-            row.get::<_, Option<String>>(0)
-        })
+        .query_row(
+            "SELECT directory FROM session WHERE id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
         .ok()
         .flatten()
         .filter(|value| !value.is_empty())
@@ -162,14 +164,17 @@ fn read_page(
     let cursor_value = cursor.map(|value| value as i64);
     // One extra row answers "is there an earlier page" without a second query.
     let rows = statement
-        .query_map(rusqlite::params![session_id, cursor_value, (limit + 1) as i64], |row| {
-            let raw: String = row.get(2)?;
-            Ok(MessageRow {
-                id: row.get(0)?,
-                sequence: row.get(1)?,
-                data: serde_json::from_str(&raw).unwrap_or(Value::Null),
-            })
-        })
+        .query_map(
+            rusqlite::params![session_id, cursor_value, (limit + 1) as i64],
+            |row| {
+                let raw: String = row.get(2)?;
+                Ok(MessageRow {
+                    id: row.get(0)?,
+                    sequence: row.get(1)?,
+                    data: serde_json::from_str(&raw).unwrap_or(Value::Null),
+                })
+            },
+        )
         .map_err(|err| format!("zcode store: {err}"))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(|err| format!("zcode store: {err}"))?;
@@ -239,7 +244,11 @@ fn is_transcript_message(data: &Value) -> bool {
         return false;
     }
     let semantics = data.get("semantics");
-    let field = |name: &str| semantics.and_then(|value| value.get(name)).and_then(Value::as_str);
+    let field = |name: &str| {
+        semantics
+            .and_then(|value| value.get(name))
+            .and_then(Value::as_str)
+    };
     if field("transcriptVisibility") == Some("hidden") {
         return false;
     }
@@ -267,7 +276,10 @@ fn role_of(data: &Value) -> Option<&str> {
 
 /// Timestamps are milliseconds since the epoch; the wire carries seconds.
 fn seconds(value: Option<&Value>) -> Option<u64> {
-    value.and_then(Value::as_i64).filter(|ms| *ms > 0).map(|ms| (ms / 1000) as u64)
+    value
+        .and_then(Value::as_i64)
+        .filter(|ms| *ms > 0)
+        .map(|ms| (ms / 1000) as u64)
 }
 
 /// Starts a turn from a user message, or from the first assistant message when
@@ -276,7 +288,11 @@ fn new_turn(row: &MessageRow, parts: &[Value]) -> PaneSessionTurn {
     let is_user = role_of(&row.data) == Some("user");
     let created = seconds(row.data.get("time").and_then(|time| time.get("created")));
     let completed = seconds(row.data.get("time").and_then(|time| time.get("completed")));
-    let text = if is_user { user_text(parts) } else { String::new() };
+    let text = if is_user {
+        user_text(parts)
+    } else {
+        String::new()
+    };
     let mut turn = PaneSessionTurn {
         // The sequence is the cursor the next page resumes from, and it is the
         // only per-message number that is stable in this store.
@@ -360,7 +376,9 @@ fn append_assistant(turn: &mut PaneSessionTurn, row: &MessageRow, parts: &[Value
 fn tool_call(part: &Value, order: usize) -> PaneSessionToolCall {
     let state = part.get("state");
     let input = state.and_then(|value| value.get("input"));
-    let status = state.and_then(|value| value.get("status")).and_then(Value::as_str);
+    let status = state
+        .and_then(|value| value.get("status"))
+        .and_then(Value::as_str);
     let output = state
         .and_then(|value| value.get("output"))
         .and_then(Value::as_str)
@@ -372,7 +390,10 @@ fn tool_call(part: &Value, order: usize) -> PaneSessionToolCall {
     let name = part.get("tool").and_then(Value::as_str).unwrap_or_default();
 
     PaneSessionToolCall {
-        call_id: part.get("callID").and_then(Value::as_str).map(str::to_string),
+        call_id: part
+            .get("callID")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         // ZCode names its tools in its own vocabulary; the wire carries the name
         // and lets the client pick the glyph and the label.
         kind: Some(name.to_string()),
