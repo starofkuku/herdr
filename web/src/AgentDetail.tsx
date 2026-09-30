@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import type { Subscription, ConnectionState } from "./gateway";
 import { ConnectionBadge } from "./ConnectionBadge";
-import { HISTORY_PAGE_LINES, shortenPath, statusLabel, paneIdOfEvent, type AgentView } from "./api";
+import { HISTORY_PAGE_LINES, directoryName, statusLabel, paneIdOfEvent, type AgentView } from "./api";
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
 import { Maximize2, Minimize2, Plus, Send, Square } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
+import { CopyButton } from "./Markdown";
+import { AgentCycleOverlay } from "./AgentCycleOverlay";
 import { AgentSwitcher } from "./AgentSwitcher";
+import { useAgentCycle } from "./useAgentCycle";
 import { PendingUploads } from "./PendingUploads";
+import { BackendBadge } from "./BackendBadge";
+import { FilePreview } from "./FilePreview";
+import { FileSearchPalette } from "./FileSearchPalette";
 import { FileTreePanel } from "./FileTreePanel";
 import { SubagentDrawer } from "./SubagentBar";
 import { StatusPanel } from "./StatusPanel";
@@ -149,6 +155,93 @@ export interface DetailClient {
 }
 
 /**
+ * Which agent this is, and which checkout it is in — and, on click, the two long
+ * values the header has no room for.
+ *
+ * The name is the working directory's own name rather than the agent's or the
+ * workspace's: six panes of one CLI all read "pi", and a workspace with no label
+ * is called "workspace 3", so the directory is the only one of the three that
+ * actually tells the reader which pane they are looking at. The mark says which
+ * agent it is, since that needs no words.
+ *
+ * The full path and the agent's session id are long, are read far less often
+ * than they are copied, and pushed the name off the end of the header when they
+ * sat beside it. They are therefore behind a click, each with its own copy
+ * control. The session id identifies the agent's own session rather than the
+ * pane: a pane is replaced when a session is resumed elsewhere, and this is the
+ * value that follows the conversation across them.
+ *
+ * Click rather than hover to open it: this is the only way to reach these two
+ * values, and a touch screen has no hover to give.
+ */
+function AgentIdentity({ agent }: { agent: AgentView | null }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  // Clicking away or pressing Escape closes it, as with every other overlay here.
+  // The copy controls live inside, so a click on one of those is not a click away.
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const details: { label: string; value: string }[] = [];
+  if (agent?.cwd) details.push({ label: "工作目录", value: agent.cwd });
+  if (agent?.sessionId) details.push({ label: "会话 ID", value: agent.sessionId });
+
+  const name = agent?.cwd
+    ? directoryName(agent.cwd)
+    : agent?.project || agent?.label || "agent";
+
+  return (
+    <div className="topbar-identity" ref={root}>
+      <button
+        type="button"
+        className="topbar-identity__face"
+        aria-expanded={open}
+        aria-haspopup="true"
+        title={name}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <AgentIcon agent={agent?.agent} size={17} />
+        <span className="topbar-identity__name">{name}</span>
+      </button>
+      {details.length > 0 ? (
+        <div className={`topbar-identity__panel${open ? " open" : ""}`}>
+          {details.map((row) => (
+            <IdentityRow key={row.label} label={row.label} value={row.value} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** One of the header's hidden facts, with its own copy control. */
+function IdentityRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="identity-row">
+      <span className="identity-row__label">{label}</span>
+      <code className="identity-row__value" title={value}>
+        {value}
+      </code>
+      <CopyButton text={value} title={`复制${label}`} />
+    </div>
+  );
+}
+
+/**
  * Content panel for one agent: its recent output, older pages on demand, and a
  * composer.
  *
@@ -161,18 +254,30 @@ export function AgentDetail({
   client,
   onChanged,
   agents,
+  allAgents,
+  backend,
   connection,
   onRetry,
   onSelectAgent,
 }: {
   agent: AgentView | null;
   agents: AgentView[];
+  /**
+   * Every agent on every backend, for the switcher.
+   *
+   * Separate from `agents`, which is this session's list: the switcher is a way
+   * to leave for anywhere the reader has open, and that includes other
+   * gateways.
+   */
+  allAgents?: AgentView[];
+  /** The gateway this conversation is on, shown so the reader knows which. */
+  backend: { id: string; name: string; url: string };
   onBack: () => void;
   client: DetailClient;
   onChanged: () => void;
   connection: ConnectionState;
   onRetry: () => void;
-  onSelectAgent: (paneId: string) => void;
+  onSelectAgent: (paneId: string, backendId?: string) => void;
 }) {
   // Oldest page first, so prepending older pages does not disturb scroll.
   const [pages, setPages] = useState<string[]>([]);
@@ -181,6 +286,34 @@ export function AgentDetail({
   const [draft, setDraft] = useState("");
   /** Whether the reader asked for a taller field; the text grows it either way. */
   const [tall, setTall] = useState(false);
+  /** The file shown in the preview column, if any. */
+  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  /**
+   * Whether there is room for the side panes.
+   *
+   * The tree and the preview are hidden by CSS on a phone, but their state has
+   * to follow: a preview that is "open" while invisible would hold the column's
+   * width and come back at a stale file when the window widens again.
+   */
+  const [wideLayout, setWideLayout] = useState(
+    () => typeof window === "undefined" || window.matchMedia("(min-width: 60.001rem)").matches,
+  );
+  /** Whether the jump-to-file palette is up. */
+  const [searchOpen, setSearchOpen] = useState(false);
+  /**
+   * Whether the status panel is open.
+   *
+   * Lives here rather than in the panel because an open panel takes width from
+   * the conversation: the screen has to reserve that width, and it is also what
+   * watches for a file being open.
+   */
+  const [statusOpen, setStatusOpen] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 80rem)").matches,
+  );
+  /** What the panel was set to before a file opened, so closing restores it. */
+  const statusBeforePreview = useRef(statusOpen);
+  /** A toggle made while a file was open outranks the restore. */
+  const statusToggledDuringPreview = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [blockerText, setBlockerText] = useState("");
@@ -229,6 +362,15 @@ export function AgentDetail({
   const dragDepth = useRef(0);
 
   const paneId = agent?.paneId ?? null;
+  /**
+   * The agents the switcher and the cycle walk.
+   *
+   * `allAgents` when the screen has it and it is not empty, because both are
+   * ways of leaving for anywhere the reader has open, across gateways. A single
+   * backend's screen falls back to its own list, which is all it knows about.
+   */
+  const switchableAgents = allAgents && allAgents.length > 0 ? allAgents : agents;
+  const cycle = useAgentCycle({ agents: switchableAgents, onCommit: onSelectAgent });
   const blocked = agent?.status === "blocked";
   /**
    * The agent's structured question, when it publishes one.
@@ -237,7 +379,14 @@ export function AgentDetail({
    * protocol, so answering cannot pick a different option than the one shown.
    */
   const interaction = agent?.interaction ?? null;
-  const transcriptPath = agent?.transcriptPath ?? null;
+  /**
+   * Whether the structured conversation view has anything to render.
+   *
+   * True for a transcript file and for a session an agent keeps in its own
+   * store; the two are different on the wire but identical to this screen, which
+   * only has to choose between a parsed conversation and the pane's own text.
+   */
+  const hasConversation = agent?.hasConversation ?? false;
   // Read inside the subscription callback, which is created once per pane and
   // would otherwise capture a stale `blocked` value.
   const blockedRef = useRef(false);
@@ -273,7 +422,7 @@ export function AgentDetail({
    * The check lives here so no caller has to remember it.
    */
   const refreshNewest = useCallback(async () => {
-    if (!paneId || inFlight.current || agent?.transcriptPath) return;
+    if (!paneId || inFlight.current || hasConversation) return;
     inFlight.current = true;
     try {
       const text = await readPage(client, paneId, 0);
@@ -290,7 +439,7 @@ export function AgentDetail({
     } finally {
       inFlight.current = false;
     }
-  }, [client, paneId, agent?.transcriptPath]);
+  }, [client, paneId, hasConversation]);
 
   /** Refreshes the bottom-of-pane text shown while blocked. */
   const refreshBlocker = useCallback(async () => {
@@ -625,7 +774,73 @@ export function AgentDetail({
     }
   }, [paneId]);
 
+  /*
+   * Ctrl/Cmd+E opens the file palette from anywhere on this screen.
+   *
+   * Bound on the document rather than on a control because the point is to
+   * reach a file without first finding the sidebar: the chord works while the
+   * reader is in the conversation, in the tree, or in a preview. The browser's
+   * own use of the chord is a keyword search, which is what this replaces, so
+   * the default is prevented.
+   */
+  useEffect(() => {
+    if (!paneId) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.key !== "e" && event.key !== "E") || (!event.ctrlKey && !event.metaKey)) {
+        return;
+      }
+      event.preventDefault();
+      setSearchOpen(true);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [paneId]);
+
+  // Track the phone breakpoint, and drop the preview when it is crossed.
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 60.001rem)");
+    const update = () => {
+      setWideLayout(query.matches);
+      if (!query.matches) setPreviewPath(null);
+    };
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  /*
+   * A file being open narrows the conversation,  /*
+   * A file being open narrows the conversation, so the panel folds to its
+   * capsule for as long as the file is there — an open panel beside an open
+   * file leaves neither enough room. Closing the file puts the panel back the
+   * way the reader had it, unless they changed it themselves in between, in
+   * which case that choice stands.
+   */
+  useEffect(() => {
+    if (previewPath) {
+      setStatusOpen((current) => {
+        statusBeforePreview.current = current;
+        return false;
+      });
+      statusToggledDuringPreview.current = false;
+      return;
+    }
+    if (!statusToggledDuringPreview.current) {
+      setStatusOpen(statusBeforePreview.current);
+    }
+  }, [previewPath]);
+
+  /** The reader's own toggle, which outranks the automatic fold. */
+  const toggleStatus = useCallback(
+    (next: boolean) => {
+      if (previewPath) statusToggledDuringPreview.current = true;
+      setStatusOpen(next);
+    },
+    [previewPath],
+  );
+
   /**
+   * Put the caret in the composer when a conversation is opened.  /**
    * Put the caret in the composer when a conversation is opened.
    *
    * Opening an agent is almost always followed by typing at it, and having to
@@ -838,34 +1053,33 @@ export function AgentDetail({
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
+      {/*
+        The project's files are the screen's left column, beside the header and
+        the composer rather than inside the conversation: the sidebar owns the
+        full height of the window, which is what makes it a sidebar.
+      */}
+      <FileTreePanel
+        client={client}
+        paneId={paneId ?? ""}
+        cwd={agent?.cwd ?? ""}
+        onOpenFile={setPreviewPath}
+      />
+      <div className="detail-main">
       <header className="topbar">
         <button type="button" className="ghost" onClick={onBack} aria-label="Back">
           ‹
         </button>
-        <div className="topbar-title">
-          <span className="title">{agent?.label ?? "agent"}</span>
-          <span className="subtitle">
-            {agent?.project ?? ""} {agent?.cwd ? `· ${shortenPath(agent.cwd)}` : ""}
-          </span>
-          {/*
-            The session id identifies the agent's own session rather than the
-            pane: a pane is replaced when a session is resumed elsewhere, and
-            this is the value that follows the conversation across them.
-          */}
-          {agent?.sessionId ? (
-            <span className="session-id" title="Agent session id">
-              {agent.sessionId}
-            </span>
-          ) : null}
-        </div>
+        <BackendBadge name={backend.name} url={backend.url} />
         {/*
-          The agent behind this pane, next to the controls that act on it. An
-          agent with no mark renders nothing and the cluster closes up.
+          The conversation's identity, over the two facts it no longer spells
+          out. See `AgentIdentity` for why the name and the panel are shaped the
+          way they are.
         */}
-        <AgentIcon agent={agent?.agent} size={18} />
+        <AgentIdentity agent={agent} />
         <AgentSwitcher
-          agents={agents}
+          agents={switchableAgents}
           current={agent?.paneId ?? null}
+          currentBackendId={backend.id}
           onSelect={onSelectAgent}
         />
         <ThemeToggle />
@@ -914,13 +1128,13 @@ export function AgentDetail({
       ) : null}
 
       {/*
-        The agent's own transcript is the primary view. The rendered pane is
+        The agent's own account of the conversation is the primary view — a
+        transcript file, or a store it keeps its sessions in. The rendered pane is
         only a fallback: it is what the agent is painting on screen, which for a
-        TUI agent is chrome and redraws rather than the conversation. Agents that
-        publish a transcript path get the structured view; the rest still show
-        something rather than an empty panel.
+        TUI agent is chrome and redraws rather than the conversation. An agent
+        with neither still shows something rather than an empty panel.
       */}
-      {transcriptPath ? (
+      {hasConversation ? (
         <ConversationView
           client={client}
           paneId={paneId ?? ""}
@@ -928,22 +1142,17 @@ export function AgentDetail({
           sentMessage={sentMessage}
           working={agent?.status === "working"}
           onPreviewImage={setLightbox}
-          subagents={subagents.runs}
-          onOpenSubagents={() => setDrawerOpen(true)}
-          files={
-            <FileTreePanel
-              client={client}
-              paneId={paneId ?? ""}
-              cwd={agent?.cwd ?? ""}
-            />
-          }
           status={
             <StatusPanel
               todos={todos}
               runs={subagents.runs.filter(isRunning)}
+              open={statusOpen}
+              onToggle={toggleStatus}
               onOpenSubagents={() => setDrawerOpen(true)}
             />
           }
+          subagents={subagents.runs}
+          onOpenSubagents={() => setDrawerOpen(true)}
         />
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
@@ -1093,6 +1302,30 @@ export function AgentDetail({
           </div>
         </div>
       </form>
+      </div>
+
+      {/*
+        The file being previewed, as the screen's last column: the conversation
+        keeps half the width and the file takes the other half, the split ZCode
+        uses for a side-by-side editor.
+      */}
+      {previewPath && paneId && wideLayout ? (
+        <FilePreview
+          client={client}
+          paneId={paneId}
+          path={previewPath}
+          onClose={() => setPreviewPath(null)}
+        />
+      ) : null}
+
+      {searchOpen && paneId ? (
+        <FileSearchPalette
+          client={client}
+          paneId={paneId}
+          onOpen={setPreviewPath}
+          onClose={() => setSearchOpen(false)}
+        />
+      ) : null}
 
       {/*
         The enlarged view. Rendered as an overlay rather than a new tab so the
@@ -1111,6 +1344,18 @@ export function AgentDetail({
 
       {drawerOpen && subagents.runs.length > 0 ? (
         <SubagentDrawer runs={subagents.runs} onClose={() => setDrawerOpen(false)} />
+      ) : null}
+
+      {/*
+        Last in the document so it needs no stacking contest: the cycle covers
+        the whole page, including the file tree and any drawer already open.
+      */}
+      {cycle ? (
+        <AgentCycleOverlay
+          cycle={cycle}
+          currentPaneId={paneId}
+          currentBackendId={backend.id}
+        />
       ) : null}
     </div>
   );

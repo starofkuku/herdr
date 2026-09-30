@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Bot } from "lucide-react";
+import { AgentIcon } from "./AgentIcon";
 import { shortenPath, statusLabel, type AgentStatus, type AgentView } from "./api";
 import { HIGHLIGHT_MS, orderActivity, trackAgents } from "./activity-order";
 import {
@@ -40,7 +41,11 @@ export function SessionActivity({
   agents: AgentView[];
   /** Kept in the list, marked, so the rail still reads as the whole session. */
   currentPaneId?: string | null;
-  onOpen: (paneId: string) => void;
+  /**
+   * Opens a row. The backend comes back with the pane id because the rail spans
+   * every backend: without it the caller cannot tell which one to open.
+   */
+  onOpen: (paneId: string, backendId?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   /** Set while the rail is open because of a finish, not because it was asked. */
@@ -264,10 +269,22 @@ export function SessionActivity({
                       // conversation that was just opened.
                       autoOpened.current = false;
                       setOpen(false);
-                      onOpen(agent.paneId);
+                      onOpen(agent.paneId, agent.backendId);
                     }}
                     title={agent.cwd}
                   >
+                    {/*
+                      The agent itself is the mark, not a word.
+                      
+                      Its name is what repeats — six panes of one CLI all read
+                      "pi" — so spelling it out said the least and took the room
+                      the row needs for what actually tells these panes apart:
+                      which backend and which checkout. The mark says the same
+                      thing in a fraction of the width.
+                    */}
+                    <span className="session-activity__mark">
+                      <AgentIcon agent={agent.agent} size={14} />
+                    </span>
                     <span className={`dot ${agent.status}`} aria-hidden="true" />
                     {/*
                       The directory is what tells two panes apart: a session's panes
@@ -276,7 +293,13 @@ export function SessionActivity({
                       narrow.
                     */}
                     <span className="session-activity__main">
-                      <span className="session-activity__name">{agent.label}</span>
+                      {/* The rail spans every backend, so a row from one that
+                          is not the one on screen says whose it is. */}
+                      {agent.backendName ? (
+                        <span className="session-activity__name">
+                          <span className="session-activity__backend">{agent.backendName}</span>
+                        </span>
+                      ) : null}
                       <span className="session-activity__path">{shortenPath(agent.cwd)}</span>
                     </span>
                     <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>

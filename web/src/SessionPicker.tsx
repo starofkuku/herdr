@@ -1,10 +1,14 @@
 import { useState, type FormEvent } from "react";
+import { BackendBadge } from "./BackendBadge";
 import type { GatewayClient, SessionSummary } from "./gateway";
 import { NotificationPanel } from "./NotificationPanel";
 import { ThemeToggle } from "./ThemeToggle";
+import type { BackendProfile } from "./settings";
 import { WEB_UI_VERSION } from "./version";
 
 interface SessionPickerProps {
+  /** The gateway these sessions belong to. */
+  backend: BackendProfile;
   sessions: SessionSummary[];
   connected: boolean;
   detail?: string;
@@ -12,7 +16,8 @@ interface SessionPickerProps {
   client: GatewayClient;
   onSelect: (name: string) => void;
   onRefresh: () => void;
-  onDisconnect: () => void;
+  /** Returns to the backend list. */
+  onBack: () => void;
 }
 
 /** Mirrors the server's session name rules so obvious mistakes fail locally. */
@@ -28,13 +33,14 @@ function validateSessionName(name: string): string | null {
 }
 
 export function SessionPicker({
+  backend,
   sessions,
   connected,
   detail,
   client,
   onSelect,
   onRefresh,
-  onDisconnect,
+  onBack,
 }: SessionPickerProps) {
   const [newName, setNewName] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
@@ -54,6 +60,12 @@ export function SessionPicker({
   return (
     <div className="session-picker">
       <header className="topbar">
+        <button type="button" className="ghost" onClick={onBack} aria-label="Backends">
+          ‹
+        </button>
+        {/* Which gateway these sessions are on: session names repeat across
+            gateways, so the name is the context for everything below it. */}
+        <BackendBadge name={backend.name} url={backend.url} />
         <span className="session-name">sessions</span>
         <span className="topbar-spacer" />
         <button type="button" className="ghost" onClick={onRefresh} disabled={!connected}>
@@ -68,9 +80,6 @@ export function SessionPicker({
           title="Notification settings"
         >
           ⚙
-        </button>
-        <button type="button" className="ghost" onClick={onDisconnect}>
-          disconnect
         </button>
         <ThemeToggle />
         {/*

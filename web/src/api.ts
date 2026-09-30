@@ -78,6 +78,16 @@ export interface TabRecord {
 export interface AgentView {
   paneId: string;
   workspaceId: string;
+  /**
+   * The backend this agent lives on.
+   *
+   * Absent for the list a single backend's screen shows — there, everything is
+   * that backend. Set by the activity rail, which spans all of them and needs
+   * to say which is which.
+   */
+  backendId?: string;
+  /** The backend's display name, for the same reason. */
+  backendName?: string;
   /** Name shown as the card title. */
   label: string;
   /** Detected agent, for example "pi" or "codex". */
@@ -89,6 +99,13 @@ export interface AgentView {
   cwd: string;
   /** Local path of the agent's own transcript, when the agent reports one. */
   transcriptPath?: string;
+  /**
+   * Whether this pane's conversation can be read as structured turns.
+   *
+   * Separate from `transcriptPath`, which is absent for an agent that keeps its
+   * sessions in a store of its own and still has a conversation to show.
+   */
+  hasConversation: boolean;
   /**
    * The agent's own session identity, in whichever form it reported.
    *
@@ -161,6 +178,7 @@ export function agentsFromSnapshot(
       project: workspaceLabels.get(workspaceId) ?? workspaceId,
       cwd: asString(agent.foreground_cwd) ?? asString(agent.cwd) ?? "",
       transcriptPath: transcriptPathOf(agent),
+      hasConversation: hasReadableConversation(agent),
       sessionId: sessionIdOf(agent),
       interaction: parseInteractionRequest(agent.interaction_request) ?? undefined,
     });
@@ -178,6 +196,19 @@ function transcriptPathOf(agent: Partial<AgentRecord>): string | undefined {
   const session = agent.agent_session;
   if (!session || session.kind !== "path") return undefined;
   return asString(session.value);
+}
+
+/**
+ * Whether the server can serve this pane's conversation as structured turns.
+ *
+ * Two shapes work. `path` is a transcript file the parser reads, which is what
+ * every agent but one publishes. `store` is a session an agent keeps in its own
+ * database — ZCode does — where the id is the key and there is no per-session
+ * file to hand out. Only `id` means there is nothing to read.
+ */
+function hasReadableConversation(agent: Partial<AgentRecord>): boolean {
+  const session = agent.agent_session;
+  return session?.kind === "path" || session?.kind === "store";
 }
 
 /**
@@ -286,4 +317,17 @@ export function scrollbackRows(envelope: Record<string, unknown>): number {
 export function shortenPath(path: string): string {
   const home = path.match(/^\/(?:home|Users)\/[^/]+/);
   return home ? path.replace(home[0], "~") : path;
+}
+
+/**
+ * The last segment of a path: the directory's own name.
+ *
+ * What a header has room for when the whole path does not fit, and what tells
+ * two checkouts apart once the path is out of the way. A path with no segment to
+ * take — the root, or an empty string — is returned as it stands, so the caller
+ * always has something to show.
+ */
+export function directoryName(path: string): string {
+  const segments = path.split("/").filter(Boolean);
+  return segments.length > 0 ? segments[segments.length - 1] : path;
 }

@@ -41,9 +41,23 @@ export function matchAgents(agents: AgentView[], query: string): AgentView[] {
     .map((entry) => entry.agent);
 }
 
-/** The fields searched, in the order a match in them should win. */
+/**
+ * The fields searched, in the order a match in them should win.
+ *
+ * The backend's name is included — last, so it cannot outrank a match on the
+ * agent itself — because the list spans every gateway once more than one is
+ * saved: typing the gateway's name is how a reader narrows to one of them.
+ */
 function searchFields(agent: AgentView): string[] {
-  return [agent.label, agent.agent, agent.cwd, shortenPath(agent.cwd), agent.project, agent.paneId];
+  return [
+    agent.label,
+    agent.agent,
+    agent.cwd,
+    shortenPath(agent.cwd),
+    agent.project,
+    agent.paneId,
+    agent.backendName ?? "",
+  ];
 }
 
 /** Lowercased with separators collapsed, so `~/foo` and `~/ foo` match alike. */
@@ -76,4 +90,18 @@ function subsequenceSpan(text: string, needle: string): number | null {
 export function describeAgent(agent: AgentView): string {
   const where = shortenPath(agent.cwd);
   return `${statusLabel(agent.status)} · ${where}`;
+}
+/**
+ * Whether the row at `index` starts a new backend group.
+ *
+ * A heading is due whenever the backend differs from the row above — and always
+ * for the first row. The list must already be sorted with one backend's rows
+ * together, which is what `matchAgents` does here: it ranks by the query, and
+ * the backend is only a way to label the groups a search happened to produce.
+ */
+export function opensBackendGroup(agents: AgentView[], index: number): boolean {
+  const agent = agents[index];
+  if (!agent) return false;
+  const previous = agents[index - 1];
+  return !previous || previous.backendId !== agent.backendId;
 }

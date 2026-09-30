@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { ArrowRight, Bot, ListTodo, Maximize2, Minimize2 } from "lucide-react";
 import { activity, type SubagentRun } from "./subagents";
 import { isOpen, shouldShowPanel, todoProgress, type TodoItem } from "./todos";
@@ -18,17 +17,25 @@ import { TodoList } from "./TodoPanel";
 export function StatusPanel({
   todos,
   runs,
+  open,
+  onToggle,
   onOpenSubagents,
 }: {
   todos: TodoItem[];
   runs: SubagentRun[];
+  /**
+   * Whether the panel is open.
+   *
+   * Owned by the screen rather than here: an open panel takes width away from
+   * the conversation, so whoever lays the screen out has to know — and it is
+   * also what decides that a file being open collapses the panel.
+   */
+  open: boolean;
+  onToggle: (open: boolean) => void;
   onOpenSubagents: () => void;
 }) {
   const hasTodos = shouldShowPanel(todos);
   const hasRuns = runs.length > 0;
-  const [open, setOpen] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(min-width: 80rem)").matches,
-  );
 
   // Nothing live means no panel: a finished list is not state, and an empty
   // panel would just be chrome in the corner.
@@ -50,7 +57,7 @@ export function StatusPanel({
         type="button"
         className="status-pill"
         aria-label="展开状态面板"
-        onClick={() => setOpen(true)}
+        onClick={() => onToggle(true)}
       >
         <span className="status-pill__icon">
           <span className="status-pill__icon-mark">{summary.icon}</span>
@@ -71,12 +78,14 @@ export function StatusPanel({
           className="status-panel__collapse"
           aria-label="收起状态面板"
           title="收起"
-          onClick={() => setOpen(false)}
+          onClick={() => onToggle(false)}
         >
           <Minimize2 size={14} aria-hidden="true" />
         </button>
       </header>
 
+      {/* The sections scroll inside the shell; the frame itself stays put. */}
+      <div className="status-panel__body">
       {hasTodos ? (
         <section className="status-section">
           <header className="status-section__head">
@@ -111,6 +120,7 @@ export function StatusPanel({
           </div>
         </section>
       ) : null}
+      </div>
     </aside>
   );
 }

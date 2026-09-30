@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, FolderOpen, RefreshCw, X } from "lucide-react";
-import { FilePreview } from "./FilePreview";
+import {
+  ChevronRight,
+  FileDiff,
+  FolderOpen,
+  PanelLeftClose,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import { fileIconDataUri } from "./fileIcons";
 import {
   aggregateDirectoryStatus,
@@ -56,6 +62,7 @@ export function FileTreePanel({
   paneId,
   cwd,
   hidden,
+  onOpenFile,
 }: {
   client: FilesClient;
   paneId: string;
@@ -63,14 +70,57 @@ export function FileTreePanel({
   cwd: string;
   /** True while the conversation is not the visible screen. */
   hidden?: boolean;
+  /**
+   * Opens a file's preview. Handled by the screen rather than here: the preview
+   * is a column beside the conversation, and the tree is a column of its own.
+   */
+  onOpenFile: (path: string) => void;
 }) {
-  const [open, setOpen] = useState(() => readStoredOpen() ?? false);
+  // Docked by default: the sidebar is part of the layout, not a panel to find.
+  const [open, setOpen] = useState(() => readStoredOpen() ?? true);
   const [listing, setListing] = useState<DirectoryListing | null>(null);
   const [git, setGit] = useState<GitStatus>({ available: false, byPath: new Map() });
   /** Open directories, keyed by path, each holding its own listing. */
   const [expanded, setExpanded] = useState<Map<string, DirectoryListing>>(new Map());
   const [loading, setLoading] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  /**
+   * What the tree is filtered to.
+   *
+   * The filter is applied to the rows already loaded, not sent to the server: it
+   * narrows what is on screen, and the tree only holds what has been expanded.
+   */
+  const [filter, setFilter] = useState("");
+  /**
+   * Whether only changed files are shown.
+   *
+   * Git reports paths, not directories, so this switches the whole list over to
+   * a flat view of the changed files — the shape that can actually answer "what
+   * did the agent touch" without expanding anything.
+   */
+  const [changedOnly, setChangedOnly] = useState(false);
+  /**
+   * Rows by path, so the tree can be scrolled to one.
+   *
+   * Expanding a folder near the bottom would otherwise add its children below
+   * the visible area — the reader clicks and sees nothing change. The same ref
+   * brings a row back into view when it is only partly visible.
+   */
+  const rowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const setRowRef = useCallback(
+    (path: string) => (element: HTMLDivElement | null) => {
+      if (element) rowRefs.current.set(path, element);
+      else rowRefs.current.delete(path);
+    },
+    [],
+  );
+  const revealRow = useCallback((path: string) => {
+    // After paint: the row may only exist once React has committed the change.
+    window.requestAnimationFrame(() => {
+      rowRefs.current
+        .get(path)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    });
+  }, []);
   const gitSignature = useRef("");
   const inFlight = useRef(false);
 
@@ -153,14 +203,18 @@ export function FileTreePanel({
           next.delete(path);
           return next;
         });
+        revealRow(path);
         return;
       }
       const result = await loadDirectory(client, paneId, path);
       if (result) {
         setExpanded((current) => new Map(current).set(path, result));
+        // The first child, not the folder: the point of expanding is to see
+        // what is inside, and that is what may have landed out of view.
+        revealRow(result.entries[0]?.path ?? path);
       }
     },
-    [client, paneId, expanded],
+    [client, paneId, expanded, revealRow],
   );
 
   const statusOf = useCallback(
@@ -176,19 +230,59 @@ export function FileTreePanel({
     return parts[parts.length - 1] ?? cwd;
   }, [cwd]);
 
+  /**
+   * The changed files as flat rows, newest statuses first.
+   *
+   * This view ignores the tree's expansion state on purpose: the point of the
+   * toggle is to stop walking directories and just see what moved.
+   */
+  const changedRows = useMemo(
+    () =>
+      [...git.byPath.entries()]
+        .map(([path, status]) => ({
+          path,
+          name: path.split("/").pop() ?? path,
+          status,
+        }))
+        .sort((left, right) => left.path.localeCompare(right.path)),
+    [git.byPath],
+  );
+
+  /** True when a row survives the filter. A directory matches when its own name does. */
+  const matchesFilter = useCallback(
+    (name: string, path: string) => {
+      const query = filter.trim().toLowerCase();
+      if (!query) return true;
+      return name.toLowerCase().includes(query) || path.toLowerCase().includes(query);
+    },
+    [filter],
+  );
+
   if (!paneId) return null;
 
+  /*
+   * Both states live inside `.file-sidebar`, and that wrapper is what animates.
+   *
+   * Swapping two elements would give no transition at all — CSS animates a
+   * property change on a node that stays put — so the wrapper keeps its
+   * identity and only its width changes. The tree inside keeps its full width
+   * and is clipped by the wrapper, which is what makes the reveal read as the
+   * panel sliding open rather than its contents reflowing.
+   */
   if (!open) {
     return (
-      <button
-        type="button"
-        className="file-tree-launcher"
-        aria-label="打开项目文件"
-        title="项目文件"
-        onClick={() => toggleOpen(true)}
-      >
-        <FolderOpen size={15} aria-hidden="true" />
-      </button>
+      <div className="file-sidebar" data-open="false">
+        <button
+          type="button"
+          className="file-tree-launcher"
+          aria-label="展开项目文件"
+          title="展开项目文件"
+          onClick={() => toggleOpen(true)}
+        >
+          <FolderOpen size={15} aria-hidden="true" />
+          <span className="file-tree-launcher__label">项目文件</span>
+        </button>
+      </div>
     );
   }
 
@@ -198,12 +292,21 @@ export function FileTreePanel({
     const isDirectory = entry.kind === "dir";
     const isExpanded = isDirectory && expanded.has(entry.path);
     return (
-      <div key={key} className="file-tree__row" style={{ paddingLeft: `${0.4 + depth * 0.85}rem` }}>
+      // A node wraps its own row and its children, so expanded entries stack
+      // under their parent. (A single flex row holding both put them side by
+      // side, which is what made an expanded folder's children appear to its
+      // right.)
+      <div key={key} className="file-tree__node" ref={setRowRef(entry.path)}>
         <button
           type="button"
           className="file-tree__entry"
+          style={{ paddingLeft: `${0.3 + depth * 0.6}rem` }}
           title={entry.path}
-          onClick={() => (isDirectory ? void toggleDirectory(entry.path) : setPreview(entry.path))}
+          onClick={() => {
+            revealRow(entry.path);
+            if (isDirectory) void toggleDirectory(entry.path);
+            else onOpenFile(entry.path);
+          }}
         >
           {isDirectory ? (
             <ChevronRight
@@ -239,7 +342,8 @@ export function FileTreePanel({
   };
 
   return (
-    <div className="file-tree" role="complementary" aria-label="项目文件">
+    <div className="file-sidebar" data-open="true">
+      <div className="file-tree" role="complementary" aria-label="项目文件">
       <header className="file-tree__head">
         <span className="file-tree__root" title={cwd}>
           {rootName}
@@ -249,6 +353,19 @@ export function FileTreePanel({
             {git.branch}
           </span>
         ) : null}
+        <button
+          type="button"
+          className={`file-tree__action${changedOnly ? " active" : ""}`}
+          aria-pressed={changedOnly}
+          disabled={!git.available}
+          aria-label="仅显示 git 改动"
+          title={
+            git.available ? "仅显示有改动的文件" : "这个目录不在 git 仓库里"
+          }
+          onClick={() => setChangedOnly((value) => !value)}
+        >
+          <FileDiff size={13} aria-hidden="true" />
+        </button>
         <button
           type="button"
           className="file-tree__action"
@@ -261,32 +378,82 @@ export function FileTreePanel({
         <button
           type="button"
           className="file-tree__action"
-          aria-label="收起文件面板"
+          aria-label="收起项目文件"
           title="收起"
           onClick={() => toggleOpen(false)}
         >
-          <X size={13} aria-hidden="true" />
+          <PanelLeftClose size={14} aria-hidden="true" />
         </button>
       </header>
 
+      {/* The filter sits under the title row: it narrows the tree rather than
+          replacing it, so a reader can type and watch the list shorten. */}
+      <div className="file-tree__filter">
+        <Search size={12} className="file-tree__filter-icon" aria-hidden="true" />
+        <input
+          type="text"
+          className="file-tree__filter-input"
+          placeholder={changedOnly ? "筛选改动文件…" : "筛选文件…"}
+          value={filter}
+          onChange={(event) => setFilter(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && filter) {
+              event.stopPropagation();
+              setFilter("");
+            }
+          }}
+          aria-label="筛选文件"
+        />
+        {filter ? (
+          <button
+            type="button"
+            className="file-tree__filter-clear"
+            aria-label="清除筛选"
+            onClick={() => setFilter("")}
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
+
       <div className="file-tree__body" role="tree">
-        {listing === null ? (
+        {changedOnly ? (
+          // The changed files, flat: git reports paths rather than directories,
+          // and this is the view that answers "what did the agent touch".
+          changedRows.length === 0 ? (
+            <p className="file-tree__note">没有改动</p>
+          ) : (
+            changedRows
+              .filter((row) => matchesFilter(row.name, row.path))
+              .map((row) => (
+                <div key={row.path} className="file-tree__node">
+                  <button
+                    type="button"
+                    className="file-tree__entry"
+                    style={{ paddingLeft: "0.3rem" }}
+                    title={row.path}
+                    onClick={() => onOpenFile(row.path)}
+                  >
+                    <span className="file-tree__caret" aria-hidden="true" />
+                    <span className="file-tree__name">{row.path}</span>
+                    <span className={`file-tree__mark ${row.status}`} title={row.status}>
+                      {gitStatusMark(row.status)}
+                    </span>
+                  </button>
+                </div>
+              ))
+          )
+        ) : listing === null ? (
           <p className="file-tree__note">读取中…</p>
         ) : listing.entries.length === 0 ? (
           <p className="file-tree__note">空目录</p>
         ) : (
-          listing.entries.map((entry) => renderRow(entry, 0, entry.path))
+          listing.entries
+            .filter((entry) => matchesFilter(entry.name, entry.path))
+            .map((entry) => renderRow(entry, 0, entry.path))
         )}
       </div>
-
-      {preview ? (
-        <FilePreview
-          client={client}
-          paneId={paneId}
-          path={preview}
-          onClose={() => setPreview(null)}
-        />
-      ) : null}
+      </div>
     </div>
   );
 }

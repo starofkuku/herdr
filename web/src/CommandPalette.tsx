@@ -1,15 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Search } from "lucide-react";
+import { AgentIcon } from "./AgentIcon";
 import { statusLabel, type AgentView } from "./api";
-import { describeAgent, matchAgents } from "./command-search";
+import { describeAgent, matchAgents, opensBackendGroup } from "./command-search";
 
 /**
  * A jump-to-agent palette, opened with Ctrl/Cmd+K.
  *
- * The session activity rail already lists the panes, but reaching it means
- * looking away from the conversation and finding the rail's edge. This is for
- * the other intent: you know which pane you want and would rather type three
- * letters than aim at a row.
+ * The list spans every saved backend, grouped by backend: the reader asking
+ * "where was that pane" does not necessarily know which gateway it is on, and
+ * searching one gateway at a time would make the palette's answer depend on
+ * which screen it was opened from.
  *
  * Centred and modal because it takes the keyboard. An open list that leaves
  * focus in the page behind it would fight the reader's typing, and a palette
@@ -18,12 +19,18 @@ import { describeAgent, matchAgents } from "./command-search";
 export function CommandPalette({
   agents,
   currentPaneId,
+  currentBackendId,
   onOpen,
   onClose,
 }: {
+  /** Every agent on every backend; each carries its backend's id and name. */
   agents: AgentView[];
+  /** The pane on screen, which the list marks rather than hides. */
   currentPaneId?: string | null;
-  onOpen: (paneId: string) => void;
+  /** The backend the current pane is on, so the mark is not drawn twice. */
+  currentBackendId?: string | null;
+  /** Opens one. The backend comes with it: the list spans all of them. */
+  onOpen: (paneId: string, backendId?: string) => void;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -60,10 +67,13 @@ export function CommandPalette({
     if (row instanceof HTMLElement) row.scrollIntoView({ block: "nearest" });
   }, [active]);
 
+  const isCurrent = (agent: AgentView) =>
+    agent.paneId === currentPaneId && agent.backendId === currentBackendId;
+
   const choose = (agent: AgentView | undefined) => {
     if (!agent) return;
     onClose();
-    if (agent.paneId !== currentPaneId) onOpen(agent.paneId);
+    if (!isCurrent(agent)) onOpen(agent.paneId, agent.backendId);
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
@@ -116,27 +126,49 @@ export function CommandPalette({
           <p className="palette__empty">No agent matches “{query}”.</p>
         ) : (
           <ul className="palette__list" id="palette-results" ref={listRef} role="listbox">
-            {results.map((agent, index) => (
-              <li key={agent.paneId}>
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={index === active}
-                  className={`palette__item${index === active ? " active" : ""}${
-                    agent.paneId === currentPaneId ? " current" : ""
-                  }`}
-                  // Pointer and keyboard share one highlight, so moving the mouse
-                  // and then pressing Enter goes where the pointer is pointing.
-                  onMouseMove={() => setActive(index)}
-                  onClick={() => choose(agent)}
-                >
-                  <span className={`dot ${agent.status}`} aria-hidden="true" />
-                  <span className="palette__name">{agent.label}</span>
-                  <span className="palette__meta">{describeAgent(agent)}</span>
-                  <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
-                </button>
-              </li>
-            ))}
+            {results.map((agent, index) => {
+              // A heading each time the backend changes. The rows stay one flat
+              // list so the arrow keys walk them without stepping into headings.
+              const opensGroup = opensBackendGroup(results, index);
+              return (
+                <Fragment key={`${agent.backendId ?? ""}:${agent.paneId}`}>
+                  {opensGroup ? (
+                    <li className="palette__group" role="presentation">
+                      {agent.backendName ?? "backend"}
+                    </li>
+                  ) : null}
+                  <li>
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={index === active}
+                      className={`palette__item${index === active ? " active" : ""}${
+                        isCurrent(agent) ? " current" : ""
+                      }`}
+                      // Pointer and keyboard share one highlight, so moving the
+                      // mouse and then pressing Enter goes where the pointer is.
+                      onMouseMove={() => setActive(index)}
+                      onClick={() => choose(agent)}
+                    >
+                      {/*
+                        The mark is the whole of the row's agent identity — the
+                        name is not spelled out beside it. Six panes of one CLI
+                        all read "pi", so the name was the least telling thing in
+                        the row and the most repeated; the icon says the same
+                        thing in less width, which leaves the meta line room for
+                        the directory that actually tells those six apart.
+                      */}
+                      <span className="palette__mark">
+                        <AgentIcon agent={agent.agent} size={15} />
+                      </span>
+                      <span className={`dot ${agent.status}`} aria-hidden="true" />
+                      <span className="palette__meta">{describeAgent(agent)}</span>
+                      <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
+                    </button>
+                  </li>
+                </Fragment>
+              );
+            })}
           </ul>
         )}
 

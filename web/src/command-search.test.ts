@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { AgentView } from "./api";
-import { matchAgents } from "./command-search";
+import { matchAgents, opensBackendGroup } from "./command-search";
 
 const agent = (over: Partial<AgentView>): AgentView =>
   ({
@@ -75,5 +75,42 @@ describe("matchAgents", () => {
     const before = agents.map((a) => a.paneId);
     matchAgents(agents, "pi");
     expect(agents.map((a) => a.paneId)).toEqual(before);
+  });
+});
+describe("opensBackendGroup", () => {
+  const agent = (backendId: string | undefined): AgentView =>
+    ({
+      paneId: "p",
+      workspaceId: "w",
+      backendId,
+      label: "pi",
+      agent: "pi",
+      status: "idle",
+      project: "p",
+      cwd: "/tmp",
+    }) as AgentView;
+
+  test("the first row always starts a group", () => {
+    expect(opensBackendGroup([agent("b1")], 0)).toBe(true);
+  });
+
+  test("a change of backend starts one", () => {
+    const list = [agent("b1"), agent("b2")];
+    expect(opensBackendGroup(list, 1)).toBe(true);
+  });
+
+  test("the same backend as the row above does not", () => {
+    const list = [agent("b1"), agent("b1")];
+    expect(opensBackendGroup(list, 1)).toBe(false);
+  });
+
+  test("rows with no backend are one group, not one group each", () => {
+    // The single-backend screens have no backend on their agents.
+    const list = [agent(undefined), agent(undefined)];
+    expect(opensBackendGroup(list, 1)).toBe(false);
+  });
+
+  test("an index past the end is not a group", () => {
+    expect(opensBackendGroup([agent("b1")], 5)).toBe(false);
   });
 });

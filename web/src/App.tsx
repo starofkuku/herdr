@@ -1,315 +1,111 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  GatewayClient,
-  ApiError,
-  type ConnectionState,
-  type SessionSummary,
-  type Subscription,
-} from "./gateway";
-import { agentsFromSnapshot, compareAgents, type AgentView } from "./api";
-import { ConnectForm } from "./ConnectForm";
-import { SessionPicker } from "./SessionPicker";
-import { AgentList } from "./AgentList";
-import { CommandPalette } from "./CommandPalette";
-import { SessionActivity } from "./SessionActivity";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { AgentView } from "./api";
 import { AgentDetail } from "./AgentDetail";
-import { loadSettings, saveSettings, restoreTarget, type StoredSettings } from "./settings";
+import { AgentList } from "./AgentList";
+import { BackendHub } from "./backends";
+import { CommandPalette } from "./CommandPalette";
+import { HomeScreen } from "./HomeScreen";
+import type { BackendDraft } from "./BackendForm";
+import { SessionActivity } from "./SessionActivity";
+import { SessionPicker } from "./SessionPicker";
+import {
+  loadSettings,
+  rememberSession,
+  removeBackend,
+  saveSettings,
+  upsertBackend,
+  type BackendProfile,
+  type StoredSettings,
+} from "./settings";
 import { currentRoute, navigate, type Route } from "./route";
 
-/** Re-read the transcript when output settles, not on every single event. */
-const REFRESH_DEBOUNCE_MS = 350;
-
 /**
- * The screen implied by a route plus the connection state.
+ * Which screen is shown, and for which backend.
  *
- * Until the socket is up the address bar may already name a conversation, but
- * the connect form has to be shown regardless, so the connection wins for the
- * entry screens.
+ * The route is the source of truth — it survives a reload, and it names the
+ * backend so a link to a conversation says which gateway it is on. The phases
+ * below it are transitions *within* a backend (binding a session, opening an
+ * agent), which the route also carries.
  */
-type Phase = "connect" | "pick" | "agents" | "detail";
+type Phase = "home" | "sessions" | "agents" | "detail";
 
 export default function App() {
-  /**
-   * The route is the source of truth for which view is shown.
-   *
-   * Holding it here rather than in component state is what makes a refresh land
-   * back on the same conversation: the hash survives the reload, so the view is
-   * rebuilt from it instead of starting over at the connect screen.
-   */
   const [route, setRoute] = useState<Route>(() => currentRoute());
-  const [state, setState] = useState<ConnectionState>("closed");
-  const [detail, setDetail] = useState<string | undefined>();
-  const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [session, setSession] = useState<string | null>(null);
-  const [agents, setAgents] = useState<AgentView[]>([]);
-  /** Whether the Ctrl/Cmd+K jump palette is up. */
-  const [paletteOpen, setPaletteOpen] = useState(false);
   const [settings, setSettings] = useState<StoredSettings>(() => loadSettings());
-  const phase: Phase =
-    state !== "ready" && route.view === "root"
-      ? "connect"
-      : route.view === "root"
-        ? "pick"
-        : route.view === "detail"
-          ? "detail"
-          : "agents";
-
-  const clientRef = useRef<GatewayClient | null>(null);
-  /** The route a reconnect should restore, and where the effect reads it from. */
-  const routeRef = useRef<Route>(route);
-  routeRef.current = route;
-  const sessionRef = useRef<string | null>(null);
-  sessionRef.current = session;
-  const subscriptionRef = useRef<Subscription | null>(null);
-  /**
-   * Pane-scoped status subscriptions, one per pane currently listed.
-   *
-   * `pane.agent_status_changed` requires a `pane_id`, so it cannot be part of
-   * the session-wide subscription below. The agent list has to stay correct
-   * without the detail view mounted, so each listed pane gets its own.
-   */
-  const statusSubsRef = useRef<Map<string, Subscription>>(new Map());
-  const refreshTimer = useRef<number | null>(null);
-  /**
-   * The last known agent list per session, so switching back is instant.
-   *
-   * A snapshot request is a round trip through the server, and the list is the
-   * whole point of the session screen: clearing it on every switch shows an empty
-   * list for as long as that takes, on every switch. The cached list is shown
-   * immediately and then replaced by the fresh one, so the only thing that can be
-   * stale is a status, and it is stale for one round trip.
-   *
-   * In memory only. It is a view of a server that owns the truth, and persisting
-   * it would outlive the processes it describes.
-   */
-  const agentCache = useRef<Map<string, AgentView[]>>(new Map());
-
-  if (!clientRef.current) {
-    clientRef.current = new GatewayClient({
-      onState: (next, message) => {
-        setState(next);
-        setDetail(message);
-      },
-      onSessions: (items) => {
-        setSessions(items);
-      },
-    });
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  /** Bumped by the hub whenever something a screen draws has moved. */
+  const [revision, setRevision] = useState(0);
+  /** The agent list of the session each backend has bound, for the screens. */
+  const backendsRef = useRef<BackendHub | null>(null);
+  if (!backendsRef.current) {
+    backendsRef.current = new BackendHub(() => setRevision((value) => value + 1));
   }
+  const hub = backendsRef.current;
+  const backends = useMemo(() => hub.list(), [hub, revision]);
 
-  const client = clientRef.current;
-
-  /**
-   * Reloads the agent list for the bound session.
-   *
-   * The result is cached under the session that was bound when the request was
-   * sent, not the one bound when it arrives: a switch during the round trip must
-   * not file one session's panes under another's name.
-   */
-  const refreshAgents = useCallback(async () => {
-    // Read before the await: the session this request is *for*. Filing the result
-    // under whatever is bound when it lands would mix two sessions' panes.
-    const target = sessionRef.current;
-    try {
-      const snapshot = await client.call<{
-        snapshot?: { agents?: unknown; workspaces?: unknown };
-      }>("session.snapshot");
-      const list = agentsFromSnapshot(snapshot.snapshot?.agents, snapshot.snapshot?.workspaces);
-      if (target) agentCache.current.set(target, list);
-      // Dropped if the reader moved on while this was in flight.
-      if (sessionRef.current === target) setAgents(list.sort(compareAgents));
-    } catch (err) {
-      if (err instanceof ApiError) setDetail(err.message);
-    }
-  }, [client]);
-
-  /** Schedules a debounced agent-list refresh. */
-  const scheduleRefresh = useCallback(() => {
-    if (refreshTimer.current !== null) {
-      window.clearTimeout(refreshTimer.current);
-    }
-    refreshTimer.current = window.setTimeout(() => {
-      refreshTimer.current = null;
-      void refreshAgents();
-    }, REFRESH_DEBOUNCE_MS);
-  }, [refreshAgents]);
-
-  /** Binds to a session and starts streaming agent state. */
-  const openSession = useCallback(
-    async (name: string) => {
-      try {
-        await client.useSession(name);
-      } catch (err) {
-        setDetail(err instanceof Error ? err.message : String(err));
-        return;
-      }
-      setSession(name);
-      // Assigned here as well as during render: `refreshAgents` reads this ref a
-      // few lines below, before React has re-rendered, and would otherwise file
-      // the new session's panes under the previous session's name.
-      sessionRef.current = name;
-      // Paint the session from cache before awaiting anything, so the list is on
-      // screen for the first frame rather than after a round trip.
-      setAgents(agentCache.current.get(name) ?? []);
-      setSettings((current) => {
-        const next = { ...current, session: name };
-        saveSettings(next);
-        return next;
-      });
-      // Not awaited: the subscriptions below matter more than the snapshot, and
-      // the fresh list arrives when it arrives.
-      void refreshAgents();
-
-      subscriptionRef.current?.close();
-      // The kinds that are subscribable: agent detection, pane lifecycle, and
-      // pane updates. A status change reaches `pane.updated` only on servers
-      // that emit it there; older ones send `pane.agent_status_changed` alone,
-      // which `syncStatusSubscriptions` covers per pane.
-      subscriptionRef.current = client.subscribe(
-        [
-          "pane.updated",
-          "pane.agent_detected",
-          "pane.created",
-          "pane.closed",
-          "workspace.updated",
-        ],
-        () => scheduleRefresh(),
-      );
-
-      statusSubsRef.current.forEach((sub) => sub.close());
-      statusSubsRef.current.clear();
-    },
-    [client, refreshAgents, scheduleRefresh],
-  );
-
-  // Keep one status subscription per listed pane, so the agent list reflects a
-  // status change on a server that reports it only as
-  // `pane.agent_status_changed`. Panes that disappear are unsubscribed, and a
-  // subscription is reused while its pane stays listed.
+  // Every saved backend gets a connection, and a change to the list is applied
+  // to those connections rather than to a single active one.
   useEffect(() => {
-    const wanted = new Set(
-      agents.map((agent) => agent.paneId).filter((paneId): paneId is string => !!paneId),
-    );
+    hub.sync(settings.backends);
+  }, [hub, settings.backends]);
 
-    for (const [paneId, subscription] of statusSubsRef.current) {
-      if (!wanted.has(paneId)) {
-        subscription.close();
-        statusSubsRef.current.delete(paneId);
-      }
-    }
+  useEffect(() => () => hub.dispose(), [hub]);
 
-    for (const paneId of wanted) {
-      if (statusSubsRef.current.has(paneId)) continue;
-      statusSubsRef.current.set(
-        paneId,
-        client.subscribe([{ type: "pane.agent_status_changed", pane_id: paneId }], () =>
-          scheduleRefresh(),
-        ),
-      );
-    }
-  }, [agents, client, scheduleRefresh]);
-
-  // Drop every status subscription when the session is left, so a later session
-  // does not inherit subscriptions to panes that no longer exist.
-  useEffect(
-    () => () => {
-      statusSubsRef.current.forEach((sub) => sub.close());
-      statusSubsRef.current.clear();
-    },
-    [],
-  );
-
-  /*
-   * A pane whose agent reported a session id that has not turned into a
-   * transcript yet gets a short run of quiet retries.
-   *
-   * The agent's log lands on disk a beat after its hook announces the session,
-   * and an idle agent produces no further pane events — so without this, the
-   * first (losing) lookup stood until the reader's own next message brought an
-   * event. A few retries over a handful of seconds let the structured view take
-   * over on its own; the budget is per session id, and an agent that never
-   * resolves simply stops being asked.
-   */
-  const resolveRetries = useRef<Map<string, number>>(new Map());
-  useEffect(() => {
-    const pending = agents.filter((agent) => agent.sessionId && !agent.transcriptPath);
-    if (pending.length === 0) {
-      resolveRetries.current.clear();
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      const live = new Set<string>();
-      for (const agent of pending) {
-        const key = `${agent.paneId}:${agent.sessionId}`;
-        live.add(key);
-        const used = resolveRetries.current.get(key) ?? 0;
-        if (used >= 8) continue;
-        resolveRetries.current.set(key, used + 1);
-      }
-      for (const key of [...resolveRetries.current.keys()]) {
-        if (!live.has(key)) resolveRetries.current.delete(key);
-      }
-      void refreshAgents();
-    }, 2000);
-    return () => window.clearTimeout(timer);
-  }, [agents, refreshAgents]);
-
-  const connect = useCallback(
-    (url: string, key: string, remember: boolean) => {
-      const next: StoredSettings = {
-        url,
-        remember,
-        key: remember ? key : undefined,
-        session: undefined,
-      };
-      setSettings(next);
-      saveSettings(next);
-      client.connect(url, key);
-    },
-    [client],
-  );
-
-  /**
-   * Reconnects, or returns to the form when there is nothing to reconnect with.
-   *
-   * `retryNow` can only reuse stored credentials. Without a remembered key there
-   * is nothing to retry, so the reader is sent back to the form instead of
-   * tapping a button that cannot work.
-   */
-  const retry = useCallback(() => {
-    if (restoreTarget(settings)) {
-      client.retryNow();
-      return;
-    }
-    client.close();
-    navigate({ view: "root" }, { replace: true });
-    setRoute({ view: "root" });
-  }, [client, settings]);
-
-  useEffect(() => {
-    if (state === "ready") client.listSessions();
-  }, [state, client]);
-
-  /**
-   * Reconnects on load when the connection was remembered.
-   *
-   * Without this a refresh always lands on the connect form, even though the
-   * route still names the conversation the reader was in and the key is stored.
-   * Runs once: after this the socket owns its own reconnection.
-   */
-  const autoConnectedRef = useRef(false);
-  useEffect(() => {
-    if (autoConnectedRef.current) return;
-    autoConnectedRef.current = true;
-    if (restoreTarget(settings) && settings.url) {
-      client.connect(settings.url, settings.key ?? "");
-    }
-    // Only the initial settings matter; later edits go through `connect`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  /** Persists a settings change and hands it to the connections. */
+  const commit = useCallback((next: StoredSettings) => {
+    setSettings(next);
+    saveSettings(next);
   }, []);
 
-  // Follow the browser's Back and Forward buttons, and any hand-edited hash, by
-  // rebuilding the view from the URL rather than keeping a second copy of the
-  // location in memory.
+  const addOrEditBackend = useCallback(
+    (draft: BackendDraft, id: string) => {
+      const profile: BackendProfile = {
+        id,
+        name: draft.name,
+        url: draft.url,
+        remember: draft.remember,
+        key: draft.remember ? draft.key : draft.key,
+      };
+      commit(upsertBackend(settings, profile));
+    },
+    [commit, settings],
+  );
+
+  const deleteBackend = useCallback(
+    (id: string) => {
+      commit(removeBackend(settings, id));
+      // Anything showing that backend is now showing nothing.
+      if (route.view !== "home" && route.backendId === id) {
+        navigate({ view: "home" }, { replace: true });
+        setRoute({ view: "home" });
+      }
+    },
+    [commit, settings, route],
+  );
+
+  /** Opens a backend's session list. */
+  const openBackend = useCallback((backendId: string) => {
+    const target = { view: "sessions" as const, backendId };
+    navigate(target);
+    setRoute(target);
+  }, []);
+
+  /** Binds a session on a backend and shows its agents. */
+  const openSession = useCallback(
+    async (backendId: string, session: string) => {
+      const target = { view: "agents" as const, backendId, session };
+      navigate(target);
+      setRoute(target);
+      await hub.openSession(backendId, session);
+      // Remembered per backend: two gateways can both have `main`, and which
+      // one was open last is a fact about each of them.
+      commit(rememberSession(settings, backendId, session));
+    },
+    [hub, commit, settings],
+  );
+
+  // Follow the browser's Back and Forward buttons by rebuilding the view from
+  // the URL rather than keeping a second copy of the location in memory.
   useEffect(() => {
     const onPopState = () => setRoute(currentRoute());
     window.addEventListener("popstate", onPopState);
@@ -320,91 +116,24 @@ export default function App() {
     };
   }, []);
 
-  /**
-   * Binds the session named by the current route.
-   *
-   * Runs whenever the socket becomes ready. On a refresh the route already names
-   * a session, so this is what turns a deep link back into a live view instead
-   * of leaving the reader on the picker. A route naming a session the server no
-   * longer has falls back to the root rather than pointing at nothing.
-   */
-  const restoringRef = useRef(false);
-  useEffect(() => {
-    if (state !== "ready") return;
-    const wanted = routeRef.current;
-    if (wanted.view === "root") return;
-    if (restoringRef.current) return;
-    // Already bound to the right session. The binding survives a reconnect, but
-    // the data does not: everything that changed while the page was suspended was
-    // missed, so the list has to be pulled again rather than kept. Without this a
-    // phone that was backgrounded through an agent finishing comes back to the
-    // stale status it last saw — which is what leaves a stop control on screen
-    // for work that is already over.
-    if (sessionRef.current === wanted.session) {
-      void refreshAgents();
-      return;
-    }
-    restoringRef.current = true;
-    void (async () => {
-      try {
-        await client.useSession(wanted.session);
-        setSession(wanted.session);
-        // Same reason as `openSession`: this ref is what `refreshAgents` caches
-        // under, and render has not run yet.
-        sessionRef.current = wanted.session;
-        setAgents(agentCache.current.get(wanted.session) ?? []);
-        await refreshAgents();
-      } catch {
-        // Unknown session (deleted, or a link from another machine): fall back
-        // to the picker instead of showing an empty conversation.
-        setSession(null);
-        sessionRef.current = null;
-        setAgents([]);
-        navigate({ view: "root" }, { replace: true });
-        setRoute({ view: "root" });
-      } finally {
-        restoringRef.current = false;
-      }
-    })();
-  }, [state, client, refreshAgents]);
-
-  useEffect(
-    () => () => {
-      subscriptionRef.current?.close();
-      if (refreshTimer.current !== null) window.clearTimeout(refreshTimer.current);
-      clientRef.current?.close();
-    },
-    [],
-  );
-
-  /**
-   * Wraps a screen with the session activity panel.
-   *
-   * The panel is pinned rather than placed inside a screen because it is about
-   * the panes that are *not* on screen: it has to survive moving between the
-   * list and a conversation, which is exactly when it is worth a glance.
-   */
   /*
-   * Ctrl/Cmd+K opens the jump palette, from any screen.
-   *
-   * Bound on the document rather than on a screen because it has to work while
-   * the reader is in a conversation, in the list, and on the picker alike. The
-   * default is prevented so the browser's own search-in-page does not open on
-   * top of it, and `metaKey` covers macOS where the same chord is Cmd+K.
+   * A route naming a session names something only the reader can start: the
+   * gateway begins a session's server on demand. So a deep link binds the
+   * session when the screen is reached, and the binding is what fills the list.
    */
+  useEffect(() => {
+    if (route.view !== "agents" && route.view !== "detail") return;
+    const runtime = hub.get(route.backendId);
+    if (!runtime) return;
+    if (runtime.agentsSession === route.session) return;
+    void hub.openSession(route.backendId, route.session);
+  }, [hub, route, revision]);
+
+  // Ctrl/Cmd+K opens the jump palette from any screen.
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "k" && event.key !== "K") return;
       if (!event.ctrlKey && !event.metaKey) return;
-      /*
-       * Take the chord everywhere, including inside the composer.
-       *
-       * The composer is focused automatically on opening a conversation, so
-       * excluding text fields would mean the shortcut does nothing in exactly the
-       * place it is most likely to be pressed. Ctrl/Cmd+K has no editing meaning
-       * on these platforms — the browser's own use is "focus the search field",
-       * which is what this replaces — so there is nothing to preserve.
-       */
       event.preventDefault();
       setPaletteOpen((value) => !value);
     };
@@ -412,70 +141,130 @@ export default function App() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  const phase: Phase =
+    route.view === "home"
+      ? "home"
+      : route.view === "sessions"
+        ? "sessions"
+        : route.view === "agents"
+          ? "agents"
+          : "detail";
+
+  /** The runtime the route points at, when it points at one that exists. */
+  const runtime = route.view === "home" ? undefined : hub.get(route.backendId);
+
+  /*
+   * A route can outlive its backend — the profile was deleted, or the link came
+   * from another browser. Landing on the home screen is better than an empty
+   * shell, and it is reported rather than silent.
+   */
+  useEffect(() => {
+    if (route.view === "home") return;
+    if (hub.get(route.backendId)) return;
+    navigate({ view: "home" }, { replace: true });
+    setRoute({ view: "home" });
+  }, [hub, route, revision]);
+
+  /** The agents of the session this screen shows, or an empty list. */
+  const agents: AgentView[] = runtime?.agents ?? [];
+
+  /**
+   * Every agent on every backend, each stamped with where it lives.
+   *
+   * The rail, the palette, and the switcher all list across backends — that is
+   * the point of having several saved — so they share one list and one rule for
+   * what it means to be the agent on screen: the same pane *and* the same
+   * backend, since two gateways can hold panes with the same id.
+   */
+  const allAgents: AgentView[] = useMemo(
+    () =>
+      backends.flatMap((entry) =>
+        entry.agents.map((agent) => ({
+          ...agent,
+          backendId: entry.profile.id,
+          backendName: entry.profile.name,
+        })),
+      ),
+    [backends],
+  );
+
+  /** Where an agent on `backendId` lives, or null when it cannot be opened. */
+  const targetFor = useCallback(
+    (paneId: string, backendId: string | undefined) => {
+      const id = backendId ?? (route.view === "home" ? null : route.backendId);
+      if (!id) return null;
+      const entry = hub.get(id);
+      // An agent is only listed once its session is bound, and that session is
+      // what the route needs: without one the route would parse as a different
+      // screen. Nothing is opened rather than a wrong link.
+      const session = entry?.agentsSession;
+      if (!session) return null;
+      return { view: "detail" as const, backendId: id, session, paneId };
+    },
+    [hub, route],
+  );
+
   const withActivity = (screen: JSX.Element) => (
     <>
       {paletteOpen ? (
         <CommandPalette
-          agents={agents}
+          agents={allAgents}
           currentPaneId={route.view === "detail" ? route.paneId : null}
-          onOpen={(paneId) => {
-            const target = { view: "detail" as const, session: session ?? "", paneId };
+          currentBackendId={route.view === "home" ? null : route.backendId}
+          onOpen={(paneId, backendId) => {
+            const target = targetFor(paneId, backendId);
+            if (!target) return;
             navigate(target);
             setRoute(target);
           }}
           onClose={() => setPaletteOpen(false)}
         />
       ) : null}
-      <SessionActivity
-        agents={agents}
-        currentPaneId={route.view === "detail" ? route.paneId : null}
-        onOpen={(paneId) => {
-          const target = { view: "detail" as const, session: session ?? "", paneId };
-          navigate(target);
-          setRoute(target);
-        }}
-      />
+      {route.view !== "home" ? (
+        <SessionActivity
+          agents={allAgents}
+          currentPaneId={route.view === "detail" ? route.paneId : null}
+          onOpen={(paneId, backendId) => {
+            const target = targetFor(paneId, backendId);
+            if (!target) return;
+            navigate(target);
+            setRoute(target);
+          }}
+        />
+      ) : null}
       {screen}
     </>
   );
 
-  if (phase === "connect") {
+  if (phase === "home") {
     return withActivity(
-      <ConnectForm
-        initialUrl={settings.url}
-        initialKey={settings.remember ? settings.key ?? "" : ""}
-        remember={settings.remember}
-        state={state}
-        detail={detail}
-        onConnect={connect}
-        onRememberChange={(remember) => {
-          const next = { ...settings, remember, key: remember ? settings.key : undefined };
-          setSettings(next);
-          saveSettings(next);
-        }}
-      />
+      <HomeScreen
+        backends={backends}
+        onOpen={openBackend}
+        onRetry={(id) => hub.retry(id)}
+        onSubmit={addOrEditBackend}
+        onDelete={deleteBackend}
+      />,
     );
   }
 
-  if (phase === "pick") {
+  if (!runtime) return null;
+
+  if (phase === "sessions") {
     return withActivity(
       <SessionPicker
-        sessions={sessions}
-        connected={state === "ready"}
-        detail={detail}
-        client={client}
-        onSelect={(name) => {
-          navigate({ view: "agents", session: name });
-          setRoute({ view: "agents", session: name });
-          void openSession(name);
+        backend={runtime.profile}
+        sessions={runtime.sessions}
+        connected={runtime.state === "ready"}
+        detail={runtime.detail}
+        client={runtime.client}
+        onSelect={(name) => void openSession(runtime.profile.id, name)}
+        onRefresh={() => runtime.client.listSessions()}
+        onBack={() => {
+          navigate({ view: "home" }, { replace: true });
+          setRoute({ view: "home" });
         }}
-        onRefresh={() => client.listSessions()}
-        onDisconnect={() => {
-          client.close();
-          navigate({ view: "root" }, { replace: true });
-          setRoute({ view: "root" });
-        }}
-      />
+      />,
     );
   }
 
@@ -483,57 +272,54 @@ export default function App() {
     const agent = agents.find((item) => item.paneId === route.paneId) ?? null;
     return withActivity(
       <AgentDetail
-        client={client}
+        key={`${route.backendId}:${route.paneId}`}
+        client={runtime.client}
         agent={agent}
         agents={agents}
-        connection={state}
-        onRetry={retry}
+        backend={runtime.profile}
+        connection={runtime.state}
+        onRetry={() => hub.retry(runtime.profile.id)}
         onBack={() => {
-          const target = { view: "agents" as const, session: session ?? "" };
+          const target = {
+            view: "agents" as const,
+            backendId: runtime.profile.id,
+            session: route.session,
+          };
           navigate(target);
           setRoute(target);
         }}
-        onSelectAgent={(paneId) => {
-          const target = { view: "detail" as const, session: session ?? "", paneId };
+        onSelectAgent={(paneId, backendId) => {
+          const target = targetFor(paneId, backendId);
+          if (!target) return;
           navigate(target);
           setRoute(target);
         }}
-        onChanged={() => scheduleRefresh()}
-      />
+        allAgents={allAgents}
+        onChanged={() => void hub.refreshAgents(runtime.profile.id)}
+      />,
     );
   }
 
+  const session = route.view === "agents" || route.view === "detail" ? route.session : "";
   return withActivity(
     <AgentList
-      session={session ?? ""}
+      backend={runtime.profile}
+      session={session}
       agents={agents}
-      detail={detail}
-      connection={state}
-      onRetry={retry}
+      detail={runtime.detail}
+      connection={runtime.state}
+      onRetry={() => hub.retry(runtime.profile.id)}
       onOpen={(paneId) => {
-        const target = { view: "detail" as const, session: session ?? "", paneId };
+        const target = { view: "detail" as const, backendId: runtime.profile.id, session, paneId };
         navigate(target);
         setRoute(target);
       }}
-      onRefresh={() => void refreshAgents()}
+      onRefresh={() => void hub.refreshAgents(runtime.profile.id)}
       onLeave={() => {
-        subscriptionRef.current?.close();
-        subscriptionRef.current = null;
-        statusSubsRef.current.forEach((sub) => sub.close());
-        statusSubsRef.current.clear();
-        setSession(null);
-        sessionRef.current = null;
-        // The cache is kept; only the live list is cleared, so returning to this
-        // session is still instant.
-        setAgents([]);
-        setSettings((current) => {
-          const next = { ...current, session: undefined };
-          saveSettings(next);
-          return next;
-        });
-        navigate({ view: "root" }, { replace: true });
-        setRoute({ view: "root" });
+        const target = { view: "sessions" as const, backendId: runtime.profile.id };
+        navigate(target);
+        setRoute(target);
       }}
-    />
+    />,
   );
 }

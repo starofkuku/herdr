@@ -2,7 +2,13 @@
 //
 // Everything used to live in component state, so a refresh dropped the reader
 // back on the connect screen and a conversation could not be linked to. The
-// route is now the source of truth for which session and pane are open.
+// route is now the source of truth for which backend, session, and pane are
+// open.
+//
+// The backend is part of the route because it is part of the identity: two
+// gateways can both have a session called `main`, and a link that named only
+// the session would be ambiguous. Links written before this — `#/<session>` —
+// no longer resolve, which is the accepted cost of getting that right.
 //
 // Hash-based rather than path-based: the page is a single self-contained file
 // served by the gateway, so there is no server to rewrite `/main/wN:p1` onto it,
@@ -10,45 +16,51 @@
 // client and needs no gateway change.
 //
 // Shapes:
-//   #                      connect / pick a session
-//   #/<session>            that session's agent list
-//   #/<session>/<paneId>   one agent's conversation
+//   #                                backend list
+//   #/<backendId>                    that backend's sessions
+//   #/<backendId>/<session>          that session's agent list
+//   #/<backendId>/<session>/<paneId> one agent's conversation
 
 /** One parsed route. */
 export type Route =
-  | { view: "root" }
-  | { view: "agents"; session: string }
-  | { view: "detail"; session: string; paneId: string };
+  | { view: "home" }
+  | { view: "sessions"; backendId: string }
+  | { view: "agents"; backendId: string; session: string }
+  | { view: "detail"; backendId: string; session: string; paneId: string };
 
 /**
  * Parses a hash into a route.
  *
- * Anything unrecognised resolves to the root rather than erroring, so a
+ * Anything unrecognised resolves to the home screen rather than erroring, so a
  * hand-edited or truncated URL lands somewhere usable instead of a blank page.
  */
 export function parseRoute(hash: string): Route {
   const raw = hash.startsWith("#") ? hash.slice(1) : hash;
   const segments = raw.split("/").filter(Boolean).map(decodeURIComponent);
-  if (segments.length === 0) return { view: "root" };
-  const [session] = segments;
-  if (!session) return { view: "root" };
-  if (segments.length === 1) return { view: "agents", session };
-  const paneId = segments[1];
-  if (!paneId) return { view: "agents", session };
-  // Extra segments are ignored: only the first two are meaningful, and a URL
+  const [backendId] = segments;
+  if (!backendId) return { view: "home" };
+  if (segments.length === 1) return { view: "sessions", backendId };
+  const session = segments[1];
+  if (!session) return { view: "sessions", backendId };
+  if (segments.length === 2) return { view: "agents", backendId, session };
+  const paneId = segments[2];
+  if (!paneId) return { view: "agents", backendId, session };
+  // Extra segments are ignored: only the first three are meaningful, and a URL
   // with trailing junk should still open the conversation it names.
-  return { view: "detail", session, paneId };
+  return { view: "detail", backendId, session, paneId };
 }
 
 /** Builds the hash for a route, always with a leading `#`. */
 export function routeHash(route: Route): string {
   switch (route.view) {
-    case "root":
+    case "home":
       return "#";
+    case "sessions":
+      return `#/${encodeURIComponent(route.backendId)}`;
     case "agents":
-      return `#/${encodeURIComponent(route.session)}`;
+      return `#/${encodeURIComponent(route.backendId)}/${encodeURIComponent(route.session)}`;
     case "detail":
-      return `#/${encodeURIComponent(route.session)}/${encodeURIComponent(route.paneId)}`;
+      return `#/${encodeURIComponent(route.backendId)}/${encodeURIComponent(route.session)}/${encodeURIComponent(route.paneId)}`;
   }
 }
 
@@ -72,6 +84,6 @@ export function navigate(route: Route, options: { replace?: boolean } = {}): voi
 
 /** The route currently in the address bar. */
 export function currentRoute(): Route {
-  if (typeof window === "undefined") return { view: "root" };
+  if (typeof window === "undefined") return { view: "home" };
   return parseRoute(window.location.hash);
 }

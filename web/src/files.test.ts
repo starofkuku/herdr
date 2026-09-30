@@ -6,6 +6,9 @@ import {
   loadGitStatus,
   loadFileContent,
   parentPaths,
+  fuzzyScore,
+  rankSearchHits,
+  searchFiles,
   type GitFileStatus,
 } from "./files";
 
@@ -195,5 +198,74 @@ describe("parentPaths", () => {
 
   test("a file at the root has none", () => {
     expect(parentPaths("main.rs")).toEqual([]);
+  });
+});
+
+describe("fuzzyScore", () => {
+  test("a contiguous match in the file name beats one deeper in the path", () => {
+    const inName = fuzzyScore("src/main.rs", "main");
+    const inDir = fuzzyScore("src/main/other.rs", "main");
+    expect(inName).not.toBeNull();
+    expect(inDir).not.toBeNull();
+    expect(inName!).toBeLessThan(inDir!);
+  });
+
+  test("every query character must appear in order", () => {
+    expect(fuzzyScore("src/main.rs", "smrs")).not.toBeNull();
+    expect(fuzzyScore("src/main.rs", "zebra")).toBeNull();
+  });
+
+  test("an empty query matches everything equally", () => {
+    expect(fuzzyScore("anything", "")).toBe(0);
+  });
+
+  test("the match is case-insensitive", () => {
+    expect(fuzzyScore("SRC/Main.RS", "main")).not.toBeNull();
+  });
+});
+
+describe("rankSearchHits", () => {
+  test("the best match comes first", () => {
+    const hits = [
+      { path: "src/other/main.rs", name: "main.rs" },
+      { path: "src/main.rs", name: "main.rs" },
+    ];
+    const ranked = rankSearchHits(hits, "main.rs");
+    expect(ranked[0].path).toBe("src/main.rs");
+  });
+
+  test("non-matches are dropped", () => {
+    const hits = [
+      { path: "src/main.rs", name: "main.rs" },
+      { path: "docs/readme.md", name: "readme.md" },
+    ];
+    expect(rankSearchHits(hits, "main").map((h) => h.path)).toEqual(["src/main.rs"]);
+  });
+
+  test("an empty query keeps everything, ordered by path", () => {
+    const hits = [
+      { path: "b.rs", name: "b.rs" },
+      { path: "a.rs", name: "a.rs" },
+    ];
+    expect(rankSearchHits(hits, "").map((h) => h.path)).toEqual(["a.rs", "b.rs"]);
+  });
+});
+
+describe("searchFiles", () => {
+  test("parses hits and the truncation flag", async () => {
+    const result = await searchFiles(
+      clientReturning({
+        search: { root: "/repo", hits: [{ path: "src/main.rs", name: "main.rs" }], truncated: true },
+      }),
+      "pane-1",
+    );
+    expect(result.hits).toEqual([{ path: "src/main.rs", name: "main.rs" }]);
+    expect(result.truncated).toBe(true);
+  });
+
+  test("a failed call resolves to no hits instead of rejecting", async () => {
+    const result = await searchFiles(clientFailing(), "pane-1");
+    expect(result.hits).toEqual([]);
+    expect(result.truncated).toBe(false);
   });
 });

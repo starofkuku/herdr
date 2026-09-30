@@ -4,11 +4,24 @@
    * neutral-800, insets a step above them, with a sky accent. Borders are alpha
    * mixes so they sit on any surface the way ZCode's `--color-border` does.
    */
-  --bg: #171717;
+  /*
+   * The page wears the sidebar's own tone (`--sidebar` below), so the tree
+   * blends into the page and the work area is the surface that stands proud.
+   */
+  --bg: #0a0a0a;
   --surface: #262626;
   --surface-2: #2f2f2f;
   /* Page chrome — ZCode's dark header is the page colour, so no band shows. */
-  --chrome: #171717;
+  --chrome: var(--bg);
+  /*
+   * The sidebar's own tone, ZCode's `--color-sidebar`: a step away from the
+   * page, so the tree reads as a column beside the conversation rather than as
+   * more of the same surface.
+   */
+  --sidebar: #0a0a0a;
+  /* Popover surfaces: ZCode's `--color-popover` (neutral-800) and its border. */
+  --popover: #262626;
+  --popover-border: color-mix(in srgb, var(--text) 10%, transparent);
   --border: rgba(255, 255, 255, 0.1);
   --text: #e5e5e5;
   --muted: #969696;
@@ -53,6 +66,22 @@
  */
 :root {
   --reading-column: min(72rem, 100%);
+  /*
+   * Left gutter for the reading column: the width of the jump rail plus its
+   * clearance, so the rail has a place to sit between the sidebar and the text.
+   */
+  --reading-gutter: 3.25rem;
+  /*
+   * The room the status panel takes out of the conversation, when it is open.
+   *
+   * Zero while the panel is a capsule: the capsule floats over the text's top
+   * right corner, which is where nothing is being read anyway. With the panel
+   * open the column gives up the panel's own width, so the text shifts left
+   * instead of sitting under it.
+   */
+  --status-room: 0rem;
+  /* Panel width (20rem) plus its gutter (0.75rem). */
+  --status-room-open: 20.75rem;
 }
 
 /*
@@ -81,7 +110,7 @@
  * contrast on white.
  */
 :root[data-theme="light"] {
-  --bg: #fafafa;
+  --bg: #f0f0f0;
   --surface: #ffffff;
   --surface-2: #f5f5f5;
   --border: rgba(10, 10, 10, 0.1);
@@ -89,7 +118,10 @@
   --muted: #737373;
   /* Page chrome — ZCode's header tone, a shade under the page and separate
      from the white cards that sit on it. */
-  --chrome: #f5f5f5;
+  --chrome: var(--bg);
+  --sidebar: #f0f0f0;
+  --popover: #ffffff;
+  --popover-border: color-mix(in srgb, var(--text) 10%, transparent);
   --accent: #0284c7;
   --ok: #16a34a;
   --warn: #ca8a04;
@@ -174,6 +206,166 @@ button:disabled {
 input,
 textarea {
   font: inherit;
+}
+
+/* ---- backends: home, badge, form ---- */
+
+/*
+ * The home screen: where the reader picks a gateway.
+ *
+ * A card per backend rather than a connection form, because the answer to
+ * "which gateway" is a thing the reader recognizes, not something they retype.
+ */
+.home-screen {
+  min-height: 100%;
+  padding: 0 1rem 2rem;
+}
+
+/* The home header shares the connect screen's shape: no session, no chrome. */
+.home-screen .topbar {
+  background: transparent;
+  border-bottom: 0;
+  padding-left: 0.25rem;
+}
+
+.backend-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 0.75rem;
+  max-width: 72rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.backend-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface);
+  overflow: hidden;
+  transition: border-color 0.15s ease;
+}
+
+.backend-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+}
+
+.backend-card__main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.75rem 0.85rem;
+  text-align: left;
+}
+
+.backend-card__head {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+}
+
+/* The name is what the reader picked and what every later screen shows. */
+.backend-card__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.backend-card__head .dot {
+  margin-left: auto;
+}
+
+.backend-card__url {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.backend-card__meta {
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.backend-card__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  border-top: 1px solid var(--border);
+}
+
+.backend-card__foot .conn--retry {
+  margin-right: auto;
+}
+
+/* A destructive action is coloured as one, so it is not a mis-tap away. */
+.ghost.danger:hover {
+  color: var(--danger);
+}
+
+/*
+ * The gateway a screen belongs to.
+ *
+ * A pill rather than plain text: it appears in three different headers, and a
+ * distinct shape is what keeps it from reading as part of the title beside it.
+ */
+.backend-badge {
+  flex: none;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+  font-size: var(--text-ui-sm);
+  font-weight: 600;
+}
+
+/* In the activity rail a row carries its backend as a quiet prefix. */
+.session-activity__backend {
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-ui-xs, 0.7rem);
+}
+
+/* The form's two actions sit together at its end. */
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.form-actions button[type="submit"] {
+  width: auto;
+  padding: 0 1.25rem;
+}
+
+/* A required field that was submitted empty says so under itself. */
+.field-error {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--danger);
+  font-size: var(--text-ui-sm);
+  font-style: normal;
 }
 
 /* ---- structured interaction ---- */
@@ -453,7 +645,9 @@ textarea {
   padding: 0.6rem 0.75rem;
   padding-top: max(0.6rem, env(safe-area-inset-top));
   border-bottom: 1px solid var(--border);
-  background: var(--chrome);
+  /* Inside the work-area panel, so it is that panel's surface, not a band of
+     its own — the rule below the header is what separates them. */
+  background: var(--surface);
   position: sticky;
   top: 0;
   /* Above the list it titles, below overlays and the activity rail. */
@@ -486,6 +680,125 @@ textarea {
   white-space: nowrap;
 }
 
+/*
+ * The conversation's identity: which agent, which checkout, and — behind a click
+ * — the two long values the header has no room to keep beside them.
+ */
+.topbar-identity {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * The trigger.
+ *
+ * A button rather than a label, because it opens the panel below. The negative
+ * margin cancels the padding the hover background needs, so the mark still lines
+ * up with the control in front of it.
+ */
+.topbar-identity__face {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.15rem 0.35rem;
+  margin-left: -0.35rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topbar-identity__face:hover {
+  background: var(--surface-2);
+}
+
+.topbar-identity__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+/*
+ * The panel the trigger opens.
+ *
+ * Kept in the document and hidden rather than unmounted, so opening it is a
+ * transition rather than a mounting cost in a header that redraws on every
+ * status change.
+ */
+.topbar-identity__panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 22rem;
+  max-width: min(46rem, 90vw);
+  margin-top: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--popover-border);
+  border-radius: 0.6rem;
+  background: var(--popover);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.14s ease,
+    visibility 0.14s;
+}
+
+.topbar-identity__panel.open {
+  opacity: 1;
+  visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar-identity__panel {
+    transition: none;
+  }
+}
+
+.identity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.identity-row__label {
+  flex: none;
+  width: 4.5rem;
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+}
+
+.identity-row__value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topbar-identity__panel {
+    transition: none;
+  }
+}
+
 .topbar-title .subtitle {
   flex: 0 1 auto;
   min-width: 0;
@@ -504,17 +817,6 @@ textarea {
  * when that is resumed elsewhere. It is the first thing to truncate: the name
  * and the directory are what the header is for.
  */
-.topbar-title .session-id {
-  flex: 0 10 auto;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-ui-sm);
-  color: var(--muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /*
  * The version of the page itself, shown on the sessions screen.
  *
@@ -917,7 +1219,13 @@ textarea {
   min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 0.75rem;
+  /*
+   * The gutter on the left is the jump rail's column; the right carries the
+   * status panel's room. Both are padding rather than margins so the scroll
+   * container itself spans the full width and the text centres inside it.
+   */
+  padding: 0.75rem calc(0.75rem + var(--status-room)) 0.75rem
+    calc(0.75rem + var(--reading-gutter));
 }
 
 /* Turns carry a scroll margin so a jump parks them just below the top edge
@@ -963,8 +1271,8 @@ textarea {
 @media (min-width: 80rem) {
   .turn-nav:not(.turn-nav--coarse) {
     position: absolute;
-    /* The rail's own width plus the gap to the column (28px + 24px). */
-    left: calc(50% - (var(--reading-column) / 2) - 3.25rem);
+    /* In the reading column's gutter, hard against the sidebar side. */
+    left: 0.25rem;
     top: 0;
     bottom: 0;
     z-index: 20;
@@ -1188,10 +1496,19 @@ textarea {
  * the turns take most of the page (`--reading-column`), since nothing else
  * shares the width.
  */
+/*
+ * The reading column, centred in the room it is given.
+ *
+ * The room is the conversation's own width less its padding, and that padding is
+ * the gutter plus whatever the status panel has reserved. Centring in it puts
+ * the text in the middle of the space actually available, and the panel taking
+ * more room shifts the text left by exactly what it took — which is the behaviour
+ * ZCode gets from `w-[calc(100%_-_24rem)]` plus a half-width transform.
+ */
 .conversation-bar,
 .turns,
 .conversation-cwd {
-  width: 100%;
+  width: auto;
   max-width: var(--reading-column);
   margin-left: auto;
   margin-right: auto;
@@ -2264,10 +2581,44 @@ textarea {
 
 .detail-screen {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   height: 100dvh;
   /* The jump control is positioned against this box. */
   position: relative;
+  /*
+   * Clipped: the file preview slides in from the right, and without this its
+   * leading edge would sit past the window during the animation and flash a
+   * horizontal scrollbar.
+   */
+  overflow: hidden;
+}
+
+/*
+ * Everything that is not the sidebar: the header, the conversation, the
+ * composer. Its own column so the sidebar beside it can own the full height.
+ */
+/*
+ * One panel around the whole right side: the header, the conversation, and the
+ * composer share a single shell — ZCode's shape, where the frame belongs to the
+ * work area rather than to the message list alone. Inset a little from the
+ * window's edges so it reads as a panel, and clipped so its contents stay
+ * inside the rounded corners.
+ */
+.detail-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /*
+   * Flush to the window's edges: the panel is the work area itself, so any
+   * gutter would just be a strip of page background around it. `height` is not
+   * set either — the row's `stretch` already fills it, and adding `100%` on top
+   * of margins overflowed the window and cut the panel's bottom edge off.
+   */
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  overflow: hidden;
 }
 
 /*
@@ -2373,6 +2724,40 @@ textarea {
   list-style: none;
 }
 
+/*
+ * The backend a group of rows belongs to.
+ *
+ * A heading rather than a badge on every row: the rows in one group are read
+ * together, and repeating the name beside each of them would crowd the line
+ * that has to carry the agent's own name and directory.
+ */
+.palette__group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.35rem 0.6rem 0.2rem;
+  background: var(--popover);
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  font-weight: 600;
+}
+
+/* The icon's own right margin is for inline text; in this row the flex gap
+   already spaces it, and both would add up to a visible double gap. */
+.palette__item .agent-icon {
+  margin-right: 0;
+}
+
+/* Held open even when the agent has no mark, so rows stay aligned: herdr
+   detects agents no icon set has heard of. */
+.palette__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+}
+
 .palette__item {
   display: flex;
   align-items: center;
@@ -2394,16 +2779,19 @@ textarea {
   background: var(--surface-2);
 }
 
-.palette__item.current .palette__name {
-  color: var(--muted);
-}
-
-.palette__name {
-  flex: none;
-  max-width: 40%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+/*
+ * The row the reader is already on.
+ *
+ * This used to be signalled by dimming the agent's name against the others'
+ * full-strength ink. The name is gone, and everything left in a row is already
+ * muted, so there is nothing to dim — and dimming this further would take 12px
+ * text to about 2.3:1 against the panel, which is not readable. The signal is
+ * therefore turned around: the row you are on keeps full-strength ink and the
+ * others stay subdued, which says the same thing — this one is you, and choosing
+ * it does nothing.
+ */
+.palette__item.current .palette__meta {
+  color: var(--text);
 }
 
 .palette__meta {
@@ -2763,6 +3151,16 @@ textarea {
  * The name and its directory stack, so the panel stays narrow on a phone instead
  * of running the path off the side.
  */
+/* Held open even when the agent has no mark, so rows stay aligned: herdr
+   detects agents no icon set has heard of. */
+.session-activity__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+}
+
 .session-activity__main {
   flex: 1;
   min-width: 0;
@@ -2785,10 +3183,17 @@ textarea {
 .jump-to-latest {
   position: absolute;
   /*
-   * Centred horizontally: half a button's width off the midpoint, so the
-   * button's own centre lands on the column's.
+   * Centred on the room the text occupies.
+   *
+   * That room runs from the left padding (gutter included) to the right padding
+   * (the panel's room included), so its midpoint is `50% + (gutter - room) / 2`.
+   * The earlier form added the padding back after halving, which put the button
+   * 12px right of centre; on a phone, with no gutter at all, that was the whole
+   * visible error.
    */
-  left: 50%;
+  left: calc(50% + (var(--reading-gutter) - var(--status-room)) / 2);
+  /* Sits just inside the panel's own frame. */
+  bottom: 1.5rem;
   transform: translateX(-50%);
   /* Just above the composer, inside the conversation area's own box. */
   bottom: 1rem;
@@ -2852,8 +3257,8 @@ textarea {
  * those sections live in. Floating rather than docked so the reading column
  * keeps its width.
  */
-.status-pill,
-.status-panel {
+/* The capsule floats over the conversation; the panel is a column (above). */
+.status-pill {
   position: absolute;
   top: 1rem;
   right: 1rem;
@@ -2928,16 +3333,42 @@ textarea {
   color: var(--muted);
 }
 
+/*
+ * ZCode's own panel shell: `rounded-2xl`, a popover tone one step off the page,
+ * a hairline popover border, `shadow-md`, and its ceiling
+ * (`max-h-[min(64dvh,32rem)]`, `w-80`).
+ *
+ * It floats over the conversation's top right rather than holding a column of
+ * its own: a column leaves a 20rem strip that is empty below the card, which
+ * reads as a hole in the page. What it costs the conversation is handled by
+ * giving the text room to its left (see the reserved space below).
+ */
 .status-panel {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
   width: 20rem;
-  max-width: calc(100vw - 2rem);
+  min-width: 0;
+  max-width: calc(100vw - 1.5rem);
   max-height: min(64dvh, 32rem);
-  overflow-y: auto;
-  padding: 0.35rem;
+  overflow: hidden;
   border-radius: 1rem;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  border: 1px solid var(--popover-border);
+  background: var(--popover);
+  color: var(--text);
   box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  animation: file-preview-open 0.22s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+/* The sections scroll inside the shell, so the panel's own frame never moves. */
+.status-panel__body {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0.5rem 0.5rem;
 }
 
 .status-panel__head {
@@ -3097,10 +3528,12 @@ textarea {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  width: 100%;
-  max-width: var(--reading-column);
-  margin: 0 auto;
-  padding: 0.5rem 0.75rem;
+  /*
+   * The same padding as the conversation, so the card lines up with the text
+   * above it; the inner `.composer-row` is what centres in that room.
+   */
+  padding: 0.5rem calc(0.75rem + var(--status-room)) 0.5rem
+    calc(0.75rem + var(--reading-gutter));
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
   background: transparent;
 }
@@ -3115,6 +3548,10 @@ textarea {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  /* Centred in the room the composer's padding leaves, capped like the text. */
+  width: min(100%, calc(var(--reading-column) + 1.5rem));
+  margin-left: auto;
+  margin-right: auto;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 1rem;
@@ -3360,76 +3797,131 @@ textarea {
 /* ---- project file tree ---- */
 
 /*
- * The project's files, in the slack left of the reading column.
+ * The project's files, docked to the left edge of the conversation area.
  *
- * The column is capped at `--reading-column` and centred, which leaves equal
- * slack on both sides; this panel lives in the left half of it. It is absolutely
- * positioned rather than a flex sibling on purpose: as a sibling it would shrink
- * `.conversation` and pull the auto-marginned column off-centre.
+ * A full-height column of the conversation, not a floating card: it is the
+ * window's left sidebar, so it takes the height it is given and lets the text
+ * keep the rest. `.conversation-area` (the rail, the jump control, and the
+ * transcript) is what carries the reading column's centring — the tree stays
+ * outside it so docking the tree never moves the text.
  *
- * Below the wide breakpoint there is no slack to live in, so the panel would
- * cover the text — there it starts collapsed behind a button instead, and
- * opening it floats over the conversation the way the status panel does.
+ * Below the wide breakpoint there is no room for a column, so the tree becomes
+ * a drawer: a labelled button opens it over the conversation.
  */
-.file-tree,
-.file-tree-launcher {
-  position: absolute;
-  top: 1rem;
-  z-index: 22;
+.conversation-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
 }
 
-/* The breakpoint is arithmetic: the panel needs its own 17rem plus a 1rem
-   gutter inside the slack beside the reading column, and the rail needs 3.25rem
-   of that same slack — so the panel docks once the window is wider than
-   `72rem + 2 × 21.25rem` ≈ 114.5rem. Below that it would cover the text. */
-@media (min-width: 114.5rem) {
-  .file-tree {
-    left: calc(50% - (var(--reading-column) / 2) - 18rem);
-    bottom: 1rem;
-    width: 17rem;
+/*
+ * The sidebar's frame, in both states.
+ *
+ * This is what animates: the wrapper keeps its identity while its width changes,
+ * so opening and closing is a transition rather than an element swap. The tree
+ * inside is pinned to the wrapper's right edge — so its content stays put while
+ * the wrapper's left edge travels — and clipped, which is what reads as the
+ * panel widening instead of its contents reflowing.
+ */
+.file-sidebar {
+  flex: none;
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+  transition: width 0.24s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+.file-sidebar[data-open="true"] {
+  width: var(--tree-width, 17rem);
+}
+
+/* Collapsed: exactly the rail's own width. */
+.file-sidebar[data-open="false"] {
+  width: 2.25rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-sidebar {
+    transition: none;
   }
-}
-
-/* Narrower windows: the panel floats over the conversation, above its top-left. */
-@media (max-width: 114.499rem) {
-  .file-tree {
-    left: 1rem;
-    top: 3.5rem;
-    max-height: min(60dvh, 30rem);
-    width: min(17rem, calc(100vw - 2rem));
-  }
-}
-
-.file-tree-launcher {
-  left: 1rem;
-  display: grid;
-  place-items: center;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--muted);
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-}
-
-.file-tree-launcher:hover {
-  background: var(--surface-2);
-  color: var(--text);
 }
 
 .file-tree {
+  flex: none;
   display: flex;
   flex-direction: column;
+  /* Pinned to the wrapper's right edge, so the tree does not slide while the
+     wrapper's left edge moves. */
+  margin-left: auto;
+  width: var(--tree-width, 17rem);
   min-height: 0;
-  border-radius: 0.75rem;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  background: var(--sidebar);
+  /*
+   * No rule between the tree and the page: they are the same tone now, so a
+   * border would only draw a line across one surface. The work-area panel
+   * beside it is what separates the two.
+   */
   overflow: hidden;
 }
 
+/*
+ * Collapsed: a labelled rail the reader can bring the tree back from.
+ *
+ * It wears the sidebar's own tone rather than the page's, which matters more
+ * than it sounds: `--chrome` equals the page background in dark mode, so the
+ * rail was invisible — a lone icon floating over nothing, and the strip below it
+ * looked like a gap in the layout instead of a control.
+ */
+.file-tree-launcher {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  width: 2.25rem;
+  padding: 0.7rem 0;
+  border: 0;
+  background: var(--sidebar);
+  color: var(--muted);
+}
+
+.file-tree-launcher:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+/* The icon sits in a rounded well, so the rail's top reads as a control. */
+.file-tree-launcher svg {
+  padding: 0.15rem;
+  border-radius: 5px;
+}
+
+/* The label reads bottom-to-top, the way a vertical rail's does. */
+.file-tree-launcher__label {
+  writing-mode: vertical-rl;
+  font-size: var(--text-ui-sm);
+  letter-spacing: 0.04em;
+}
+
+/*
+ * Narrow windows keep the same docked column, just narrower: the tree pushes the
+ * conversation rather than covering it, because a sidebar that hides the text it
+ * sits beside is the one thing a sidebar must not do. Only on a phone, where a
+ * column would leave too little to read, does it become an overlay drawer.
+ */
+@media (max-width: 114.499rem) {
+  :root {
+    --tree-width: 15rem;
+  }
+}
+
+/*
+ * On a phone the tree cannot share the width, so it floats over the
+ * conversation — and the conversation makes room for it anyway, so the text is
+ * never sitting under the panel while it is open.
+ */
 .file-tree__head {
   display: flex;
   align-items: center;
@@ -3498,8 +3990,30 @@ textarea {
   min-height: 0;
   overflow: auto;
   padding: 0.25rem 0;
+  /* A scrollbar that cannot be seen is the same as no scrollbar: the thumb is
+     a visible grey rather than the hairline border tone it used to be. */
   scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
+  scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent;
+}
+
+.file-tree__body::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+.file-tree__body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-tree__body::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 5px;
+  background-clip: padding-box;
+  background-color: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+
+.file-tree__body::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--muted) 85%, transparent);
 }
 
 .file-tree__note {
@@ -3508,7 +4022,12 @@ textarea {
   color: var(--muted);
 }
 
-.file-tree__row {
+/*
+ * A node is the row and its children stacked: block layout, so an expanded
+ * folder's entries appear under it. The row inside sizes to its own name, which
+ * is what lets a long one scroll into view instead of being cut off.
+ */
+.file-tree__node {
   display: block;
 }
 
@@ -3516,7 +4035,9 @@ textarea {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-  width: 100%;
+  /* As wide as the name needs, never narrower than the panel. */
+  width: max-content;
+  min-width: 100%;
   padding: 0.15rem 0.5rem;
   border-radius: 0.35rem;
   text-align: left;
@@ -3558,9 +4079,7 @@ textarea {
 }
 
 .file-tree__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  flex: none;
   white-space: nowrap;
 }
 
@@ -3596,34 +4115,260 @@ textarea {
   color: var(--accent);
 }
 
-/* ---- file preview ---- */
-
-.file-preview {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
+/* The tree's filter row: a quiet field under the title. */
+.file-tree__filter {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
 }
 
-.file-preview__scrim {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
+.file-tree__filter-icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.file-tree__filter-input {
+  flex: 1;
+  min-width: 0;
   border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--text-ui-sm);
+  outline: none;
+  padding: 0.1rem 0;
+}
+
+.file-tree__filter-input::placeholder {
+  color: color-mix(in srgb, var(--muted) 80%, transparent);
+}
+
+.file-tree__filter-clear {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.file-tree__filter-clear:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* An engaged toggle reads as on, not merely hovered. */
+.file-tree__action.active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.file-tree__action:disabled {
+  opacity: 0.35;
+}
+
+/* ---- jump to a file ---- */
+
+/*
+ * The palette behind Ctrl/Cmd+E: a field over a scrim, with the matches under
+ * it. Centred near the top rather than the middle, which is where a search
+ * field belongs and leaves the list room to grow downward.
+ */
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 1rem 1rem;
   background: rgb(0 0 0 / 0.45);
 }
 
-.file-preview__panel {
-  position: relative;
-  z-index: 1;
+.file-search {
   display: flex;
   flex-direction: column;
-  width: min(48rem, 92vw);
-  height: 100%;
+  width: min(44rem, 100%);
+  max-height: min(60dvh, 32rem);
+  border-radius: 0.75rem;
+  border: 1px solid var(--popover-border);
+  background: var(--popover);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.35);
+  overflow: hidden;
+  animation: file-search-open 0.14s ease-out;
+}
+
+@keyframes file-search-open {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-search {
+    animation: none;
+  }
+}
+
+.file-search__field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-search__icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.file-search__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--text-ui-base);
+  outline: none;
+}
+
+.file-search__hint {
+  flex: none;
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.file-search__note {
+  margin: 0;
+  padding: 0.75rem;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.file-search__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.25rem;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent;
+}
+
+.file-search__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border-radius: 0.4rem;
+  text-align: left;
+  font-size: var(--text-ui-base);
+  color: var(--text);
+}
+
+.file-search__row.selected {
+  background: var(--surface-2);
+}
+
+/* The leaf stays whole; the directory is what gives way when the row is narrow. */
+.file-search__name {
+  flex: none;
+  white-space: nowrap;
+}
+
+.file-search__dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+/* ---- status panel: the room it takes ---- */
+
+/*
+ * The panel being open is what reserves room for it — on a screen wide enough
+ * to give the room away.
+ *
+ * The reserve is gated on the same breakpoint the panel's own column layout
+ * uses: narrower than that the conversation is the whole screen, and taking
+ * 20rem out of it would leave a column too narrow to read. There the panel
+ * simply floats over the text, top right, which is where a floating card
+ * belongs.
+ */
+@media (min-width: 80rem) {
+  .detail-screen:has(.status-panel) .conversation,
+  .detail-screen:has(.status-panel) .composer {
+    --status-room: var(--status-room-open);
+  }
+}
+
+/* ---- file preview ---- */
+
+/*
+ * The previewed file, as the screen's last column.
+ *
+ * Docked rather than floated, and half the width: ZCode splits its pane 50/50
+ * when it opens a file beside the conversation (`DEFAULT_SPLIT_RATIO = 0.5`),
+ * which is what keeps the message and the file readable at the same time. It is
+ * the same surface as the work-area panel, so the two read as one family.
+ */
+.file-preview {
+  /*
+   * `flex: 1 1 0` against the conversation's own `flex: 1 1 0` is what makes the
+   * split even: both take the same share of the space the sidebar leaves, so
+   * widening the window widens them together. A `width: 50%` would be half the
+   * whole screen instead, leaving the conversation the smaller half.
+   */
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  /*
+   * No border, and a gap on the left instead: the two panels are the same
+   * surface, so a rule between them would only double the seam. Only the middle
+   * gutter is kept — the outer edges stay flush, like the conversation's own
+   * panel.
+   */
+  margin: 0 0 0 0.75rem;
+  border-radius: 0.75rem;
   background: var(--surface);
-  border-left: 1px solid var(--border);
-  box-shadow: -12px 0 32px rgb(0 0 0 / 0.3);
+  overflow: hidden;
+  /*
+   * It opens by growing into place rather than appearing at full size: the
+   * conversation keeps its position and the panel takes its share of the row.
+   */
+  animation: file-preview-open 0.22s cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@keyframes file-preview-open {
+  from {
+    opacity: 0;
+    transform: translateX(1.5rem);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-preview {
+    animation: none;
+  }
 }
 
 .file-preview__head {
@@ -3631,7 +4376,7 @@ textarea {
   align-items: center;
   gap: 0.5rem;
   flex: none;
-  padding: 0.6rem 0.75rem;
+  padding: 0.5rem 0.4rem 0.5rem 0.75rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -3657,20 +4402,114 @@ textarea {
   margin-left: auto;
 }
 
+.file-preview__close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.file-preview__close:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .file-preview__body {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 0.75rem;
+  padding: 0.75rem 0.9rem;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--muted) 55%, transparent) transparent;
 }
 
+/*
+ * A rendered file fills the column and keeps its own margins from pushing the
+ * text away from the edge.
+ */
+.file-preview__markdown,
 .file-preview__code {
+  min-width: 0;
+}
+
+/* A code file is one block, so its frame reaches the column's edges. */
+.file-preview__code .code-block {
   margin: 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-ui-sm);
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
+}
+
+/* ---- full-screen file ---- */
+
+/*
+ * One file, filling the window.
+ *
+ * Above the docked preview (60) so it covers it, and below the jump palette
+ * (70): the palette is summoned deliberately and should work from wherever the
+ * reader happens to be, including here.
+ */
+.file-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 65;
+  display: grid;
+  place-items: center;
+  padding: 1.5rem;
+}
+
+.file-fullscreen__scrim {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgb(0 0 0 / 0.5);
+}
+
+/* Nearly the whole window: the point of the view is the extra room. */
+.file-fullscreen__panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.4);
+  overflow: hidden;
+  animation: file-fullscreen-in 0.16s ease-out;
+}
+
+@keyframes file-fullscreen-in {
+  from {
+    opacity: 0;
+    transform: scale(0.99);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-fullscreen__panel {
+    animation: none;
+  }
+}
+
+/* The same shape as the docked panel's expand control. */
+.file-preview__expand {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.file-preview__expand:hover {
+  background: var(--surface-2);
   color: var(--text);
 }
 
@@ -3713,6 +4552,33 @@ textarea {
   border-radius: 10px;
   background: var(--surface-2);
   box-shadow: 0 12px 32px rgb(0 0 0 / 0.28);
+}
+
+/* The mark's column, held open for an agent with no icon. */
+.switcher-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+}
+
+/* The flex gap already spaces it; the icon's own margin is for inline text. */
+.switcher-item .agent-icon {
+  margin-right: 0;
+}
+
+/* The backend a group of switcher rows belongs to. */
+.switcher-group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0.35rem 0.6rem 0.15rem;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  font-weight: 600;
 }
 
 .switcher-item {
@@ -4083,9 +4949,11 @@ textarea {
     margin: 0 auto;
   }
 
-  .composer {
-    padding: 0.75rem 2rem;
-  }
+  /*
+   * The composer's padding is the layout (the rail's gutter plus the status
+   * panel's room), so it is not overridden here: a fixed pair of values would
+   * discard both and leave the card wider than the text above it.
+   */
 }
 
 /* ---- subagents ---- */
@@ -4379,4 +5247,324 @@ textarea {
 
 .run-artifacts li {
   word-break: break-all;
+}
+
+/*
+ * On a phone the conversation is the whole screen.
+ *
+ * There is no width to share: a tree beside the text leaves neither readable,
+ * and a file preview beside it is worse. Both are hidden outright rather than
+ * collapsed — the same call ZCode makes for its side panes — so the reading
+ * column gets the full window, and neither has a width to reserve.
+ *
+ * This lives at the end of the file on purpose: a media query only overrides
+ * the rules above it, and the tree and preview are declared further down than
+ * the rest of the layout.
+ */
+@media (max-width: 60rem) {
+  .file-tree,
+  .file-preview {
+    display: none;
+  }
+
+  /*
+   * No rail gutter either: with the tree gone the rail has no column to sit in,
+   * and its gutter would be a strip of empty space down the left of both the
+   * text and the composer — which is what made the composer look indented.
+   *
+   * Zeroing the variable rather than only overriding the padding keeps every
+   * rule that reads it — the jump control's centring among them — in agreement
+   * with the layout.
+   */
+  :root {
+    --reading-gutter: 0rem;
+  }
+
+  .conversation,
+  .composer {
+    padding-left: 0.75rem;
+  }
+
+  /*
+   * The rail stays, in the floating form it already has for touch: absolutely
+   * positioned over the text's left edge rather than taking a column of its own.
+   * Hiding it was wrong — skipping between turns is exactly what a reader wants
+   * on a phone, where only a screenful is visible at a time.
+   *
+   * It floats, so the text needs no gutter reserved for it; the rail fades to a
+   * hint when idle and comes back on touch.
+   */
+  .turn-nav {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 30;
+    width: 2.25rem;
+  }
+
+  .detail-screen:has(.file-tree) .detail-main {
+    padding-left: 0;
+  }
+}
+
+/* ---- Shift+Tab agent cycle ---- */
+
+/*
+ * The window switcher, over the whole page.
+ *
+ * Above every other overlay (the palette and the file search sit at 70): it is
+ * up only while the chord is held, and while it is up it owns the screen the way
+ * the Windows switcher does.
+ *
+ * It clips, because the ring is wider than the window on a narrow one and an
+ * unclipped ring would give the whole page a horizontal scrollbar.
+ */
+.agent-cycle {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+  padding: 2rem 1rem;
+  overflow: hidden;
+}
+
+/*
+ * The dim and the blur, on a layer of its own.
+ *
+ * Kept off the ring's ancestors deliberately: a filter applies to the element
+ * that carries it, and putting one between the reader and a 3D context is a good
+ * way to have the context flattened into a picture. The vignette is what pulls
+ * the eye to the middle of the ring instead of the corners of the screen.
+ */
+.agent-cycle__scrim {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(62% 62% at 50% 46%, rgb(0 0 0 / 0.28), rgb(0 0 0 / 0.64) 100%);
+  backdrop-filter: blur(6px);
+}
+
+/* Positioned so they paint above the scrim, which is positioned too. */
+.agent-cycle__head,
+.agent-cycle__stage,
+.agent-cycle__hint {
+  position: relative;
+}
+
+.agent-cycle__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: min(34rem, 100%);
+  text-align: center;
+}
+
+/*
+ * The heading and hint sit on the scrim, not on a card, and the scrim is dark in
+ * both themes — so their colour is fixed rather than taken from the theme. The
+ * theme's own text colour is the *page's* ink, which is exactly wrong here: in
+ * the light theme it is near-black on a half-dimmed backdrop.
+ */
+.agent-cycle__name {
+  font-size: calc(var(--text-ui-lg) + 6px);
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.agent-cycle__where {
+  font-size: var(--text-ui-sm);
+  color: rgb(255 255 255 / 0.72);
+  /* One line, so a long path cannot push the ring off centre. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+/*
+ * The ring.
+ *
+ * `perspective` is what makes the arrangement read as one object rather than as
+ * a row of skewed cards. It is set close — about twice the ring's radius, where
+ * a distant camera would give a falloff too gentle to see — so the cards going
+ * round clearly shrink as well as turn.
+ *
+ * The origin is left in the middle: the ring's own tip already lifts the cards
+ * that have gone round, and moving the origin as well would tip them twice.
+ */
+.agent-cycle__stage {
+  width: min(72rem, 100%);
+  height: 18rem;
+  perspective: 76rem;
+}
+
+/*
+ * One card on the ring.
+ *
+ * Absolutely placed rather than laid out, because where it sits is a position in
+ * space rather than a slot in a line: the placement is written per card and the
+ * transition is what turns the ring instead of snapping it.
+ *
+ * The rotation is about the card's own middle, so a card that has turned away
+ * recedes evenly rather than pivoting on one edge.
+ */
+.agent-cycle__card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.9rem 0.6rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  /*
+   * A card turned nearly edge-on is only a few pixels wide, and its contents —
+   * a fixed-size mark, a line of text — do not shrink with it. Clipping is what
+   * keeps a foreshortened card looking like a card seen at an angle instead of
+   * like its mark sticking out of a line.
+   */
+  overflow: hidden;
+  background: var(--popover);
+  color: var(--muted);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+  transition:
+    transform 0.2s cubic-bezier(0.23, 1, 0.32, 1),
+    opacity 0.2s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+  will-change: transform, opacity;
+}
+
+/*
+ * Pointed at. Deliberately quiet: the ring turns to whatever the pointer is on,
+ * so this outline is only ever seen during that turn and must not be mistaken
+ * for the chosen card's own mark.
+ */
+.agent-cycle__card:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+  cursor: pointer;
+}
+
+/* The one the ring has turned to face the reader, lit like a selection box. */
+.agent-cycle__card--selected,
+.agent-cycle__card--selected:hover {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 18px 40px rgb(0 0 0 / 0.5);
+}
+
+/*
+ * Where the walk started.
+ *
+ * A corner chip rather than a suffix on the title: the title is the first thing
+ * a narrow card ellipsises, and a marker that vanishes exactly when the card is
+ * crowded would be worse than none.
+ */
+.agent-cycle__origin {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  color: var(--muted);
+  font-size: calc(var(--text-ui-sm) - 2px);
+  line-height: 1.5;
+}
+
+.agent-cycle__card--selected .agent-cycle__origin {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--text);
+}
+
+.agent-cycle__mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 2.75rem;
+}
+
+/* No mark to draw: the card keeps its shape with a glyph instead. */
+.agent-cycle__mark:empty::before {
+  content: "◆";
+  font-size: 1.5rem;
+  color: var(--muted);
+}
+
+.agent-cycle__label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-base);
+  font-weight: 600;
+}
+
+/*
+ * The directory, which is what tells two panes of the same project apart.
+ *
+ * Allowed to ellipsise with the reader's own shortening already applied, so a
+ * deep path loses its least telling part rather than its most telling one.
+ */
+.agent-cycle__path {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.agent-cycle__status {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--text-ui-sm);
+}
+
+.agent-cycle__backend {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.agent-cycle__hint {
+  margin: 0;
+  font-size: var(--text-ui-sm);
+  color: rgb(255 255 255 / 0.72);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-cycle__card {
+    transition: none;
+  }
+}
+
+/* A phone has no Shift key, and the ring is turned past its edges; the switcher
+   in the header is the way there. The ring still renders, so a Bluetooth
+   keyboard works. */
+@media (max-width: 40rem) {
+  .agent-cycle__card {
+    width: 7.5rem;
+  }
+
+  .agent-cycle__head,
+  .agent-cycle__hint {
+    display: none;
+  }
 }

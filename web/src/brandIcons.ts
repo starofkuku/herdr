@@ -38,6 +38,31 @@ const OPENAI: BrandMark = {
 };
 
 /**
+ * ZCode, traced from its official application icon.
+ *
+ * The project ships the mark only as a bitmap, so the three strokes were read
+ * back off the 1024px icon and rebuilt as straight lines: every cut in the mark
+ * is the same diagonal, which measures 1/√2 to within a tenth of a percent, so
+ * the path is the design's own geometry rather than a fit to the pixels. Against
+ * the official icon the trace differs on 1.9% of pixels, and 96% of those are
+ * the soft pixels along an edge — the mark's own anti-aliasing.
+ *
+ * The strokes are separate in the original and separate here: the bar, the
+ * diagonal and the tail do not touch.
+ */
+const ZCODE: BrandMark = {
+  title: "ZCode",
+  path:
+    "M0.6 1.81L12.57 1.81L10.48 4.76L0.6 4.76Z" +
+    "M14.41 1.81L24 1.81L9.59 22.19L0 22.19Z" +
+    "M13.55 19.24L23.42 19.24L21.33 22.19L13.55 22.19Z",
+  // The official icon paints the mark white on a black tile; as a bare glyph on
+  // the page's own surfaces it is drawn in the tile's ink, like the other marks
+  // whose brands are black.
+  hex: "000000",
+};
+
+/**
  * Marks by agent id.
  *
  * Only the agents whose marks are settled are listed. herdr detects more than
@@ -52,6 +77,7 @@ export const AGENT_MARKS: Record<string, BrandMark> = {
   },
   codex: OPENAI,
   pi: PI,
+  zcode: ZCODE,
 };
 
 /** The mark for an agent id, when one is known. */

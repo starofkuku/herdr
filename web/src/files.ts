@@ -173,6 +173,102 @@ export async function loadGitStatus(
   }
 }
 
+/** One file a search found. */
+export interface FileSearchHit {
+  /** Path relative to the project root, with `/` separators. */
+  path: string;
+  name: string;
+}
+
+/**
+ * Every file in the project, optionally filtered by `query`.
+ *
+ * The tree is lazy and cannot answer "where is this file", so search asks the
+ * server for the whole list instead. An empty query returns everything, which
+ * is how the picker can rank locally against a query the reader is still
+ * typing — one request per query would be one request per keystroke.
+ */
+export async function searchFiles(
+  client: FilesClient,
+  paneId: string,
+  query = "",
+): Promise<{ hits: FileSearchHit[]; truncated: boolean }> {
+  try {
+    const response = await client.call<{ search?: unknown }>("files.search", {
+      pane_id: paneId,
+      ...(query ? { query } : {}),
+    });
+    const search = response?.search as Record<string, unknown> | undefined;
+    if (!search) return { hits: [], truncated: false };
+    const hits: FileSearchHit[] = [];
+    if (Array.isArray(search.hits)) {
+      for (const raw of search.hits) {
+        if (!raw || typeof raw !== "object") continue;
+        const record = raw as Record<string, unknown>;
+        const path = asString(record.path);
+        if (!path) continue;
+        hits.push({ path, name: asString(record.name) ?? path });
+      }
+    }
+    return { hits, truncated: search.truncated === true };
+  } catch {
+    return { hits: [], truncated: false };
+  }
+}
+
+/**
+ * Scores a path against a query, lower being a better match, or null for none.
+ *
+ * A subsequence match — every query character in order somewhere in the path —
+ * which is what makes `smrs` find `src/main.rs` and `api/panes.rs` findable
+ * from `pn`. Ranking favours, in order: a match on the file's own name over one
+ * on its directories, a contiguous run over scattered characters, and an
+ * earlier start over a later one.
+ */
+export function fuzzyScore(path: string, query: string): number | null {
+  if (!query) return 0;
+  const haystack = path.toLowerCase();
+  const needle = query.toLowerCase();
+
+  // A contiguous hit is always the better match, and it is cheap to find.
+  const direct = haystack.indexOf(needle);
+  if (direct !== -1) {
+    const inName = haystack.lastIndexOf("/") < direct;
+    return (inName ? 0 : 1_000) + direct;
+  }
+
+  let cursor = 0;
+  let score = 0;
+  let previous = -2;
+  for (const character of needle) {
+    const found = haystack.indexOf(character, cursor);
+    if (found === -1) return null;
+    // Adjacent characters are worth more than scattered ones.
+    score += found === previous + 1 ? 1 : 3;
+    // Starting deep in the path costs a little.
+    score += Math.min(found, 200) / 200;
+    previous = found;
+    cursor = found + 1;
+  }
+  // Shorter paths win ties: the query accounts for more of the name.
+  return 2_000 + score + haystack.length / 100;
+}
+
+/** The files matching a query, best first. */
+export function rankSearchHits(hits: FileSearchHit[], query: string): FileSearchHit[] {
+  const scored: { hit: FileSearchHit; score: number }[] = [];
+  for (const hit of hits) {
+    const score = fuzzyScore(hit.path, query);
+    if (score !== null) scored.push({ hit, score });
+  }
+  scored.sort((left, right) =>
+    left.score === right.score
+      ? left.hit.path.localeCompare(right.hit.path)
+      : left.score - right.score,
+  );
+  return scored.map((entry) => entry.hit);
+}
+
 /** The single-letter mark a status shows, following ZCode's own mapping. */
 export function gitStatusMark(status: GitFileStatus): string {
   switch (status) {

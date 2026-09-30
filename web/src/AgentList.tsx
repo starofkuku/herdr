@@ -1,4 +1,5 @@
 import { AgentIcon } from "./AgentIcon";
+import { BackendBadge } from "./BackendBadge";
 import { shortenPath, statusLabel, type AgentView } from "./api";
 import { ConnectionBadge } from "./ConnectionBadge";
 import type { ConnectionState } from "./gateway";
@@ -6,6 +7,7 @@ import { ThemeToggle } from "./ThemeToggle";
 
 /** Agent overview grouped by project, matching the reference layout. */
 export function AgentList({
+  backend,
   session,
   agents,
   detail,
@@ -15,6 +17,8 @@ export function AgentList({
   onLeave,
   onRetry,
 }: {
+  /** The gateway this session is on. */
+  backend: { name: string; url: string };
   session: string;
   agents: AgentView[];
   detail?: string;
@@ -41,6 +45,8 @@ export function AgentList({
         <button type="button" className="ghost" onClick={onLeave} aria-label="Sessions">
           ‹
         </button>
+        {/* The gateway's name leads: every session name below belongs to it. */}
+        <BackendBadge name={backend.name} url={backend.url} />
         <span className="topbar-title">
           <span className="title">{session || "agents"}</span>
         </span>

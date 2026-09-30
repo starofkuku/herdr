@@ -186,6 +186,11 @@ function TurnNavigator({
   dimmed: boolean;
   /** Called when the reader interacts, so the rail can be restored. */
   onWake: () => void;
+  /**
+   * The session's live state, floating over the conversation's top right.
+   * Rendered by the screen because the data is polled there.
+   */
+  status?: ReactNode;
 }) {
   const railRef = useRef<HTMLElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -963,9 +968,10 @@ export function ConversationView({
   working = false,
   onPreviewImage,
   status,
-  files,
 }: {
   client: DetailClient;
+  /** The session's live state, floating over the conversation's top right. */
+  status?: ReactNode;
   /** Every run recorded for this pane, running or finished. */
   subagents?: SubagentRun[];
   /** Opens the subagent drawer, which holds each run's full detail. */
@@ -989,12 +995,6 @@ export function ConversationView({
    * floats over the conversation's top right (ZCode's status panel). Rendered
    * by the detail view because the data is polled there.
    */
-  status?: ReactNode;
-  /**
-   * The project's file tree, floating in the slack left of the reading column.
-   * Rendered by the detail view because it needs the pane's client and cwd.
-   */
-  files?: ReactNode;
 }) {
   const [conversation, setConversation] = useState<Conversation | null>(null);
   /**
@@ -1365,11 +1365,18 @@ export function ConversationView({
   // would be no way to reach it other than by scrolling.
   return (
     <div className="conversation-wrap" onTouchStart={wakeNavigator}>
-      {files}
       {status}
-      {/* The rail is a sibling of the scroll container rather than a child, so it
-          stays put while the transcript moves under it. */}
-      <TurnNavigator
+      {/*
+        Everything but the file tree lives here. A wrapper is needed rather than
+        placing the rail and the jump control directly in `.conversation-wrap`:
+        those two position themselves against the reading column's centre, and
+        with the tree docked the wrap is wider than the conversation — the rail
+        would land under the tree instead of beside the text.
+      */}
+      <div className="conversation-area">
+        {/* The rail is a sibling of the scroll container rather than a child, so
+            it stays put while the transcript moves under it. */}
+        <TurnNavigator
         turns={turns}
         activeTurn={activeTurn}
         onJump={jumpToTurn}
@@ -1456,6 +1463,7 @@ export function ConversationView({
           ) : null}
         </div>
 
+      </div>
       </div>
     </div>
   );
