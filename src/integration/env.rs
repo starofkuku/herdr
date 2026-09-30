@@ -58,6 +58,23 @@ pub(crate) fn zcode_dir() -> io::Result<PathBuf> {
     Ok(home_dir()?.join(".zcode").join("cli"))
 }
 
+/// The SQLite database ZCode keeps its sessions in.
+///
+/// `<baseDir>/db/db.sqlite`, where `baseDir` is what [`zcode_dir`] returns unless
+/// one of these variables moves it — the store is the one part of ZCode's layout
+/// that its configuration *can* relocate
+/// (ZCode adapters/src/config/env-config.adapter.ts:29).
+pub(crate) fn zcode_session_db() -> io::Result<PathBuf> {
+    for key in ["ZCODE_SESSION_DB_PATH", "ZCODE_SESSION_DB"] {
+        if let Some(value) = std::env::var_os(key) {
+            if !value.is_empty() {
+                return expand_tilde_path(PathBuf::from(value));
+            }
+        }
+    }
+    Ok(zcode_dir()?.join("db").join("db.sqlite"))
+}
+
 pub(crate) fn codex_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(CODEX_HOME_ENV_VAR, &[".codex"])
 }

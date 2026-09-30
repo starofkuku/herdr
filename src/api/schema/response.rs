@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use super::agents::AgentInfo;
 use super::common::{ClientWindowTitleReason, NotificationShowReason};
 use super::events::EventEnvelope;
-use super::files::{FilesListResult, FilesReadResult, GitStatusResult};
+use super::files::{FilesListResult, FilesReadResult, FilesSearchResult, GitStatusResult};
 use super::integrations::{
     IntegrationInstallResult, IntegrationTarget, IntegrationUninstallResult,
 };
@@ -69,6 +69,9 @@ pub enum ResponseResult {
     },
     FilesRead {
         file: FilesReadResult,
+    },
+    FilesSearch {
+        search: FilesSearchResult,
     },
     GitStatus {
         status: GitStatusResult,

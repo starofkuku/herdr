@@ -45,7 +45,8 @@
               "type": "string"
             },
             "kind": {
-              "$ref": "#/schemas/event/$defs/AgentSessionRefKind"
+              "$ref": "#/schemas/event/$defs/AgentSessionRefKind",
+              "description": "How to read the session's conversation, and what `value` names.\n\n* `path` — `value` is a transcript file in a format herdr parses.\n* `store` — `value` is a session id whose conversation lives in the\n  agent's own store rather than in a file. ZCode keeps its sessions in one\n  SQLite database, so there is no per-session path to report. A read-side\n  view only: what the agent reports, and what herdr persists for\n  `--resume`, stays an `id`.\n* `id` — nothing readable; the session can be resumed but not shown."
             },
             "source": {
               "type": "string"
@@ -65,7 +66,8 @@
         "AgentSessionRefKind": {
           "enum": [
             "id",
-            "path"
+            "path",
+            "store"
           ],
           "type": "string"
         },
@@ -2073,6 +2075,34 @@
           "required": [
             "pane_id",
             "path"
+          ],
+          "type": "object"
+        },
+        "FilesSearchParams": {
+          "description": "A search over every file in the project.",
+          "properties": {
+            "limit": {
+              "description": "Ceiling on returned paths; the handler applies its own default.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "query": {
+              "description": "What to look for, matched case-insensitively against the path.\n\nEmpty returns everything, which is how a client builds its own index\nwithout a second method.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "pane_id"
           ],
           "type": "object"
         },
@@ -5080,6 +5110,22 @@
         {
           "properties": {
             "method": {
+              "const": "files.search",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FilesSearchParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "git.status",
               "type": "string"
             },
@@ -6710,7 +6756,8 @@
               "type": "string"
             },
             "kind": {
-              "$ref": "#/schemas/success_response/$defs/AgentSessionRefKind"
+              "$ref": "#/schemas/success_response/$defs/AgentSessionRefKind",
+              "description": "How to read the session's conversation, and what `value` names.\n\n* `path` — `value` is a transcript file in a format herdr parses.\n* `store` — `value` is a session id whose conversation lives in the\n  agent's own store rather than in a file. ZCode keeps its sessions in one\n  SQLite database, so there is no per-session path to report. A read-side\n  view only: what the agent reports, and what herdr persists for\n  `--resume`, stays an `id`.\n* `id` — nothing readable; the session can be resumed but not shown."
             },
             "source": {
               "type": "string"
@@ -6730,7 +6777,8 @@
         "AgentSessionRefKind": {
           "enum": [
             "id",
-            "path"
+            "path",
+            "store"
           ],
           "type": "string"
         },
@@ -7430,6 +7478,24 @@
           ],
           "type": "object"
         },
+        "FileSearchHit": {
+          "description": "One match: the file, and the path relative to the project root.",
+          "properties": {
+            "name": {
+              "description": "The file's own name, for a client that shows the leaf separately.",
+              "type": "string"
+            },
+            "path": {
+              "description": "Path relative to the project root, with `/` separators.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "name"
+          ],
+          "type": "object"
+        },
         "FilesListResult": {
           "properties": {
             "entries": {
@@ -7489,6 +7555,29 @@
             "binary",
             "too_large",
             "size"
+          ],
+          "type": "object"
+        },
+        "FilesSearchResult": {
+          "properties": {
+            "hits": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/FileSearchHit"
+              },
+              "type": "array"
+            },
+            "root": {
+              "type": "string"
+            },
+            "truncated": {
+              "description": "True when the walk hit its own ceiling and `hits` is a prefix.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "root",
+            "hits",
+            "truncated"
           ],
           "type": "object"
         },
@@ -10099,6 +10188,22 @@
               "required": [
                 "type",
                 "file"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "search": {
+                  "$ref": "#/schemas/success_response/$defs/FilesSearchResult"
+                },
+                "type": {
+                  "const": "files_search",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "search"
               ],
               "type": "object"
             },

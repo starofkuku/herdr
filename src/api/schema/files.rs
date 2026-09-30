@@ -61,6 +61,38 @@ pub struct FilesReadResult {
     pub size: u64,
 }
 
+/// A search over every file in the project.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
+pub struct FilesSearchParams {
+    pub pane_id: String,
+    /// What to look for, matched case-insensitively against the path.
+    ///
+    /// Empty returns everything, which is how a client builds its own index
+    /// without a second method.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// Ceiling on returned paths; the handler applies its own default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u64>,
+}
+
+/// One match: the file, and the path relative to the project root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FileSearchHit {
+    /// Path relative to the project root, with `/` separators.
+    pub path: String,
+    /// The file's own name, for a client that shows the leaf separately.
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FilesSearchResult {
+    pub root: String,
+    pub hits: Vec<FileSearchHit>,
+    /// True when the walk hit its own ceiling and `hits` is a prefix.
+    pub truncated: bool,
+}
+
 /// The project's git status, as the file tree marks it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
 pub struct GitStatusParams {

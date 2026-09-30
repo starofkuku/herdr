@@ -32,6 +32,7 @@ pub struct AgentSessionRef {
 pub enum AgentSessionRefKind {
     Id,
     Path,
+    Store,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

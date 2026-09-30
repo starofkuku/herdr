@@ -97,6 +97,15 @@ pub struct AgentInfo {
 pub struct AgentSessionInfo {
     pub source: String,
     pub agent: String,
+    /// How to read the session's conversation, and what `value` names.
+    ///
+    /// * `path` — `value` is a transcript file in a format herdr parses.
+    /// * `store` — `value` is a session id whose conversation lives in the
+    ///   agent's own store rather than in a file. ZCode keeps its sessions in one
+    ///   SQLite database, so there is no per-session path to report. A read-side
+    ///   view only: what the agent reports, and what herdr persists for
+    ///   `--resume`, stays an `id`.
+    /// * `id` — nothing readable; the session can be resumed but not shown.
     pub kind: crate::agent_resume::AgentSessionRefKind,
     pub value: String,
 }

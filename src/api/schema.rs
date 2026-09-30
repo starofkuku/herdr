@@ -89,6 +89,8 @@ pub enum Method {
     FilesList(FilesListParams),
     #[serde(rename = "files.read")]
     FilesRead(FilesReadParams),
+    #[serde(rename = "files.search")]
+    FilesSearch(FilesSearchParams),
     #[serde(rename = "git.status")]
     GitStatus(GitStatusParams),
     #[serde(rename = "worktree.list")]

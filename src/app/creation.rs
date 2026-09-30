@@ -511,6 +511,15 @@ pub(super) fn terminal_agent_session_info(
                 ..reported
             });
         }
+        // ZCode has no per-session file to point at, but its id is the key to a
+        // conversation herdr can read, so the view says so — and the id itself
+        // is still what `--resume` is given.
+        if reported.agent == "zcode" && crate::zcode_transcript::database_path().is_some() {
+            return Some(crate::api::schema::AgentSessionInfo {
+                kind: crate::agent_resume::AgentSessionRefKind::Store,
+                ..reported
+            });
+        }
     }
     Some(reported)
 }

@@ -50,6 +50,10 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-width = "0.2"
 schemars = { version = "1.2.1", features = ["derive"] }
 codex-trace-parser = { git = "https://github.com/xianchoujiduluo/codex-trace", branch = "main" }
+# Reads ZCode's session store: the only agent whose conversation is not a file
+# herdr can parse. Bundled rather than linked against a system SQLite, which no
+# platform could be relied on to have.
+rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
 
 [patch.crates-io]
 portable-pty = { path = "vendor/portable-pty" }

@@ -40,6 +40,18 @@ const fn api_read_line_limit() -> u32 {
     2000
 }
 
+/// Where a pane's conversation has to be read from.
+enum PaneConversation {
+    /// A transcript file in a format the parser understands.
+    File { path: String, agent: String },
+    /// A session inside an agent's own store, keyed by id.
+    Store {
+        database: std::path::PathBuf,
+        session: String,
+        agent: String,
+    },
+}
+
 impl App {
     pub(super) fn handle_pane_split(&mut self, id: String, params: PaneSplitParams) -> String {
         let target = if let Some(target_pane_id) = params.target_pane_id.as_deref() {
@@ -1243,10 +1255,10 @@ impl App {
 
     /// Returns the pane's agent transcript, parsed into turns.
     ///
-    /// The transcript is found through the session reference the agent's own
-    /// integration reported, so this only works for agents that publish a
-    /// readable path. Everything here is read-only: writing to the agent still
-    /// goes through `pane.send_input`.
+    /// The conversation is found through the session reference the agent's own
+    /// integration reported: either a transcript file or, for an agent that keeps
+    /// its sessions in a store of its own, that store. Everything here is
+    /// read-only: writing to the agent still goes through `pane.send_input`.
     pub(super) fn handle_pane_session(&mut self, id: String, params: PaneSessionParams) -> String {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
@@ -1255,12 +1267,28 @@ impl App {
             return pane_not_found(id, &params.pane_id);
         };
 
-        let Some((path, reported_agent)) = self.pane_transcript(ws_idx, pane_id) else {
+        let Some(conversation) = self.pane_conversation(ws_idx, pane_id) else {
             return encode_error(
                 id,
                 "no_transcript",
                 "pane has no agent transcript; the agent reports a session id rather than a path",
             );
+        };
+
+        // An agent that keeps its sessions in a store rather than a file is read
+        // from there, and returns before any of the file handling below.
+        let (path, reported_agent) = match conversation {
+            PaneConversation::File { path, agent } => (path, agent),
+            PaneConversation::Store { database, session, agent } => {
+                return self.pane_session_from_store(
+                    id,
+                    params,
+                    public_pane_id,
+                    database,
+                    session,
+                    agent,
+                );
+            }
         };
 
         // A session the agent has started but not written to yet.
@@ -1486,6 +1514,100 @@ impl App {
             return None;
         }
         Some((info.value, info.agent))
+    }
+
+    /// Where a pane's conversation has to be read from.
+    ///
+    /// A file and a store are the two shapes herdr can read; a session it can
+    /// only resume is not a conversation it can show.
+    fn pane_conversation(&self, ws_idx: usize, pane_id: PaneId) -> Option<PaneConversation> {
+        let pane = self.state.workspaces.get(ws_idx)?.pane_state(pane_id)?;
+        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
+        let info = crate::app::creation::terminal_agent_session_info(terminal)?;
+        match info.kind {
+            crate::agent_resume::AgentSessionRefKind::Path => {
+                Some(PaneConversation::File { path: info.value, agent: info.agent })
+            }
+            crate::agent_resume::AgentSessionRefKind::Store => {
+                Some(PaneConversation::Store {
+                    database: crate::zcode_transcript::database_path()?,
+                    session: info.value,
+                    agent: info.agent,
+                })
+            }
+            crate::agent_resume::AgentSessionRefKind::Id => None,
+        }
+    }
+
+    /// One page of a conversation kept in the agent's own store, in the same
+    /// shape a transcript file produces.
+    ///
+    /// There is no cache here on purpose: a store is one file shared by every
+    /// session, and it is updated while herdr reads it, so a page is read fresh
+    /// rather than refreshed incrementally the way a file handle is.
+    fn pane_session_from_store(
+        &mut self,
+        id: String,
+        params: PaneSessionParams,
+        public_pane_id: String,
+        database: std::path::PathBuf,
+        session: String,
+        agent: String,
+    ) -> String {
+        if !database.exists() {
+            // No store yet is the same state as a transcript file the agent has
+            // not written to: a session that has nothing in it.
+            return encode_success(
+                id,
+                ResponseResult::PaneSession {
+                    session: PaneSessionResult {
+                        pane_id: public_pane_id,
+                        path: database.display().to_string(),
+                        agent,
+                        provider: String::new(),
+                        cwd: None,
+                        total_tokens: None,
+                        turns: Vec::new(),
+                        pagination: None,
+                    },
+                },
+            );
+        }
+
+        let page = match crate::zcode_transcript::read_session(
+            &database,
+            &session,
+            params.cursor,
+            params.max_bytes.map(|bytes| bytes as usize),
+        ) {
+            Ok(page) => page,
+            Err(err) => return encode_error(id, "transcript_unreadable", err),
+        };
+
+        let turns = page.turns.len() as u64;
+        encode_success(
+            id,
+            ResponseResult::PaneSession {
+                session: PaneSessionResult {
+                    pane_id: public_pane_id,
+                    // The file that was read. A store has no per-session path,
+                    // and this is the honest answer to "what did you read".
+                    path: database.display().to_string(),
+                    agent,
+                    provider: "zcode".to_string(),
+                    cwd: page.cwd,
+                    total_tokens: None,
+                    turns: page.turns,
+                    pagination: Some(PaneSessionPagination {
+                        next_cursor: page.pagination.next_cursor,
+                        has_more: page.pagination.has_more,
+                        // The store counts the session's own turns; a page only
+                        // knows how many it is holding.
+                        total_turns: page.pagination.total_turns.max(turns),
+                    }),
+                },
+            },
+        )
     }
 
     pub(super) fn handle_pane_report_agent(

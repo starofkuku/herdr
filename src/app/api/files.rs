@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 use super::responses::{encode_error, encode_success};
 use super::App;
 use crate::api::schema::{
-    FileEntryInfo, FilesListParams, FilesListResult, FilesReadParams, FilesReadResult,
-    GitChangedFileInfo, GitStatusParams, GitStatusResult, ResponseResult,
+    FileEntryInfo, FileSearchHit, FilesListParams, FilesListResult, FilesReadParams,
+    FilesReadResult, FilesSearchParams, FilesSearchResult, GitChangedFileInfo, GitStatusParams,
+    GitStatusResult, ResponseResult,
 };
 
 /// Directories never worth walking: build output, dependency stores, and
@@ -71,6 +72,12 @@ const DEFAULT_MAX_READ_BYTES: u64 = 256 * 1024;
 const MAX_READ_BYTES: u64 = 4 * 1024 * 1024;
 /// How long one git invocation may take before it is killed.
 const GIT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Files returned by a search when the client does not say.
+const SEARCH_DEFAULT_LIMIT: u64 = 2_000;
+/// Hard ceiling on the same, so one query cannot ask a server for the world.
+const SEARCH_MAX_LIMIT: u64 = 20_000;
+/// Directory entries a single search may visit before it stops early.
+const SEARCH_MAX_ENTRIES: usize = 200_000;
 
 /// A refusal with the code the client should see.
 struct ApiFailure {
@@ -332,6 +339,82 @@ impl App {
                     binary: false,
                     too_large: false,
                     size,
+                },
+            },
+        )
+    }
+
+    /// Every file under the project root, optionally matching a query.
+    ///
+    /// The tree is lazy, so a client that wants to search it needs the whole
+    /// list from somewhere; this is that list. The walk prunes the same
+    /// directories the tree hides, is bounded on entries visited, and is
+    /// depth-bounded, so a deep or enormous project costs a predictable amount.
+    pub(super) fn handle_files_search(&mut self, id: String, params: FilesSearchParams) -> String {
+        let root = match self.project_root_for_pane(&params.pane_id) {
+            Ok(root) => root,
+            Err(err) => return encode_error(id, err.code, err.message),
+        };
+        let query = params.query.unwrap_or_default().trim().to_lowercase();
+        let limit = params
+            .limit
+            .unwrap_or(SEARCH_DEFAULT_LIMIT)
+            .min(SEARCH_MAX_LIMIT) as usize;
+
+        let mut hits: Vec<FileSearchHit> = Vec::new();
+        let mut visited = 0_usize;
+        let mut truncated = false;
+        // Breadth-first with an explicit stack, so the walk order is stable and
+        // the entry ceiling is checked on every directory read.
+        let mut stack = vec![root.clone()];
+        while let Some(directory) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                visited += 1;
+                if visited > SEARCH_MAX_ENTRIES {
+                    truncated = true;
+                    break;
+                }
+                let path = entry.path();
+                let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                    continue;
+                };
+                if path.is_dir() {
+                    if !is_ignored_directory(&name) {
+                        stack.push(path);
+                    }
+                    continue;
+                }
+                let Some(relative) = relative_to_root(&root, &path) else {
+                    continue;
+                };
+                if !query.is_empty() && !relative.to_lowercase().contains(&query) {
+                    continue;
+                }
+                hits.push(FileSearchHit {
+                    path: relative,
+                    name,
+                });
+                if hits.len() >= limit {
+                    truncated = true;
+                    break;
+                }
+            }
+            if truncated {
+                break;
+            }
+        }
+        hits.sort_by(|left, right| left.path.cmp(&right.path));
+
+        encode_success(
+            id,
+            ResponseResult::FilesSearch {
+                search: FilesSearchResult {
+                    root: root.display().to_string(),
+                    hits,
+                    truncated,
                 },
             },
         )

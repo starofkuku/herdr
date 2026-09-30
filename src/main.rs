@@ -99,6 +99,7 @@ mod update;
 mod web;
 mod workspace;
 mod worktree;
+mod zcode_transcript;
 
 fn init_logging() {
     crate::logging::init_file_logging("herdr.log");
