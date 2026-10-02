@@ -54,9 +54,34 @@ Windows のエージェントプロセス検出は、ペインのシェルの子
 
 Herdr はペインを正しいディレクトリで起動でき、Herdr を起動したディレクトリから最初のワークスペースを作成できます。起動後の PowerShell のディレクトリ変更は別問題です: Herdr が調べられるプロセスのフィールドは、その後の論理的な `cd` の変化を確実には追跡しません。ライブ cwd の報告には Herdr インテグレーションかプロンプトのシェルインテグレーションを使ってください。
 
-Windows Terminal は特定のエージェント向けに画像貼り付け経路をサポートしているかもしれませんが、Herdr 自身のクリップボード画像リーダーはまだ Windows に配線されていません。Windows のクリップボードブリッジが実装・テストされるまで、`alt+v` の画像貼り付けは未検証として扱ってください。リモートクリップボードの画像ブリッジは別機能で、引き続き Unix/macOS の `herdr --remote` に紐づいています。
+Windows Terminal は特定のエージェント向けに画像貼り付け経路をサポートしているかもしれませんが、Herdr 自身のクリップボード画像リーダーはネイティブ Windows クライアントにはまだ配線されていません。ネイティブ Windows の `Alt+V` 画像貼り付けは未検証のままです。これは WSL 内で Herdr を動かす場合とは別で、WSL のローカルクライアントは Windows PowerShell を通じて対応 Agent 向けの `herdr --remote` 画像ブリッジを利用できます。
 
 Kitty graphics は実験的なままで、まだ Windows でのサポートを謳っていません。Windows Terminal での画像レンダリングを特にテストしているのでない限り、`experimental.kitty_graphics = false` のままにしてください。
+
+### Windows Terminal 通知
+
+外側の Windows Terminal ビルドに OSC 777 デスクトップ通知が含まれている場合、Herdr は Windows ネイティブセッションと WSL プロファイルからエージェント通知を送信できます。これには [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012) を含む Canary/開発ビルド、または正式リリース後の Windows Terminal 1.26 以降が必要です。2026 年 7 月 15 日時点では、Stable 1.24.11911.0 と Preview 1.25.1912.0 は OSC 777 をサポートしていないため、これらのバージョンでは `delivery = "terminal"` を設定しても Toast 通知は表示されません。
+
+対応する Windows Terminal ビルドでは、Herdr を起動するプロファイルの互換性設定を `settings.json` で有効にします:
+
+```json
+{
+  "profiles": {
+    "defaults": {
+      "compatibility.allowOSC777": true
+    }
+  }
+}
+```
+
+次に Herdr を設定します:
+
+```toml
+[ui.toast]
+delivery = "terminal"
+```
+
+対応する Windows Terminal ビルドでは、プロファイル UI に **Allow OSC 777 (Desktop Notification) to show toast notifications** と表示されます。この設定はデフォルトで無効です。項目が表示されない場合、その Windows Terminal ビルドは OSC 777 に対応しておらず、現在の Stable または Preview へ更新するだけでは利用できません。OSC 777 を有効にすると、ターミナルアプリケーションが任意のテキストを含む Windows 通知を作成できるため、実行するプログラムを信頼できるプロファイルでのみ有効にしてください。
 
 ## 既知の注意点
 

@@ -256,6 +256,8 @@ Color values accept hex, named colors, `rgb(r,g,b)`, or reset aliases like `rese
 
 The sidebar is the main Herdr dashboard. Search `ui.` in the [Config reference](/docs/config-reference/) for sizing, collapsed mode, Agent panel ordering, mouse behavior, pane borders, and other presentation settings.
 
+Set `tab_bar_position = "bottom"` under `[ui]` to place the desktop tab row below the terminal panes. Prefix, Navigate, Copy, and Resize mode bars temporarily replace the bottom tab row while active. The default is `"top"`.
+
 ### Sidebar row layouts
 
 The expanded desktop sidebar renders each inner array in `rows` as one line. These are the complete default layouts:
@@ -371,6 +373,35 @@ position = "bottom-right"
 
 Choose `herdr` for an in-app toast, `terminal` for an outer-terminal notification that works well over SSH, `system` for the local OS notification service, or `off` to disable popups. Herdr suppresses popups for the active tab. Search `ui.toast` in the [Config reference](/docs/config-reference/) for positions, delay behavior, and clipboard feedback settings.
 
+Windows Terminal clients, including WSL profiles, use OSC 777 for `delivery = "terminal"`, but the outer terminal must contain [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012). As of July 15, 2026, Stable 1.24.11911.0 and Preview 1.25.1912.0 are unsupported; use a compatible Canary/development build or Windows Terminal 1.26 or newer once released, then enable `compatibility.allowOSC777`. See [Windows beta](/docs/windows-beta/#windows-terminal-notifications) for setup and security details.
+
+## Bell
+
+The Bell setting is a separate, default-off attention signal for the same background agent finished and needs-input events. It follows the notification delay and active-tab focus suppression, but does not require Toast or Sound to be enabled.
+
+```toml
+[ui.bell]
+enabled = true
+```
+
+Herdr emits one ASCII BEL byte through the foreground client. The outer terminal and desktop decide the visible behavior:
+
+- Windows Terminal can highlight or flash its taskbar icon. Set `bellStyle` to `"taskbar"` (or `"all"`) in the profile defaults:
+
+  ```json
+  {
+    "profiles": {
+      "defaults": {
+        "bellStyle": "taskbar"
+      }
+    }
+  }
+  ```
+- On macOS, Ghostty maps BEL to one Dock bounce through `bell-features = attention` while Ghostty is unfocused. `attention` is enabled by default and does not require macOS notification or Accessibility permission. Reload Ghostty with `Command+Shift+,` after editing its config. During `herdr --remote`, enable `[ui.bell]` in the local Mac client's config because that client emits BEL.
+- On Linux, taskbar highlighting depends on the terminal emulator and desktop environment's visual-bell or urgency support.
+
+Multiplexers such as tmux may intercept or suppress BEL, so their bell settings must also allow it to reach the outer terminal. Bell requests attention only; Herdr does not steal focus.
+
 ## Sound
 
 Sound notifications play through the local Herdr client. Custom sounds must be mp3 files; relative paths are resolved from the config file's directory.
@@ -418,6 +449,21 @@ resume_agents_on_restore = true
 
 Only panes with a valid native session reference from an official integration can resume; other panes restore as normal shells. See [Session state and restore](/docs/session-state/) for supported Agents and persistence behavior.
 
+## codex-trace links
+
+If you run [codex-trace](https://github.com/xianchoujiduluo/codex-trace) to read Agent conversations as turns and tool calls, Herdr can build a deep link to the conversation in a pane:
+
+```toml
+[codex_trace]
+url = "http://127.0.0.1:1422"
+```
+
+With this set, right-clicking an Agent pane adds **Copy session link**, which puts a URL like `http://127.0.0.1:1422/pi/01a0acf2-81bb-76f7-9e48-763112a909d3` on your clipboard. Paste it into a browser to open that conversation.
+
+The action only appears when the pane has an Agent that reports a transcript path whose filename carries a recognizable session id. That covers pi, Claude Code, and Codex; other Agents and plain shells have no conversation to link to. Leaving `url` unset hides the action entirely.
+
+Copying uses the same route as a mouse selection: OSC 52 when the terminal supports it, otherwise the platform clipboard tool. This is what lets the link reach your own clipboard when Herdr runs over SSH or in WSL.
+
 ## IME cursor tracking
 
 On macOS, AI Agent TUIs that hide the hardware cursor can prevent native input-method candidate windows from following the focused pane. Reveal a cursor anchor for those panes with:
@@ -452,6 +498,7 @@ On Windows, support is currently limited to the Korean IME. With an IME for any 
 | `HERDR_CONFIG_PATH` | Override the config file path. |
 | `HERDR_SESSION` | Select a named session for CLI commands. |
 | `HERDR_SOCKET_PATH` | Low-level socket path override. |
+| `HERDR_PROCESS_DETECTION` | Linux process detection strategy: `native` (default) or opt-in `child-groups`. |
 | `HERDR_LOG` | Set log filtering, for example `HERDR_LOG=herdr=debug`. |
 | `HERDR_DISABLE_SOUND` | Disable sound playback even when `[ui.sound] enabled = true`. |
 

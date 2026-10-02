@@ -19,6 +19,8 @@ herdr --no-session            # シングルプロセスの逃げ道
 herdr --default-config        # デフォルト設定を表示
 herdr update                  # 設定済みチャンネルからダウンロードしてインストール
 herdr update --handoff        # 対応する実行中サーバーでライブハンドオフにオプトイン
+herdr update web              # 最新の Web UI ページをダウンロードしてインストール
+herdr update web --check      # 何も書き込まず、利用可能な Web UI バージョンを報告
 herdr completion zsh          # zsh 補完スクリプトを生成
 herdr channel show            # stable または preview を表示
 herdr channel set preview     # プレビュービルドにオプトイン
@@ -108,6 +110,14 @@ herdr session delete <name> [--json]
 
 デフォルトセッションを明示的に停止する必要があるときは、セッション名として `default` を使ってください。
 
+## Web UI
+
+```bash
+herdr web
+```
+
+すべてのセッション向けにブラウザ UI を配信します。`HERDR_WEB_KEY` が必要です。詳細は [Web UI](/docs/web-ui/) を参照してください。
+
 ## ワークスペース
 
 ```bash
@@ -131,10 +141,10 @@ herdr workspace create --cwd ~/project --label api --no-focus
 ## Worktree
 
 ```bash
-herdr worktree list [--workspace ID | --cwd PATH] [--json]
-herdr worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--json]
-herdr worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]
-herdr worktree remove --workspace ID [--force] [--json]
+herdr worktree list [--workspace ID | --cwd PATH]
+herdr worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus]
+herdr worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus]
+herdr worktree remove --workspace ID [--force]
 ```
 
 worktree は、Git チェックアウトの出自情報を持つ通常の Herdr ワークスペースです。`worktree create` は Git worktree のチェックアウトを作成し、ワークスペースとして開き、親リポジトリのワークスペースとグループ化します。`--branch` が既存のローカルブランチを指す場合はそれをチェックアウトし、そうでなければ `--base` または `HEAD` からブランチを作成します。`--path` がない場合、チェックアウトは `<worktrees.directory>/<repo>/<branch-slug>` の下に作成されます。
@@ -189,6 +199,7 @@ herdr pane close <pane_id>
 herdr pane read <pane_id> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi] [--raw]
 herdr pane read <pane_id> --source visible --ansi
 herdr pane read <pane_id> --source recent-unwrapped --lines 120
+herdr pane read <pane_id> --source recent-unwrapped --lines 120 --offset 120
 ```
 
 `pane read` は UTF-8 のターミナルテキストを直接出力します。デフォルトでは ANSI エスケープを除去し、ソースに装飾が含まれる場合は `--format ansi` または `--ansi` で保持します。`detection` ソースは常にプレーンテキストです。recent 系ソースでは、`--lines N` は折り返し解除の前に末尾の N 描画行を選び、省略時は 80 行です。`visible` と `detection` では、省略時にスナップショット全体を返し、指定時は改行で区切られた末尾 N 行を返します。`agent read` も同じ出力と行数の動作です。
@@ -236,6 +247,43 @@ herdr pane release-agent <pane_id> \
 `report-agent-session` はライフサイクル状態を報告せずにネイティブセッション識別子を更新します。`release-agent` は、そのエージェントプロセスが終了したときに、そのソースのライフサイクル権限を終了します。
 
 公式インテグレーションがネイティブセッション参照を報告している場合、`pane get`、`pane list`、`agent get`、`agent list` は読み取り専用の `agent_session` オブジェクトを含みます。ネイティブセッション参照が保存されていない場合、このフィールドは省略されます。
+
+エージェントが待っている構造化された質問を公開し、回答を回収する:
+
+```bash
+herdr pane report-interaction <pane_id> \
+  --source ID \
+  --request-id ID \
+  --kind approval|question \
+  --title TEXT \
+  [--summary TEXT] \
+  [--question QUESTION_ID=TEXT] \
+  [--option QUESTION_ID=OPTION_ID=LABEL] \
+  [--option-description OPTION_ID=TEXT] \
+  [--multi-select QUESTION_ID] \
+  [--allow-custom QUESTION_ID] \
+  [--seq N] \
+  [--ttl-ms N]
+
+herdr pane clear-interaction <pane_id> --source ID --request-id ID [--seq N]
+
+herdr pane answer-interaction <pane_id> --request-id ID \
+  --answer QUESTION_ID=OPTION_ID[,OPTION_ID...]
+
+herdr pane take-interaction-answer <pane_id> --source ID --request-id ID
+```
+
+エージェントが自身の質問と選択肢を公開している場合に使います。これにより、クライアントは描画された画面から読み取るのではなく、エージェントが実際に提示した選択肢を表示できます。質問と選択肢の id はそのまま渡されるため、インテグレーションが自身のプロトコルへ対応付けられます。
+
+`clear-interaction` はすでに保留でなくなったリクエストを取り下げます。`--request-id` で指定したリクエストだけを消すため、クライアントが見たものを置き換えた新しい質問を誤って消すことはありません。
+
+`take-interaction-answer` は、質問を出したインテグレーションが回答を回収する方法です。次の JSON オブジェクトを 1 つ出力します:
+
+```json
+{"answers": [{"question_id": "decision", "option_ids": ["allow"]}], "pending": false}
+```
+
+`pending` はそのリクエストがまだ保留中かどうかを示します。回答を待つインテグレーションはこのコマンドをポーリングし、`pending` が `true` の間は待ち続けます。回答が空で `false` の場合は、別の場所で回答されたか、取り下げられたか、期限切れであることを意味するため、待機を終了して判断を呼び出し元に返します。
 
 これらのコマンドは、ペインを制御しているフォアグラウンドプロセスの cwd を解決できる場合に `foreground_cwd` を含みます。既存の `cwd` フィールドは、ラベルと follow-cwd 挙動に使われるペイン/ワークスペースの cwd のままです。
 
@@ -339,6 +387,7 @@ herdr integration install opencode
 herdr integration install kilo
 herdr integration install hermes
 herdr integration install mastracode
+herdr integration install zcode
 herdr integration install qodercli
 herdr integration install cursor
 herdr integration uninstall pi
@@ -353,6 +402,7 @@ herdr integration uninstall opencode
 herdr integration uninstall kilo
 herdr integration uninstall hermes
 herdr integration uninstall mastracode
+herdr integration uninstall zcode
 herdr integration uninstall qodercli
 herdr integration uninstall cursor
 herdr integration status [--outdated-only]

@@ -1,11 +1,11 @@
 ---
 title: Integrations
-description: Install Herdr integrations for Pi, OMP, Claude Code, Codex, GitHub Copilot CLI, Devin CLI, Droid, Kimi Code CLI, OpenCode, Kilo Code CLI, Hermes Agent, Qoder CLI, Cursor Agent CLI, MastraCode, and Grok CLI.
+description: Install Herdr integrations for Pi, OMP, Claude Code, Codex, GitHub Copilot CLI, Devin CLI, Droid, Kimi Code CLI, OpenCode, Kilo Code CLI, Hermes Agent, Qoder CLI, Cursor Agent CLI, MastraCode, Antigravity CLI, and Grok CLI.
 ---
 
 Herdr detects supported agents automatically. Official integrations can add native session identity for restore, lifecycle state reports, or both.
 
-Use integrations when you want native agent session restore from Claude Code/Codex/Copilot/Devin-style hooks, direct lifecycle reports from Pi/OMP/Kimi/OpenCode/Kilo/Hermes-style hooks or plugins, or both. See [Agents](/docs/agents/) for the full status authority model.
+Use integrations when you want native agent session restore, direct lifecycle reports, or both. See [Agents](/docs/agents/) for the full status authority model.
 
 ## Install integrations
 
@@ -26,6 +26,7 @@ herdr integration install hermes
 herdr integration install qodercli
 herdr integration install cursor
 herdr integration install mastracode
+herdr integration install antigravity-cli
 herdr integration install grok
 ```
 
@@ -46,6 +47,7 @@ herdr integration uninstall hermes
 herdr integration uninstall qodercli
 herdr integration uninstall cursor
 herdr integration uninstall mastracode
+herdr integration uninstall antigravity-cli
 herdr integration uninstall grok
 ```
 
@@ -55,14 +57,14 @@ Herdr uses integrations in two different ways:
 
 | Integration type | Agents | Effect |
 | --- | --- | --- |
-| Lifecycle authority | Pi, OMP, Kimi Code CLI, OpenCode, Kilo Code CLI, Hermes Agent, MastraCode | When installed and actively reporting for the pane, hook or plugin events author `idle`, `working`, and `blocked`. Herdr does not also use screen manifest fallback for that same lifecycle authority. |
-| Session identity | Claude Code, Codex, GitHub Copilot CLI, Devin CLI, Droid, Qoder CLI, Cursor Agent CLI, Grok CLI | The integration reports native session references for restore. State still comes from Herdr's screen manifest detection. |
+| Lifecycle authority | Pi, OMP, Kimi Code CLI, OpenCode, Kilo Code CLI, MastraCode | When installed and actively reporting for the pane, hook or plugin events author `idle`, `working`, and `blocked`. Herdr does not also use screen manifest fallback for that same lifecycle authority. |
+| Session identity | Claude Code, Codex, GitHub Copilot CLI, Devin CLI, Droid, Qoder CLI, Cursor Agent CLI, Hermes Agent, Antigravity CLI, Grok CLI | The integration reports native session references for restore. State still comes from Herdr's screen manifest detection. |
 
 Custom socket integrations can also report state when they define state that is not visible in the native terminal UI.
 
-Some integrations report native agent session references. Herdr uses official session references to resume Claude Code, Codex, Devin CLI, Droid, Kimi Code CLI, Qoder CLI, Cursor Agent CLI, Grok CLI, GitHub Copilot CLI, Pi, OMP, Hermes Agent, OpenCode, Kilo Code CLI, and MastraCode panes after a Herdr server restart unless `[session] resume_agents_on_restore = false` disables it.
+Some integrations report native agent session references. Herdr uses official session references to resume Claude Code, Codex, Devin CLI, Droid, Kimi Code CLI, Qoder CLI, Cursor Agent CLI, Grok CLI, GitHub Copilot CLI, Pi, OMP, Hermes Agent, OpenCode, Kilo Code CLI, MastraCode, and Antigravity CLI panes after a Herdr server restart unless `[session] resume_agents_on_restore = false` disables it.
 
-Native session restore requires current Herdr integrations: Pi integration version `2`, OMP version `3`, Claude Code version `6`, Codex version `5`, GitHub Copilot CLI version `2`, Devin CLI version `2`, Droid version `2`, Kimi Code CLI version `3`, Qoder CLI version `2`, Cursor Agent CLI version `1`, Grok CLI version `1`, OpenCode version `5`, Kilo Code CLI version `1`, Hermes Agent version `2`, or MastraCode version `1`. Check installed versions with `herdr integration status`.
+Native session restore requires current Herdr integrations: Pi integration version `2`, OMP version `3`, Claude Code version `6`, Codex version `5`, GitHub Copilot CLI version `2`, Devin CLI version `2`, Droid version `2`, Kimi Code CLI version `3`, Qoder CLI version `2`, Cursor Agent CLI version `1`, Grok CLI version `1`, OpenCode version `5`, Kilo Code CLI version `1`, Hermes Agent version `2`, MastraCode version `1`, or Antigravity CLI version `1`. Check installed versions with `herdr integration status`.
 
 ## Pi
 
@@ -79,6 +81,14 @@ Herdr writes the bundled extension to:
 ```
 
 If `PI_CODING_AGENT_DIR` is set, Herdr writes to `$PI_CODING_AGENT_DIR/extensions/herdr-agent-state.ts` instead. Herdr creates the extensions directory when the Pi agent directory already exists. Uninstall removes only that extension file.
+
+With the [`@juicesharp/rpiv-ask-user-question`](https://www.npmjs.com/package/@juicesharp/rpiv-ask-user-question) plugin installed, the extension also mirrors that plugin's questionnaire into the web UI. The plugin publishes the question it is waiting on through its documented event contract, so the web UI can offer the options the agent actually authored rather than a screen scrape, and a question also reports `blocked` precisely instead of relying on screen text.
+
+Answering is delivered by driving the plugin's own dialog: the extension moves the cursor to the chosen row and presses `Enter`. The dialog stays on screen and remains answerable in the terminal, so both routes work and neither is authoritative.
+
+Two limits are deliberate. The dialog has no number keys — it reacts only to arrows, `Enter`, `Esc`, `Tab`, `Space`, and a few control chords — so a choice is made by moving and confirming rather than by pressing a digit. And only a single-question dialog is mirrored: a multi-question dialog (tabs, checkboxes, per-question custom answers) has no faithful key sequence, so it is left entirely to the terminal rather than answered approximately. Typing a custom answer is likewise left to the terminal.
+
+Herdr keeps offering the question for `HERDR_PI_ASK_WAIT_MS` (120 s by default). If nobody answers by then the panel is withdrawn and the dialog is left untouched.
 
 ## OMP
 
@@ -108,6 +118,8 @@ herdr integration install claude
 
 The hook reports Claude Code session identity to the local Herdr socket on session start. Claude Code state comes from Herdr's screen manifest detection.
 
+It also registers a `PermissionRequest` hook, which lets an approval be answered from the web UI. When Claude is about to ask about a tool call, the hook publishes that approval as a structured question, waits a few seconds for an answer, and returns Claude's own allow/deny decision when one arrives. If nobody answers in time the hook produces no decision and Claude shows its normal prompt, so a terminal user is only delayed by that short window. Set `HERDR_CLAUDE_PERMISSION_WAIT_MS` in the agent's environment to change how long it waits. Approvals that are not answered in the web UI behave exactly as they did before the hook existed.
+
 Herdr uses `~/.claude` by default, or `CLAUDE_CONFIG_DIR` when set. The Claude config directory must already exist. Install writes `hooks/herdr-agent-state.sh` and updates `settings.json` with Herdr hook entries. Uninstall removes the matching hook entries and deletes the hook script.
 
 ## Codex
@@ -120,7 +132,51 @@ herdr integration install codex
 
 The Codex hook reports session identity through the same local socket API used by other integrations. Codex state comes from Herdr's screen manifest detection.
 
+It also registers a `PermissionRequest` hook, which lets an approval be answered from the web UI. When Codex is about to ask about a command, file change, or permission, the hook publishes that approval as a structured question, waits a few seconds for an answer, and returns Codex's own allow/deny decision when one arrives. If nobody answers in time the hook produces no decision and Codex shows its normal prompt, so a terminal user is only delayed by that short window. Set `HERDR_CODEX_PERMISSION_WAIT_MS` in the agent's environment to change how long it waits. Approvals that are not answered in the web UI behave exactly as they did before the hook existed.
+
+Like every Codex hook, it must be trusted before it runs. Codex asks for approval the first time it loads the hook; declining leaves the hook disabled and the integration otherwise working.
+
 Herdr uses `~/.codex` by default, or `CODEX_HOME` when set. The Codex config directory must already exist. Install writes `herdr-agent-state.sh`, updates `hooks.json`, and ensures `[features] hooks = true` in `config.toml`. It also removes the deprecated top-level `codex_hooks` flag when present. Uninstall removes Herdr entries from `hooks.json` and deletes the hook script, but leaves `config.toml` unchanged.
+
+On Linux and macOS, the same install also enables the first-party Codex rollout
+monitor on the Herdr server host. It reads the rollout JSONL associated with the
+official Codex session id and reports structured activity diagnostics. It never
+sends `continue`, presses Escape, interrupts a command, changes models, or
+alters Herdr's `working`, `idle`, or `blocked` Agent status. Right-click an
+Agent pane with an active diagnostic and choose **Inspect activity** to open a
+closable card in the upper-right corner.
+
+The monitor configuration is on the server host. Run the following there to
+print its directory:
+
+```bash
+herdr plugin config-dir herdr.codex-rollout-monitor
+```
+
+Its `config.toml` defaults to:
+
+```toml
+[monitor]
+enabled = true
+silent_after_seconds = 60
+suspected_stalled_after_seconds = 180
+startup_grace_seconds = 30
+poll_interval_ms = 1000
+
+[notification]
+enabled = true
+
+[diagnostic]
+include_command = true
+```
+
+`suspected_stalled_after_seconds` controls the warning threshold for an active
+tool with no new rollout event. `silent_after_seconds` only changes the
+intermediate command-running state. `notification.enabled` shows at most one
+Herdr notification per stall episode; later rollout progress closes that
+episode. `monitor.enabled` pauses monitoring without disabling the whole
+plugin service. The monitor reloads this file while it runs. Native Windows
+still installs the Codex hook but does not run this rollout-monitor service.
 
 ## GitHub Copilot CLI
 
@@ -212,7 +268,7 @@ herdr integration install hermes
 
 Herdr writes `~/.hermes/plugins/herdr-agent-state/` and enables `herdr-agent-state` in `~/.hermes/config.yaml`. The Hermes config directory must already exist. Restart Hermes after installing so the plugin loads. Uninstall removes the plugin directory and removes `herdr-agent-state` from `plugins.enabled`.
 
-The plugin reports lifecycle, tool, approval state, and session id while Hermes runs inside a Herdr pane. Herdr can use the reported session id to resume the pane with `hermes --resume <id>`. Native screen manifest detection remains available when the plugin is not installed.
+The plugin reports the resumable session id while Hermes runs inside a Herdr pane. Herdr uses screen manifest detection for `working`, `idle`, and `blocked`, and can use the reported session id to resume the pane with `hermes --resume <id>`.
 
 ## Qoder CLI
 
@@ -257,6 +313,20 @@ The hook reports MastraCode lifecycle state and thread identity to Herdr for aut
 Herdr uses `~/.mastracode`. Install writes `hooks/herdr-agent-state.sh` and adds Herdr command entries to `hooks.json`, creating the directory when missing. Uninstall removes the matching hook entries and deletes the hook script.
 
 Herdr resumes stored MastraCode threads with `mastracode --thread <id>`.
+
+## Antigravity CLI
+
+Install the Antigravity CLI hook:
+
+```bash
+herdr integration install antigravity-cli
+```
+
+Herdr uses `~/.gemini/config/` by default, or `ANTIGRAVITY_CLI_CONFIG_DIR` when set. This is the directory Antigravity CLI reads global customizations from, and it must already exist. Install writes `hooks/herdr-agent-state.sh` (or `herdr-agent-state.ps1` on Windows) and adds a Herdr-owned `herdr` block to `hooks.json`. Antigravity CLI keys `hooks.json` by hook name, so install rewrites only that block and leaves other named hooks untouched. Uninstall removes the `herdr` block and deletes the hook script.
+
+This integration is session-only. It reports the conversation the pane is running and does not report agent state, so Herdr keeps deriving working, idle, and blocked from what Antigravity CLI draws on screen.
+
+The hook runs on `PreInvocation`, so Herdr learns the conversation once the first prompt is sent. From then on Herdr can resume the pane with `agy --conversation <id>` after a Herdr server restart.
 
 ## Grok CLI
 

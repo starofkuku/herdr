@@ -54,9 +54,34 @@ Plugins support `windows` as a manifest platform in preview. GitHub install, loc
 
 Herdr can launch panes in the right directory and can create the initial workspace from the directory where you started Herdr. PowerShell directory changes after startup are different: the process field Herdr can inspect does not reliably track later logical `cd` changes. Use Herdr integrations or prompt shell integration for live cwd reporting.
 
-Windows Terminal may support image paste paths for specific agents, but Herdr's own clipboard-image reader is not wired on Windows yet. Treat `alt+v` image paste as unverified until the Windows clipboard bridge is implemented and tested. Remote clipboard image bridging is separate and remains tied to Unix/macOS `herdr --remote`.
+Windows Terminal may support image paste paths for specific agents, but Herdr's own clipboard-image reader is not wired for the native Windows client. Native Windows `Alt+V` image paste remains unverified. This is separate from running Herdr inside WSL: a WSL-based local client can use the supported-agent `herdr --remote` image bridge through Windows PowerShell.
 
 Kitty graphics remains experimental and is not claimed as Windows-supported yet. Leave `experimental.kitty_graphics = false` unless you are specifically testing image rendering in Windows Terminal.
+
+### Windows Terminal notifications
+
+Herdr can send agent notifications from native Windows sessions and WSL profiles when the outer Windows Terminal build includes OSC 777 desktop notifications. This requires a Canary/development build containing [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012), or Windows Terminal 1.26 or newer once released. As of July 15, 2026, Stable 1.24.11911.0 and Preview 1.25.1912.0 do not support OSC 777, so `delivery = "terminal"` will not produce a toast in those versions.
+
+On a supported Windows Terminal build, enable the compatibility setting in `settings.json` for the profile that launches Herdr:
+
+```json
+{
+  "profiles": {
+    "defaults": {
+      "compatibility.allowOSC777": true
+    }
+  }
+}
+```
+
+Then configure Herdr:
+
+```toml
+[ui.toast]
+delivery = "terminal"
+```
+
+Supported Windows Terminal builds expose this setting in the profile UI as **Allow OSC 777 (Desktop Notification) to show toast notifications**. The setting is disabled by default. If the option is unavailable, that Windows Terminal build does not support OSC 777; updating only to the current Stable or Preview release is not sufficient. OSC 777 lets terminal applications create Windows notifications with custom text, so enable it only for profiles where you trust the programs you run.
 
 ## Known caveats
 

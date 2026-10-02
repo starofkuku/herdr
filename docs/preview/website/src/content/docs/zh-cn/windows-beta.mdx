@@ -54,9 +54,34 @@ Windows 智能体进程检测会扫描窗格 shell 的后代进程,识别直接�
 
 Herdr 可以在正确的目录中启动窗格,并能从你启动 Herdr 的目录创建初始工作区。启动之后 PowerShell 的目录变化则不同: Herdr 能检查的进程字段无法可靠跟踪后续的逻辑 `cd` 变化。实时 cwd 上报请使用 Herdr 集成或提示符 shell 集成。
 
-Windows Terminal 可能为特定智能体支持图像粘贴路径,但 Herdr 自己的剪贴板图像读取器尚未在 Windows 上接通。在 Windows 剪贴板桥实现并测试之前,请把 `alt+v` 图像粘贴视为未验证。远程剪贴板图像桥是独立功能,仍然绑定于 Unix/macOS 的 `herdr --remote`。
+Windows Terminal 可能为特定智能体支持图像粘贴路径,但 Herdr 自己的剪贴板图像读取器尚未接入原生 Windows 客户端。原生 Windows 的 `Alt+V` 图像粘贴仍属未验证。这与在 WSL 内运行 Herdr 不同: WSL 本地客户端可以通过 Windows PowerShell 使用仅限 Codex 的 `herdr --remote` 图像桥。
 
 Kitty graphics 仍是实验性功能,尚未宣称支持 Windows。除非你专门在 Windows Terminal 中测试图像渲染,否则保持 `experimental.kitty_graphics = false`。
+
+### Windows Terminal 通知
+
+当外层 Windows Terminal 构建包含 OSC 777 桌面通知功能时，Herdr 可以从 Windows 原生会话和 WSL 配置文件发送智能体通知。这要求使用包含 [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012) 的 Canary/开发构建，或等待 Windows Terminal 1.26 及更高版本正式发布。截至 2026 年 7 月 15 日，Stable 1.24.11911.0 和 Preview 1.25.1912.0 均不支持 OSC 777，因此这些版本中的 `delivery = "terminal"` 不会产生 Toast 通知。
+
+在受支持的 Windows Terminal 构建中，请在 `settings.json` 里为启动 Herdr 的配置文件启用兼容性设置：
+
+```json
+{
+  "profiles": {
+    "defaults": {
+      "compatibility.allowOSC777": true
+    }
+  }
+}
+```
+
+然后配置 Herdr：
+
+```toml
+[ui.toast]
+delivery = "terminal"
+```
+
+受支持的 Windows Terminal 构建会在配置文件界面中显示 **允许 OSC 777 (Desktop Notification) 显示 toast 通知**。该设置默认关闭。如果找不到此选项，说明当前 Windows Terminal 构建不支持 OSC 777；仅更新到当前 Stable 或 Preview 版本仍不够。OSC 777 允许终端应用使用自定义文本创建 Windows 通知，因此只应在你信任所运行程序的配置文件中启用它。
 
 ## 已知注意事项
 

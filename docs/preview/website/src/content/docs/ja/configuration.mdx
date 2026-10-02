@@ -367,6 +367,35 @@ position = "bottom-right"
 
 アプリ内トーストには `herdr`、SSH 越しでも使いやすい外側のターミナル通知には `terminal`、ローカル OS の通知サービスには `system`、ポップアップを無効にするには `off` を選びます。Herdr はアクティブなタブのポップアップを抑制します。位置、遅延の挙動、クリップボードのフィードバック設定については、[設定リファレンス](/docs/config-reference/)で `ui.toast` を検索してください。
 
+WSL プロファイルを含む Windows Terminal クライアントでは、`delivery = "terminal"` に OSC 777 を使用しますが、外側のターミナルに [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012) が含まれている必要があります。2026 年 7 月 15 日時点では Stable 1.24.11911.0 と Preview 1.25.1912.0 は未対応です。対応する Canary/開発ビルド、または正式リリース後の Windows Terminal 1.26 以降を使用し、`compatibility.allowOSC777` を有効にしてください。設定方法とセキュリティ上の注意は [Windows ベータ](/docs/windows-beta/#windows-terminal-通知)を参照してください。
+
+## Bell 通知
+
+Bell は、同じバックグラウンド Agent の完了イベントと入力要求イベントに対する、独立したデフォルト無効の注意喚起です。通知遅延とアクティブタブのフォーカス抑制には従いますが、Toast やサウンドを有効にする必要はありません。
+
+```toml
+[ui.bell]
+enabled = true
+```
+
+Herdr はフォアグラウンドクライアントから ASCII BEL を 1 バイト出力します。実際の表示動作は外側のターミナルとデスクトップ環境が決定します:
+
+- Windows Terminal ではタスクバーアイコンを強調表示または点滅できます。プロファイルのデフォルト設定で `bellStyle` を `"taskbar"`（または `"all"`）にします:
+
+  ```json
+  {
+    "profiles": {
+      "defaults": {
+        "bellStyle": "taskbar"
+      }
+    }
+  }
+  ```
+- macOS では、Ghostty がフォーカスされていないとき、`bell-features = attention` により BEL が Dock アイコンの 1 回のバウンスへ変換されます。`attention` はデフォルトで有効で、macOS の通知権限やアクセシビリティ権限は不要です。Ghostty の設定を編集した後は `Command+Shift+,` で再読み込みしてください。`herdr --remote` では BEL を出力するローカル Mac クライアント側の設定で `[ui.bell]` を有効にします。
+- Linux では、タスクバーの強調表示はターミナルエミュレーターとデスクトップ環境の visual bell または urgency 対応に依存します。
+
+tmux などのマルチプレクサーは BEL を遮断または抑制することがあるため、Bell を外側のターミナルまで通す設定も必要です。Bell は注意を要求するだけで、フォーカスを奪いません。
+
 ## サウンド
 
 サウンド通知はローカルの Herdr クライアントで再生されます。カスタムサウンドは mp3 ファイルでなければなりません。相対パスは設定ファイルのディレクトリから解決されます。
@@ -413,6 +442,21 @@ resume_agents_on_restore = true
 ```
 
 公式インテグレーションからの有効なネイティブセッション参照を持つペインだけが再開できます。その他のペインは通常のシェルとして復元されます。対応する Agent と永続化の挙動については、[セッション状態と復元](/docs/session-state/)を参照してください。
+
+## codex-trace リンク
+
+[codex-trace](https://github.com/xianchoujiduluo/codex-trace) を使って Agent の会話をターンとツール呼び出しとして読む場合、Herdr はペインの会話へのディープリンクを作れます：
+
+```toml
+[codex_trace]
+url = "http://127.0.0.1:1422"
+```
+
+これを設定すると、Agent ペインを右クリックしたときのメニューに **Copy session link** が追加され、`http://127.0.0.1:1422/pi/01a0acf2-81bb-76f7-9e48-763112a909d3` のような URL がクリップボードに入ります。ブラウザに貼り付けるとその会話が開きます。
+
+この項目は、ペインに Agent があり、ファイル名からセッション ID を判別できるトランスクリプトパスを報告している場合にのみ表示されます。対応するのは pi、Claude Code、Codex です。それ以外の Agent と通常のシェルにはリンクできる会話がありません。`url` を未設定にすると項目自体が表示されません。
+
+コピーはマウス選択と同じ経路を使います。ターミナルが対応していれば OSC 52、そうでなければプラットフォームのクリップボードツールです。これにより、Herdr が SSH や WSL 上で動作していてもリンクを手元のクリップボードに渡せます。
 
 ## IME カーソルトラッキング
 

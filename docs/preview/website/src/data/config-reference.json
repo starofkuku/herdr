@@ -358,8 +358,8 @@
         {
           "key": "keys.remote_image_paste",
           "type": "string",
-          "default": "\"ctrl+v\"",
-          "description": "Local-client shortcut that sends a clipboard image to a remote Herdr session."
+          "default": "\"alt+v\"",
+          "description": "Local shortcut for clipboard image paste when using herdr --remote and the remote focused pane is detected as an agent with a supported path-based image attachment interface. Unsupported panes receive the original key."
         },
         {
           "key": "keys.new_tab",
@@ -653,6 +653,12 @@
           "description": "Draw borders around split panes."
         },
         {
+          "key": "ui.pane_scrollbars",
+          "type": "boolean",
+          "default": "true",
+          "description": "Draw interactive scrollbars beside terminal panes. Disable to reclaim the scrollbar column and keep it out of terminal-native selections."
+        },
+        {
           "key": "ui.pane_gaps",
           "type": "boolean",
           "default": "true",
@@ -669,6 +675,16 @@
           "type": "boolean",
           "default": "false",
           "description": "Hide the tab row when the workspace has one tab."
+        },
+        {
+          "key": "ui.tab_bar_position",
+          "type": "enum",
+          "default": "\"top\"",
+          "description": "Place the desktop tab row above or below the terminal panes.",
+          "values": [
+            "top",
+            "bottom"
+          ]
         },
         {
           "key": "ui.agent_panel_sort",
@@ -702,7 +718,7 @@
           "key": "ui.sidebar.spaces.row_gap",
           "type": "integer",
           "default": "0",
-          "description": "Blank terminal rows between expanded Space sidebar entries. Set to 1 to restore the previous spacing. Consecutive indented worktree children remain packed as one group."
+          "description": "Blank terminal rows between worktree groups and unrelated top-level Spaces. Worktree parents and their indented children remain packed."
         },
         {
           "key": "ui.sidebar.spaces.rows",
@@ -723,34 +739,28 @@
       "title": "Notifications",
       "keys": [
         {
-          "key": "ui.toast.delivery",
-          "type": "enum",
-          "default": "\"off\"",
-          "description": "Popup notification delivery. off disables popups, herdr shows in-app toasts, terminal asks the outer terminal for a desktop notification, system asks the OS notification service directly.",
-          "values": [
-            "off",
-            "herdr",
-            "terminal",
-            "system"
-          ]
-        },
-        {
-          "key": "ui.toast.delay_seconds",
+          "key": "notification.feishu.delay_seconds",
           "type": "integer",
-          "default": "1",
-          "description": "Seconds to wait before sending finished or needs-input agent notifications. Herdr notifies only if the pane is still in the same state when the delay expires. 0 is instant; valid values are 0 through 3600."
+          "default": "0",
+          "description": "Seconds a state must hold before it is pushed. Separate from ui.toast.delay_seconds so the interface's pacing does not decide how quickly a phone is told. 0 is immediate."
         },
         {
-          "key": "ui.toast.herdr.position",
-          "type": "enum",
-          "default": "\"bottom-right\"",
-          "description": "In-app toast position, relative to the full Herdr frame.",
-          "values": [
-            "top-left",
-            "top-right",
-            "bottom-left",
-            "bottom-right"
-          ]
+          "key": "notification.feishu.enabled",
+          "type": "boolean",
+          "default": "false",
+          "description": "Push agent notifications to a Feishu custom-bot webhook. Off by default: enabling it sends agent activity to a chat room."
+        },
+        {
+          "key": "notification.feishu.secret",
+          "type": "string",
+          "default": "unset",
+          "description": "The bot's signing key. Empty sends the request unsigned; a bot configured for signature verification needs it."
+        },
+        {
+          "key": "notification.feishu.url",
+          "type": "string",
+          "default": "unset",
+          "description": "The bot's incoming-webhook URL. Empty means there is nowhere to push."
         },
         {
           "key": "ui.toast.clipboard.enabled",
@@ -771,6 +781,48 @@
             "bottom-center",
             "bottom-right"
           ]
+        },
+        {
+          "key": "ui.toast.delay_seconds",
+          "type": "integer",
+          "default": "1",
+          "description": "Seconds to wait before sending finished or needs-input agent notifications. Herdr notifies only if the pane is still in the same state when the delay expires. 0 is instant; valid values are 0 through 3600."
+        },
+        {
+          "key": "ui.toast.delivery",
+          "type": "enum",
+          "default": "\"off\"",
+          "description": "Popup notification delivery. off disables popups, herdr shows in-app toasts, terminal asks the outer terminal for a desktop notification, system asks the OS notification service directly.",
+          "values": [
+            "off",
+            "herdr",
+            "terminal",
+            "system"
+          ]
+        },
+        {
+          "key": "ui.toast.herdr.position",
+          "type": "enum",
+          "default": "\"bottom-right\"",
+          "description": "In-app toast position, relative to the full Herdr frame.",
+          "values": [
+            "top-left",
+            "top-right",
+            "bottom-left",
+            "bottom-right"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bell",
+      "title": "Bell",
+      "keys": [
+        {
+          "key": "ui.bell.enabled",
+          "type": "boolean",
+          "default": "false",
+          "description": "Emit terminal BEL for background agent finished and needs-attention events. The outer terminal decides whether this flashes a taskbar icon, bounces a Dock icon, rings, or does nothing."
         }
       ]
     },
@@ -1001,6 +1053,17 @@
           ]
         },
         {
+          "key": "ui.sound.agents.zcode",
+          "type": "enum",
+          "default": "\"default\"",
+          "description": "Sound override for detected ZCode agents.",
+          "values": [
+            "default",
+            "on",
+            "off"
+          ]
+        },
+        {
           "key": "ui.sound.agents.maki",
           "type": "enum",
           "default": "\"default\"",
@@ -1046,6 +1109,60 @@
           "type": "boolean",
           "default": "true",
           "description": "Add keepalive fallbacks and private connection reuse for `herdr --remote`. Set false to run plain ssh unchanged."
+        }
+      ]
+    },
+    {
+      "id": "web",
+      "title": "Web",
+      "keys": [
+        {
+          "key": "web.bind",
+          "type": "string",
+          "default": "\"127.0.0.1\"",
+          "description": "Address the web gateway listens on. Prefer a private interface such as a WireGuard address over 0.0.0.0."
+        },
+        {
+          "key": "web.port",
+          "type": "integer",
+          "default": "8787",
+          "description": "TCP port for the web gateway."
+        },
+        {
+          "key": "web.static_dir",
+          "type": "string",
+          "default": "none",
+          "description": "Directory containing the built web UI. Served from disk at request time and never embedded in the binary; when unset only the WebSocket endpoint is served."
+        },
+        {
+          "key": "web.update_url",
+          "type": "string",
+          "default": "unset",
+          "description": "URL the web UI is downloaded from by `herdr update web`. The page is published on its own release, so it can be updated without touching the binary. Requires `web.static_dir`."
+        },
+        {
+          "key": "web.uploads_dir",
+          "type": "string",
+          "default": "none",
+          "description": "Directory uploaded files are written to and served from at /uploads/<id>.<ext>. Defaults to an uploads directory inside web.static_dir; without either setting uploads are refused."
+        },
+        {
+          "key": "web.allowed_origins",
+          "type": "array of strings",
+          "default": "[]",
+          "description": "Optional WebSocket Origin allowlist. Empty disables the check; set it when the page is hosted somewhere other than this gateway."
+        },
+        {
+          "key": "web.key",
+          "type": "string",
+          "default": "none",
+          "description": "Gateway key. Keeping it here survives restarts; the file must not be readable by other users, so run chmod 600 on config.toml. HERDR_WEB_KEY and HERDR_WEB_KEY_FILE take precedence. Without any key the gateway does not listen."
+        },
+        {
+          "key": "codex_trace.url",
+          "type": "string",
+          "default": "unset",
+          "description": "Base URL of a running codex-trace instance, for example http://127.0.0.1:1422. When set, the pane right-click menu offers \"Copy session link\" for agents whose transcript maps to a codex-trace conversation. Unset hides the action."
         }
       ]
     },

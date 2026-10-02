@@ -37,16 +37,16 @@ If you already use mise:
 mise use -g herdr
 ```
 
-If mise reports `herdr not found in mise tool registry`, update mise and retry. Older mise versions predate the Herdr registry entry; `mise use -g github:ogulcancelik/herdr` works as a temporary fallback.
+If mise reports `herdr not found in mise tool registry`, update mise and retry. Older mise versions predate the Herdr registry entry; `mise use -g github:herdrdev/herdr` works as a temporary fallback.
 
 ## Install with Nix
 
 If you already use Nix, Herdr provides a flake that builds Herdr from source:
 
 ```bash
-nix run github:ogulcancelik/herdr/v0.x.y
-nix build github:ogulcancelik/herdr/v0.x.y
-nix profile install github:ogulcancelik/herdr/v0.x.y
+nix run github:herdrdev/herdr/v0.x.y
+nix build github:herdrdev/herdr/v0.x.y
+nix profile install github:herdrdev/herdr/v0.x.y
 ```
 
 Replace `v0.x.y` with the latest release tag. You can omit the tag to track `master`, but release tags are recommended for normal installs.
@@ -54,7 +54,7 @@ Replace `v0.x.y` with the latest release tag. You can omit the tag to track `mas
 The flake also exposes a development shell:
 
 ```bash
-nix develop github:ogulcancelik/herdr
+nix develop github:herdrdev/herdr
 ```
 
 Update through the same Nix workflow you used to install Herdr. For a profile install, list your profile entries and upgrade the Herdr entry:
@@ -72,7 +72,7 @@ nix flake update herdr
 
 ## Download manually
 
-You can also download a binary from [GitHub releases](https://github.com/ogulcancelik/herdr/releases).
+You can also download a binary from [GitHub releases](https://github.com/herdrdev/herdr/releases).
 
 Choose the asset that matches your system:
 
@@ -147,6 +147,21 @@ herdr update --handoff
 ```
 
 Live handoff does not apply to Homebrew, mise, or Nix package-manager updates. For those installs, update with the package manager, then restart that Herdr session when you are ready to use the new server. If a running session still uses the old server, stop it with `herdr server stop` or `herdr session stop <name>`, then run Herdr again.
+
+## Switching versions
+
+`herdr switch` installs a specific released version in place of the one you are running:
+
+```bash
+herdr switch 0.7.30    # a version older than the one installed
+herdr switch --list    # what is available, with the installed one marked
+```
+
+It is for direct installs only, and refuses to run under Homebrew, mise, or Nix for the same reason `herdr update` does: those manage the binary themselves.
+
+The download is verified against the sha256 checksum GitHub publishes for the release asset. Releases from before that metadata existed have no checksum, and the command says so rather than failing — the alternative would be to make those versions unreachable.
+
+Running sessions are handled the same way an update handles them, including the prompt to stop an old server when the client/server protocol changed.
 
 ## Requirements
 

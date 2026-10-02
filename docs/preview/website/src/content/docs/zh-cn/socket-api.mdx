@@ -615,6 +615,19 @@ workspace 的 get/list 响应会公开生成的 `tokens` 映射,空间侧边栏�
 
 钩子可能乱序发送更新时,使用 `seq`。对同一 `source`,序号小于等于最后接受序号的上报会被 API 接受,但被窗格状态忽略。每个窗格或工作区在其生命周期内最多接受来自 32 个不同来源的带序号令牌上报;清除或过期不会释放这些来源名额。
 
+`pane.report_diagnostic` 用于不接管智能体生命周期状态的结构化短期诊断。
+`pane.get`、`pane.list`、`agent.get` 和 `agent.list` 会在 `diagnostics`
+数组中返回有效诊断。诊断只保存在服务器运行时,冷重启后不会恢复。
+
+```json
+{"id":"req_diagnostic","method":"pane.report_diagnostic","params":{"pane_id":"w1:p1","source":"example.monitor","diagnostic_id":"activity","severity":"warning","state":"suspected_stalled","title":"Agent activity","summary":"The active tool has not produced a new event","fields":[{"key":"tool","label":"Tool","value":"exec_command"}],"seq":42,"ttl_ms":5000,"updated_unix_ms":1770000000000}}
+```
+
+一个窗格最多保留八条诊断,每条最多 12 个字段。`ttl_ms` 可省略,范围与
+元数据相同,为 1 到 86400000 毫秒。使用 `seq` 后,同一 source 和
+diagnostic id 的后续上报及 `pane.clear_diagnostic` 必须使用严格递增的
+序号;不带序号的上报不能替换已有的带序号记录。
+
 ## 事件订阅
 
 需要长期数据流时订阅事件:

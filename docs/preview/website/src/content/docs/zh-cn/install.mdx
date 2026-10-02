@@ -37,16 +37,16 @@ brew install herdr
 mise use -g herdr
 ```
 
-如果 mise 报 `herdr not found in mise tool registry`,请更新 mise 后重试。旧版 mise 早于 Herdr 的注册表条目;`mise use -g github:ogulcancelik/herdr` 可以作为临时兜底。
+如果 mise 报 `herdr not found in mise tool registry`,请更新 mise 后重试。旧版 mise 早于 Herdr 的注册表条目;`mise use -g github:herdrdev/herdr` 可以作为临时兜底。
 
 ## 用 Nix 安装
 
 如果你已经在用 Nix,Herdr 提供了一个从源码构建的 flake:
 
 ```bash
-nix run github:ogulcancelik/herdr/v0.x.y
-nix build github:ogulcancelik/herdr/v0.x.y
-nix profile install github:ogulcancelik/herdr/v0.x.y
+nix run github:herdrdev/herdr/v0.x.y
+nix build github:herdrdev/herdr/v0.x.y
+nix profile install github:herdrdev/herdr/v0.x.y
 ```
 
 把 `v0.x.y` 替换为最新的发布标签。省略标签可以跟踪 `master`,但常规安装建议使用发布标签。
@@ -54,7 +54,7 @@ nix profile install github:ogulcancelik/herdr/v0.x.y
 flake 还提供一个开发 shell:
 
 ```bash
-nix develop github:ogulcancelik/herdr
+nix develop github:herdrdev/herdr
 ```
 
 更新时使用你安装 Herdr 的同一套 Nix 工作流。对于 profile 安装,列出 profile 条目并升级 Herdr 条目:
@@ -72,7 +72,7 @@ nix flake update herdr
 
 ## 手动下载
 
-也可以从 [GitHub releases](https://github.com/ogulcancelik/herdr/releases) 下载二进制文件。
+也可以从 [GitHub releases](https://github.com/herdrdev/herdr/releases) 下载二进制文件。
 
 选择匹配你系统的产物:
 
@@ -147,6 +147,21 @@ herdr update --handoff
 ```
 
 实时交接不适用于 Homebrew、mise 或 Nix 的包管理器更新。这些安装先用包管理器更新,然后在准备好使用新服务器时重启那个 Herdr 会话。如果运行中的会话仍在使用旧服务器,用 `herdr server stop` 或 `herdr session stop <name>` 停止它,再重新运行 Herdr。
+
+## 切换版本
+
+`herdr switch` 会用指定版本就地替换当前正在运行的版本：
+
+```bash
+herdr switch 0.7.30    # 比当前已安装的版本更旧
+herdr switch --list    # 列出可用版本，并标出已安装的那个
+```
+
+仅适用于直接安装。与 `herdr update` 相同的理由，它在 Homebrew、mise、Nix 下会拒绝执行：这些工具自己管理二进制文件。
+
+下载会用 GitHub 为该发布资产公布的 sha256 校验和进行校验。早于该元数据存在的发布没有校验和，此时命令会说明情况而不是直接失败——否则那些版本就无法使用了。
+
+正在运行的会话与更新时同样处理，包括在客户端/服务端协议变化时询问是否停止旧服务端。
 
 ## 系统要求
 

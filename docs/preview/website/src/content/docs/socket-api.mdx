@@ -364,6 +364,8 @@ Remove a linked checkout:
 {"id":"req_3","method":"worktree.remove","params":{"workspace_id":"2","force":false}}
 ```
 
+`files.list`, `files.read`, `files.search`, and `git.status` are read-only and scoped to one pane: each takes a `pane_id` and resolves its project root from that pane's working directory (falling back to the workspace's own directory). `files.list` takes an optional `path` relative to that root and returns one directory's entries, sorted directories-first; `files.read` takes a `path` and returns the file's text, with `binary` or `too_large` set instead of content when the file cannot be shown. Paths that are absolute, contain `..`, or resolve outside the project root through a symlink are refused with `path_outside_workspace` or `invalid_request`. `files.search` walks the same tree with the same pruning and answers with every file path under the root — optionally filtered by a case-insensitive substring `query` — which is what a client needs to build its own search index, since the tree itself is lazy. The walk is bounded on entries visited and on returned hits, and reports `truncated: true` when either ceiling was reached. `git.status` reports the changed files under the project root, each with `modified`, `added`, `deleted`, `renamed`, or `untracked`; a directory that is not a repository answers with `available: false` rather than an error.
+
 Use at most one of `workspace_id` or `cwd` for `worktree.list`, `worktree.create`, and `worktree.open`; omit both to use the active workspace. Use exactly one of `path` or `branch` for `worktree.open`. Raw socket `cwd` and `path` values must be absolute; the CLI expands relative `--cwd` and `--path` values before sending requests. Workspace responses include optional `worktree` provenance when a workspace belongs to a Herdr worktree group. Worktree commands can emit `workspace.updated` when an existing workspace gains or changes worktree provenance.
 
 Worktree commands also emit lifecycle events. `worktree.create` emits `workspace.created`, `tab.created`, `pane.created`, and `worktree.created`. `worktree.open` emits `worktree.opened`, and it also emits workspace/tab/pane creation events when it opens a new Herdr workspace. `worktree.remove` emits `worktree.removed`; if the linked workspace is still open, it also emits `workspace.closed`.
@@ -741,6 +743,39 @@ Presentation text is normalized before storage. Herdr trims surrounding whitespa
 Use `ttl_ms` for short-lived metadata. It must be between `1` and `86400000` milliseconds. Omit `ttl_ms` for metadata that should stay until replaced, cleared, or the pane/workspace closes. Presentation fields retain their existing source-scoped expiry behavior; each token updated by the call receives its own deadline. Token metadata is not restored after a server restart.
 
 Use `seq` when a hook may send updates out of order. For the same `source`, reports with a sequence number less than or equal to the last accepted sequence are accepted by the API but ignored by the pane state. A pane or workspace accepts sequenced token reports from at most 32 distinct sources during its lifetime; clearing or expiry does not release those source slots.
+
+Use `pane.report_diagnostic` for structured, short-lived inspection data that
+must not take over Agent lifecycle state. `pane.get`, `pane.list`, `agent.get`,
+and `agent.list` expose active diagnostics in their `diagnostics` array. Reports
+are kept only in the server runtime and are not restored after a cold restart.
+
+```json
+{
+  "id": "req_diagnostic",
+  "method": "pane.report_diagnostic",
+  "params": {
+    "pane_id": "w1:p1",
+    "source": "example.monitor",
+    "diagnostic_id": "activity",
+    "severity": "warning",
+    "state": "suspected_stalled",
+    "title": "Agent activity",
+    "summary": "The active tool has not produced a new event",
+    "fields": [{"key":"tool","label":"Tool","value":"exec_command"}],
+    "seq": 42,
+    "ttl_ms": 5000,
+    "updated_unix_ms": 1770000000000
+  }
+}
+```
+
+`source`, `diagnostic_id`, `state`, and field `key` are ASCII identifiers.
+`title`, `summary`, field labels, and field values are normalized text. A pane
+may retain up to eight diagnostics with at most 12 fields each. `ttl_ms` is
+optional and uses the same 1–86400000 millisecond range as metadata. When a
+report uses `seq`, later reports and `pane.clear_diagnostic` calls for the same
+source and diagnostic id must use a strictly larger sequence number; an
+unsequenced report cannot replace a sequenced record.
 
 ## Event subscriptions
 

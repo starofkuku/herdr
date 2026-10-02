@@ -19,6 +19,10 @@ herdr --no-session            # single-process escape hatch
 herdr --default-config        # print default config
 herdr update                  # download and install from the configured channel
 herdr update --handoff        # opt into live handoff for supported running servers
+herdr update web              # download and install the newest web UI page
+herdr update web --check      # report the available web UI version, writing nothing
+herdr switch 0.7.30            # install a specific released version
+herdr switch --list            # list released versions, marking the installed one
 herdr completion zsh          # generate a zsh completion script
 herdr channel show            # print stable or preview
 herdr channel set preview     # opt into preview builds
@@ -112,6 +116,14 @@ herdr session delete <name> [--json]
 
 Use `default` as the session name when you need to stop the default session explicitly.
 
+## Web UI
+
+```bash
+herdr web
+```
+
+Serve the browser UI for every session. Requires `HERDR_WEB_KEY`; see [Web UI](/docs/web-ui/).
+
 ## Workspaces
 
 ```bash
@@ -135,10 +147,10 @@ A workspace is the top-level project or work context. Creating one also creates 
 ## Worktrees
 
 ```bash
-herdr worktree list [--workspace ID | --cwd PATH] [--json]
-herdr worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus] [--json]
-herdr worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus] [--json]
-herdr worktree remove --workspace ID [--force] [--json]
+herdr worktree list [--workspace ID | --cwd PATH]
+herdr worktree create [--workspace ID | --cwd PATH] [--branch NAME] [--base REF] [--path PATH] [--label TEXT] [--focus] [--no-focus]
+herdr worktree open [--workspace ID | --cwd PATH] (--path PATH | --branch NAME) [--label TEXT] [--focus] [--no-focus]
+herdr worktree remove --workspace ID [--force]
 ```
 
 Worktrees are normal Herdr workspaces with Git checkout provenance. `worktree create` creates a Git worktree checkout, opens it as a workspace, and groups it with the parent repo workspace. If `--branch` names an existing local branch, Herdr checks it out; otherwise it creates the branch from `--base` or `HEAD`. Without `--path`, Herdr creates the checkout under `<worktrees.directory>/<repo>/<branch-slug>`.
@@ -196,6 +208,7 @@ Read output:
 herdr pane read <pane_id> [--source visible|recent|recent-unwrapped|detection] [--lines N] [--format text|ansi] [--ansi] [--raw]
 herdr pane read <pane_id> --source visible --ansi
 herdr pane read <pane_id> --source recent-unwrapped --lines 120
+herdr pane read <pane_id> --source recent-unwrapped --lines 120 --offset 120
 ```
 
 `pane read` prints UTF-8 terminal text directly. ANSI escapes are stripped by default; use `--format ansi` or `--ansi` to preserve them where the source exposes styling. The `detection` source is always plain text. For recent sources, `--lines N` selects the last N rendered terminal rows before optional unwrapping; without it, reads default to 80 rows. For `visible` and `detection`, omitting `--lines` returns the full snapshot, while specifying it keeps the last N newline-delimited lines. `agent read` uses the same output and line behavior.
@@ -247,6 +260,43 @@ herdr pane release-agent <pane_id> \
 `report-agent-session` updates native session identity without reporting lifecycle state. `release-agent` ends that source's lifecycle authority when its agent process exits.
 
 `pane get`, `pane list`, `agent get`, and `agent list` include a read-only `agent_session` object when an official integration has reported a native session reference. If no native session reference is stored, the field is omitted.
+
+Publish a structured question an agent is waiting on, and collect the answer:
+
+```bash
+herdr pane report-interaction <pane_id> \
+  --source ID \
+  --request-id ID \
+  --kind approval|question \
+  --title TEXT \
+  [--summary TEXT] \
+  [--question QUESTION_ID=TEXT] \
+  [--option QUESTION_ID=OPTION_ID=LABEL] \
+  [--option-description OPTION_ID=TEXT] \
+  [--multi-select QUESTION_ID] \
+  [--allow-custom QUESTION_ID] \
+  [--seq N] \
+  [--ttl-ms N]
+
+herdr pane clear-interaction <pane_id> --source ID --request-id ID [--seq N]
+
+herdr pane answer-interaction <pane_id> --request-id ID \
+  --answer QUESTION_ID=OPTION_ID[,OPTION_ID...]
+
+herdr pane take-interaction-answer <pane_id> --source ID --request-id ID
+```
+
+Use this when the agent publishes its own question and options, so a client can present the options the agent actually offered instead of leaving the reader to work them out from the rendered screen. The question and option ids are passed through unchanged, so the integration maps them back to its own protocol.
+
+`clear-interaction` withdraws a request that is no longer pending, and only clears the request named by `--request-id`, so a client cannot clear a newer question that replaced the one it saw.
+
+`take-interaction-answer` is how the integration that asked collects the answer. It prints one JSON object:
+
+```json
+{"answers": [{"question_id": "decision", "option_ids": ["allow"]}], "pending": false}
+```
+
+`pending` reports whether the request is still outstanding. An integration that waits for an answer polls this command and keeps waiting while `pending` is `true`; a `false` with no answers means the question was answered elsewhere, withdrawn, or expired, so the wait should end and the decision be handed back rather than held open.
 
 Those commands include `foreground_cwd` when Herdr can resolve the cwd of the foreground process controlling the pane. The existing `cwd` field remains the pane/workspace cwd used for labels and follow-cwd behavior.
 
@@ -309,6 +359,8 @@ Start returns only after the expected agent owns the same terminal and is ready 
 `agent send-keys` sends logical terminal keys such as `enter`, `up`, `esc`, or `ctrl+c`. Herdr validates every key before writing any bytes. `agent read` reads the resolved terminal stream, and `agent rename` names an already detected agent.
 
 `agent explain` asks the running server to classify the same bottom-buffer detection snapshot used by screen detection, so live output reflects the server's active manifest cache. Because this uses the `agent.explain` socket method, restart or hand off to an updated server after upgrading Herdr before using live explain. Use `--file PATH --agent LABEL` to explain a saved fixture locally instead. The default output shows the agent, final state, manifest source and version, matched rule with its region evidence, and any fallback, skip, or warning reasons. Add `--verbose` for visible evidence flags, cached remote version, local override shadowing, remote update status, and the full evaluated-rules list with matcher and region evidence. Add `--json` for issue reports or tests.
+
+`agent restart` requires the target Agent to be idle and to have an officially reported native session. It schedules the Agent to resume in the same pane and preserves the existing layout; the command returns after scheduling and does not wait for the resumed Agent to become ready.
 
 Use `pane send-text`, `pane send-keys`, `pane run`, and `terminal attach` for ordinary terminals, servers, tests, shells, or low-level terminal control. Use `pane run` when you want to submit a command with Enter.
 
@@ -479,6 +531,7 @@ These meanings apply to reads. For `pane wait-output` only, both `recent` and `r
 | `HERDR_CONFIG_PATH` | Override the config file path. |
 | `HERDR_SESSION` | Select a named session for CLI commands. |
 | `HERDR_SOCKET_PATH` | Low-level socket path override. |
+| `HERDR_PROCESS_DETECTION` | Linux process detection strategy: `native` (default) or opt-in `child-groups`. |
 | `HERDR_ENV` | Set to `1` inside Herdr-managed pane processes. |
 | `HERDR_PANE_ID` | Public pane id for the running pane process. |
 | `HERDR_TAB_ID` | Public tab id for the running pane process. |
