@@ -212,6 +212,16 @@ mod tests {
             Some(crate::detect::Agent::Pi),
             crate::detect::AgentState::Idle,
         );
+        // The two-phase hook authority rejects a session-ref report until a
+        // persisted session from the same source anchors the pane.
+        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+            source: "herdr:pi".into(),
+            agent: "pi".into(),
+            session_ref: crate::agent_resume::AgentSessionRef::path(
+                "/tmp/herdr-session-link-anchor.jsonl",
+            )
+            .unwrap(),
+        });
         terminal
             .set_agent_session_ref(
                 "herdr:pi".into(),

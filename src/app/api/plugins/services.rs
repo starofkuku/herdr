@@ -268,13 +268,16 @@ fn spawn_service(spec: &PluginServiceSpec) -> std::io::Result<Child> {
             current_exe.display().to_string(),
         ));
     }
-    crate::plugin_command::command_for_argv(program, &args)
-        .current_dir(&spec.plugin_root)
-        .envs(env)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
+    crate::plugin_command::command_for_argv_in_dir(
+        program,
+        &args,
+        std::path::Path::new(&spec.plugin_root),
+    )
+    .envs(env)
+    .stdin(Stdio::null())
+    .stdout(Stdio::null())
+    .stderr(Stdio::null())
+    .spawn()
 }
 
 fn stop_service_child(child: &mut Option<Child>) {
@@ -305,6 +308,7 @@ mod tests {
             enabled: true,
             platforms: None,
             build: Vec::new(),
+            startup: Vec::new(),
             actions: Vec::new(),
             events: Vec::new(),
             panes: Vec::new(),

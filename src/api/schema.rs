@@ -81,6 +81,8 @@ pub enum Method {
     WorkspaceRename(WorkspaceRenameParams),
     #[serde(rename = "workspace.move")]
     WorkspaceMove(WorkspaceMoveParams),
+    #[serde(rename = "workspace.move_block")]
+    WorkspaceMoveBlock(WorkspaceMoveBlockParams),
     #[serde(rename = "workspace.report_metadata")]
     WorkspaceReportMetadata(WorkspaceReportMetadataParams),
     #[serde(rename = "workspace.close")]
@@ -123,16 +125,24 @@ pub enum Method {
     AgentRead(AgentReadParams),
     #[serde(rename = "agent.explain")]
     AgentExplain(AgentTarget),
-    #[serde(rename = "agent.send")]
-    AgentSend(AgentSendParams),
+    #[serde(rename = "agent.send_keys")]
+    AgentSendKeys(AgentSendKeysParams),
     #[serde(rename = "agent.rename")]
     AgentRename(AgentRenameParams),
+    #[serde(rename = "agent.view.set")]
+    AgentViewSet(AgentViewSetParams),
+    #[serde(rename = "agent.view.clear")]
+    AgentViewClear(AgentViewClearParams),
     #[serde(rename = "agent.focus")]
     AgentFocus(AgentTarget),
     #[serde(rename = "agent.start")]
     AgentStart(AgentStartParams),
     #[serde(rename = "agent.restart")]
     AgentRestart(AgentRestartParams),
+    #[serde(rename = "agent.prompt")]
+    AgentPrompt(AgentPromptParams),
+    #[serde(rename = "agent.wait")]
+    AgentWait(AgentWaitParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),
     #[serde(rename = "pane.swap")]
@@ -186,6 +196,24 @@ pub enum Method {
     /// The subagent runs the pane's agent started.
     #[serde(rename = "pane.subagents")]
     PaneSubagents(PaneSubagentsParams),
+    #[serde(rename = "pane.graphics.set")]
+    PaneGraphicsSet(PaneGraphicsSetParams),
+    #[serde(rename = "pane.graphics.clear")]
+    PaneGraphicsClear(PaneGraphicsClearParams),
+    #[serde(rename = "pane.graphics.info")]
+    PaneGraphicsInfo(PaneTarget),
+    #[serde(rename = "pane.graphics.stream")]
+    #[schemars(skip)]
+    PaneGraphicsStream(PaneGraphicsStreamParams),
+    #[serde(skip)]
+    #[schemars(skip)]
+    PaneGraphicsStreamSet(PaneGraphicsSetParams),
+    #[serde(skip)]
+    #[schemars(skip)]
+    PaneGraphicsStreamOpen(PaneGraphicsStreamParams),
+    #[serde(skip)]
+    #[schemars(skip)]
+    PaneGraphicsStreamClose(PaneGraphicsStreamParams),
     #[serde(rename = "pane.report_agent")]
     PaneReportAgent(PaneReportAgentParams),
     #[serde(rename = "pane.report_agent_session")]
@@ -219,6 +247,8 @@ pub enum Method {
     PaneReleaseAgent(PaneReleaseAgentParams),
     #[serde(rename = "pane.close")]
     PaneClose(PaneTarget),
+    #[serde(rename = "popup.close")]
+    PopupClose(EmptyParams),
     #[serde(rename = "events.subscribe")]
     EventsSubscribe(EventsSubscribeParams),
     #[serde(rename = "events.wait")]

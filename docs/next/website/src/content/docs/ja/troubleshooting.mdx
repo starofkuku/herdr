@@ -12,6 +12,19 @@ herdr status
 
 OS、外側のターミナル名とバージョン、ローカルまたはリモートのどちらか、tmux を使用しているかも記録してください。
 
+## Windows で CJK IME の UI 位置がずれる、またはカーソルがちらつく
+
+Herdr は、ConPTY ベースのマルチプレクサーによる画面再描画中にネイティブカーソルがちらついたり、ジャンプしたり、古い位置を表示したりすることを避けるため、ネイティブ Windows と WSL ではデフォルトでセル描画カーソルを使います。セル描画カーソルは、韓国語、日本語、中国語 IME の変換中テキストや候補 UI が使用するネイティブカーソルの基準位置を提供できません。
+
+IME の変換中テキストや候補ウィンドウが誤った位置に表示される場合は、ネイティブカーソルを有効にしてください:
+
+```toml
+[ui]
+host_cursor = "native"
+```
+
+ネイティブモードでは IME の基準位置が正しくなりますが、出力中にカーソル表示が乱れることがあります。視覚的に安定したカーソルへ戻すには `host_cursor = "drawn"` を設定するか、設定を削除して Windows のデフォルトを使ってください。現在の制限については [Windows ベータ](/ja/docs/windows-beta/) を参照してください。
+
 ## Enter、Tab、Backspace が 2 回入力される
 
 古いターミナルでは、アプリケーションが Kitty キーボードイベント報告を有効にすると、Enter、Tab、Backspace のリリースをプレスと同じバイトとして送ることがあります。送信後は Herdr から重複したバイトを区別できません。
@@ -24,7 +37,7 @@ OS、外側のターミナル名とバージョン、ローカルまたはリモ
 | foot | 1.20.0 |
 | Alacritty | 0.15.0 |
 
-長期サポート版 Linux ディストリビューションの古いターミナルパッケージで特に発生します。確認済みの境界キャプチャと上流参照は [Herdr issue #1116](https://github.com/ogulcancelik/herdr/issues/1116) を参照してください。現在のターミナルでも発生する場合は、正確なバージョンと Herdr の外でも発生するかを報告してください。
+長期サポート版 Linux ディストリビューションの古いターミナルパッケージで特に発生します。確認済みの境界キャプチャと上流参照は [Herdr issue #1116](https://github.com/herdrdev/herdr/issues/1116) を参照してください。現在のターミナルでも発生する場合は、正確なバージョンと Herdr の外でも発生するかを報告してください。
 
 ## Option+Left または Option+Right を押すと `;3D` または `;3C` が入力される
 
@@ -44,7 +57,7 @@ map alt+left send_text all \x1bb
 map alt+right send_text all \x1bf
 ```
 
-ターミナルアプリケーションが Alt+Left と Alt+Right を直接使用する場合があるため、Herdr は修飾付き矢印を意図的に書き換えません。調査の詳細は [Herdr issue #1370](https://github.com/ogulcancelik/herdr/issues/1370) を参照してください。
+ターミナルアプリケーションが Alt+Left と Alt+Right を直接使用する場合があるため、Herdr は修飾付き矢印を意図的に書き換えません。調査の詳細は [Herdr issue #1370](https://github.com/herdrdev/herdr/issues/1370) を参照してください。
 
 ## Herdr を更新したのに実行中のセッションが古い
 

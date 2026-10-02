@@ -21,12 +21,13 @@ pub use self::{
     model::{
         validated_sidebar_bounds, AgentPanelSortConfig, BellConfig, Config, ConfigReloadReport,
         ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, NotificationConfig,
-        ShellModeConfig, SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig,
-        ToastDelivery, ToastHerdrPosition, UpdateChannelConfig, WebConfig, MAX_TOAST_DELAY_SECONDS,
+        ShellModeConfig, SidebarCollapsedModeConfig, TabBarPositionConfig, ToastClipboardPosition,
+        ToastConfig, ToastDelivery, ToastHerdrPosition, UpdateChannelConfig, WebConfig,
+        MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
-        AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SpaceSidebarToken,
-        SpacesSidebarConfig,
+        AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarTokenStyle,
+        SpaceSidebarToken, SpacesSidebarConfig,
     },
     sound::SoundConfig,
     theme::{parse_color, CustomThemeColors, ThemeConfig},

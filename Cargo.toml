@@ -1,11 +1,11 @@
 [package]
 name = "herdr"
-version = "0.7.48"
+version = "0.8.0"
 edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
-license = "AGPL-3.0-or-later"
-repository = "https://github.com/ogulcancelik/herdr"
+license = "Apache-2.0"
+repository = "https://github.com/herdrdev/herdr"
 homepage = "https://herdr.dev"
 keywords = ["terminal", "tui", "ai", "agents", "multiplexer"]
 categories = ["command-line-utilities"]
@@ -13,6 +13,7 @@ include = [
     "src/**/*",
     "assets/sounds/*",
     "docs/next/api/herdr-api.schema.json",
+    "skills/herdr/SKILL.md",
     "README.md",
     "LICENSE",
     "Cargo.toml",
@@ -27,18 +28,20 @@ base64 = "0.22.1"
 chrono = "0.4"
 bincode = { version = "2", features = ["serde"] }
 bytes = "1"
-clap = { version = "4.5", default-features = false, features = ["std"] }
+clap = { version = "4.5", default-features = false, features = ["std", "help", "usage"] }
 clap_complete = "4.5"
 crossterm = "0.29"
-ctrlc = "3"
+ctrlc = { version = "3", features = ["termination"] }
 interprocess = "2.4.2"
 getrandom = { version = "0.3", default-features = false, features = ["std"] }
+jsonc-parser = { version = "0.33.1", default-features = false, features = ["cst", "serde_json"] }
 libc = "0.2"
 portable-pty = "=0.9.0"
 png = "0.17"
 ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 regex = "1"
 serde = { version = "1", features = ["derive"] }
+serde_ignored = "0.1.14"
 serde_json = "1"
 sha2 = "0.10"
 tokio-tungstenite = "0.28"
@@ -49,7 +52,10 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-width = "0.2"
 schemars = { version = "1.2.1", features = ["derive"] }
-codex-trace-parser = { git = "https://github.com/xianchoujiduluo/codex-trace", branch = "main" }
+# Pinned to the revision v0.7.48 shipped: `branch = "main"` would track new
+# upstream commits, which both breaks `--locked` reproducibility and invalidates
+# the nix cargoLock outputHash below.
+codex-trace-parser = { git = "https://github.com/xianchoujiduluo/codex-trace", rev = "d15bba979bedf70553d9bced2510dbf26126e5c7" }
 # Reads ZCode's session store: the only agent whose conversation is not a file
 # herdr can parse. Bundled rather than linked against a system SQLite, which no
 # platform could be relied on to have.
@@ -59,9 +65,11 @@ rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"
 portable-pty = { path = "vendor/portable-pty" }
 
 [target.'cfg(windows)'.dependencies]
+wmi = { version = "0.18.4", default-features = false }
 windows-sys = { version = "0.61.2", features = [
     "Wdk_System_Threading",
     "Win32_Foundation",
+    "Win32_Globalization",
     "Win32_System_DataExchange",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Diagnostics_ToolHelp",
@@ -72,6 +80,8 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_System_Ole",
     "Win32_System_Pipes",
     "Win32_System_Threading",
+    "Win32_UI_Input_Ime",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }

@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -14,6 +14,7 @@ use super::widgets::panel_contrast_fg;
 use crate::app::state::Palette;
 use crate::app::{AppState, Mode};
 use crate::layout::PaneInfo;
+use crate::popup_size::resolve_popup_geometry;
 use crate::terminal::{TerminalRuntime, TerminalRuntimeRegistry};
 
 pub(crate) fn pane_is_scrolled_back(rt: &TerminalRuntime) -> bool {
@@ -30,8 +31,8 @@ fn pane_border_title(label: &str, pane_width: u16, _focused: bool) -> Option<Str
     Some(format!(" {} ", truncate_end(label, max_label_width)))
 }
 
-fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
-    if pane_inner.width <= 4 {
+fn stable_terminal_inner_rect(pane_inner: Rect, pane_scrollbars: bool) -> Rect {
+    if !pane_scrollbars || pane_inner.width <= 4 {
         return pane_inner;
     }
 
@@ -142,8 +143,12 @@ fn runtime_for_tab_pane<'a>(
         .map(|runtime| (terminal_id, runtime))
 }
 
-fn stable_scrollbar_gutter(rt: &TerminalRuntime, pane_inner: Rect) -> (Rect, Option<Rect>) {
-    let inner_rect = stable_terminal_inner_rect(pane_inner);
+fn stable_scrollbar_gutter(
+    rt: &TerminalRuntime,
+    pane_inner: Rect,
+    pane_scrollbars: bool,
+) -> (Rect, Option<Rect>) {
+    let inner_rect = stable_terminal_inner_rect(pane_inner, pane_scrollbars);
     if inner_rect == pane_inner {
         return (inner_rect, None);
     }
@@ -180,7 +185,7 @@ pub(super) fn resize_tab_panes(
                 Borders::NONE
             };
             let pane_inner = pane_inner_rect(area, borders);
-            let inner_rect = stable_terminal_inner_rect(pane_inner);
+            let inner_rect = stable_terminal_inner_rect(pane_inner, app.pane_scrollbars);
             if !app.direct_attach_resize_locks.contains(terminal_id) {
                 rt.resize(
                     inner_rect.height,
@@ -197,7 +202,7 @@ pub(super) fn resize_tab_panes(
         let pane_inner = pane_inner_rect(info.rect, info.borders);
 
         if let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) {
-            let inner_rect = stable_terminal_inner_rect(pane_inner);
+            let inner_rect = stable_terminal_inner_rect(pane_inner, app.pane_scrollbars);
             if !app.direct_attach_resize_locks.contains(terminal_id) {
                 rt.resize(
                     inner_rect.height,
@@ -238,7 +243,8 @@ pub(super) fn compute_pane_infos(
         let mut inner_rect = pane_inner;
         let mut scrollbar_rect = None;
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, focused_id) {
-            (inner_rect, scrollbar_rect) = stable_scrollbar_gutter(rt, pane_inner);
+            (inner_rect, scrollbar_rect) =
+                stable_scrollbar_gutter(rt, pane_inner, app.pane_scrollbars);
             if resize_panes
                 && ws.terminal_id(focused_id).is_some_and(|terminal_id| {
                     !app.direct_attach_resize_locks.contains(terminal_id)
@@ -270,7 +276,8 @@ pub(super) fn compute_pane_infos(
         let mut inner_rect = pane_inner;
         let mut scrollbar_rect = None;
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
-            (inner_rect, scrollbar_rect) = stable_scrollbar_gutter(rt, pane_inner);
+            (inner_rect, scrollbar_rect) =
+                stable_scrollbar_gutter(rt, pane_inner, app.pane_scrollbars);
             if resize_panes
                 && ws.terminal_id(info.id).is_some_and(|terminal_id| {
                     !app.direct_attach_resize_locks.contains(terminal_id)
@@ -296,21 +303,20 @@ pub(super) fn render_panes(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
-    area: Rect,
+    pane_infos: &[PaneInfo],
+    split_borders: &[crate::layout::SplitBorder],
 ) {
     let Some(ws_idx) = app.active else {
-        render_empty(app, frame, area);
         return;
     };
     let Some(ws) = app.workspaces.get(ws_idx) else {
-        render_empty(app, frame, area);
         return;
     };
 
     let multi_pane = ws.layout.pane_count() > 1;
     let terminal_active = app.mode == Mode::Terminal;
 
-    for info in &app.view.pane_infos {
+    for info in pane_infos {
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
             let show_cursor = info.is_focused
                 && terminal_active
@@ -364,7 +370,68 @@ pub(super) fn render_panes(
         }
     }
 
-    render_pane_borders(app, ws, frame);
+    render_pane_borders(app, ws, pane_infos, split_borders, frame);
+}
+
+pub(crate) fn popup_pane_rects(app: &AppState, area: Rect) -> Option<(Rect, Rect)> {
+    let popup = app.popup_pane.as_ref()?;
+    resolve_popup_geometry(popup.width, popup.height, area)
+        .map(|geometry| (geometry.outer, geometry.inner))
+}
+
+pub(super) fn resize_popup_pane(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    area: Rect,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) {
+    let Some(popup) = app.popup_pane.as_ref() else {
+        return;
+    };
+    let Some((_outer, inner)) = popup_pane_rects(app, area) else {
+        return;
+    };
+    if app.direct_attach_resize_locks.contains(&popup.terminal_id) {
+        return;
+    }
+    if let Some(rt) = terminal_runtimes.get(&popup.terminal_id) {
+        rt.resize(
+            inner.height,
+            inner.width,
+            cell_size.width_px,
+            cell_size.height_px,
+        );
+    }
+}
+
+pub(super) fn render_popup_pane(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
+    let Some(popup) = app.popup_pane.as_ref() else {
+        return;
+    };
+    let Some((outer, inner)) = popup_pane_rects(app, area) else {
+        return;
+    };
+    let Some(rt) = terminal_runtimes.get(&popup.terminal_id) else {
+        return;
+    };
+    let title = app
+        .terminals
+        .get(&popup.terminal_id)
+        .and_then(|terminal| terminal.manual_label.as_deref())
+        .unwrap_or("popup");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(app.palette.accent))
+        .title(pane_border_title(title, outer.width, true).unwrap_or_default())
+        .style(Style::default().bg(app.palette.panel_bg));
+    frame.render_widget(Clear, outer);
+    frame.render_widget(block, outer);
+    rt.render(frame, inner, !pane_is_scrolled_back(rt));
 }
 
 #[derive(Clone, Copy, Default)]
@@ -375,22 +442,22 @@ struct LineCell {
     right: bool,
 }
 
-fn render_pane_borders(app: &AppState, ws: &crate::workspace::Workspace, frame: &mut Frame) {
-    if !app.pane_borders
-        || app
-            .view
-            .pane_infos
-            .iter()
-            .all(|info| info.borders.is_empty())
-    {
+fn render_pane_borders(
+    app: &AppState,
+    ws: &crate::workspace::Workspace,
+    pane_infos: &[PaneInfo],
+    split_borders: &[crate::layout::SplitBorder],
+    frame: &mut Frame,
+) {
+    if !app.pane_borders || pane_infos.iter().all(|info| info.borders.is_empty()) {
         return;
     }
 
     let mut cells = std::collections::HashMap::<(u16, u16), LineCell>::new();
-    for info in &app.view.pane_infos {
+    for info in pane_infos {
         add_pane_border_cells(&mut cells, info);
     }
-    add_split_border_cells(app, &mut cells);
+    add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
 
     let buf = frame.buffer_mut();
     let area = buf.area;
@@ -402,9 +469,7 @@ fn render_pane_borders(app: &AppState, ws: &crate::workspace::Workspace, frame: 
         {
             continue;
         }
-        let focused = app
-            .view
-            .pane_infos
+        let focused = pane_infos
             .iter()
             .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
         let symbol = line_cell_symbol(line);
@@ -421,18 +486,19 @@ fn render_pane_borders(app: &AppState, ws: &crate::workspace::Workspace, frame: 
         cell.set_style(Style::default().fg(color));
     }
 
-    render_pane_border_titles(app, ws, frame);
+    render_pane_border_titles(app, ws, pane_infos, frame);
 }
 
 fn add_split_border_cells(
-    app: &AppState,
+    pane_gaps: bool,
+    split_borders: &[crate::layout::SplitBorder],
     cells: &mut std::collections::HashMap<(u16, u16), LineCell>,
 ) {
-    if app.pane_gaps {
+    if pane_gaps {
         return;
     }
 
-    for split in &app.view.split_borders {
+    for split in split_borders {
         match split.direction {
             ratatui::layout::Direction::Horizontal => {
                 let x = split.pos;
@@ -545,10 +611,15 @@ fn line_touches_pane(x: u16, y: u16, info: &PaneInfo, pane_gaps: bool) -> bool {
         || (x == shared_right && y == shared_bottom)
 }
 
-fn render_pane_border_titles(app: &AppState, ws: &crate::workspace::Workspace, frame: &mut Frame) {
+fn render_pane_border_titles(
+    app: &AppState,
+    ws: &crate::workspace::Workspace,
+    pane_infos: &[PaneInfo],
+    frame: &mut Frame,
+) {
     let buf = frame.buffer_mut();
     let area = buf.area;
-    for info in &app.view.pane_infos {
+    for info in pane_infos {
         if !info.borders.contains(Borders::TOP) || info.rect.width <= 4 {
             continue;
         }
@@ -849,7 +920,7 @@ fn color_to_rgb(color: Color) -> Option<Rgb> {
     }
 }
 
-fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
+pub(super) fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
     let lines = vec![
         Line::from(""),
@@ -898,6 +969,16 @@ mod tests {
     use crate::terminal::TerminalRuntime;
     use crate::terminal::TerminalState;
     use crate::workspace::Workspace;
+
+    fn render_view_pane_borders(app: &AppState, ws: &Workspace, frame: &mut Frame) {
+        render_pane_borders(
+            app,
+            ws,
+            &app.view.pane_infos,
+            &app.view.split_borders,
+            frame,
+        );
+    }
 
     #[test]
     fn pane_border_title_trims_and_truncates() {
@@ -953,7 +1034,7 @@ mod tests {
         let mut terminal =
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(12, 3)).unwrap();
         terminal
-            .draw(|frame| render_pane_borders(&app, &ws, frame))
+            .draw(|frame| render_view_pane_borders(&app, &ws, frame))
             .unwrap();
 
         let buffer = terminal.backend().buffer();
@@ -1120,7 +1201,7 @@ mod tests {
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(4, 4)).unwrap();
 
         terminal
-            .draw(|frame| render_pane_borders(&app, &ws, frame))
+            .draw(|frame| render_view_pane_borders(&app, &ws, frame))
             .unwrap();
 
         let buffer = terminal.backend().buffer();
@@ -1159,7 +1240,7 @@ mod tests {
             ratatui::Terminal::new(ratatui::backend::TestBackend::new(4, 3)).unwrap();
 
         terminal
-            .draw(|frame| render_pane_borders(&app, &ws, frame))
+            .draw(|frame| render_view_pane_borders(&app, &ws, frame))
             .unwrap();
 
         let buffer = terminal.backend().buffer();
@@ -1283,7 +1364,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pane_scrollbar_reserves_last_column_from_terminal_area() {
+    async fn pane_scrollbar_setting_controls_reserved_column() {
         let mut app = AppState::test_new();
         let mut workspace = Workspace::test_new("test");
         let root_pane = workspace.tabs[0].root_pane;
@@ -1313,6 +1394,20 @@ mod tests {
         assert_eq!(info.rect, area);
         assert_eq!(info.scrollbar_rect, Some(Rect::new(49, 3, 1, 8)));
         assert_eq!(info.inner_rect, Rect::new(10, 3, 39, 8));
+
+        app.pane_scrollbars = false;
+        let infos = compute_pane_infos(
+            &app,
+            &terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let info = &infos[0];
+
+        assert_eq!(info.rect, area);
+        assert_eq!(info.scrollbar_rect, None);
+        assert_eq!(info.inner_rect, area);
     }
 
     #[test]
@@ -1325,6 +1420,7 @@ mod tests {
                 g: 14,
                 b: 16,
             }),
+            ..Default::default()
         };
         let expected_style = automatic_selection_style(&palette, host_theme);
         let selection = Some(Selection::range(PaneId::from_raw(1), 0, 0, 2, None));
@@ -1390,6 +1486,7 @@ mod tests {
                     g: 14,
                     b: 16,
                 }),
+                ..Default::default()
             },
         );
 

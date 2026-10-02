@@ -128,6 +128,8 @@ if ($Action -eq "permission") {
 
 $sessionId = $payload.session_id
 if ([string]::IsNullOrWhiteSpace($sessionId)) { exit 0 }
+if ([string]::IsNullOrWhiteSpace($payload.transcript_path)) { exit 0 }
+if (-not [string]::IsNullOrWhiteSpace($env:CODEX_THREAD_ID) -and $env:CODEX_THREAD_ID -ne $sessionId) { exit 0 }
 
 $seq = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
 $args = @(

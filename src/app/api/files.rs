@@ -112,7 +112,7 @@ impl App {
         let Some((ws_idx, id)) = self.parse_pane_id(pane_id) else {
             return Err(ApiFailure::new("pane_not_found", "no such pane"));
         };
-        if let Some(cwd) = self.follow_cwd_for_pane_in_workspace(ws_idx, id) {
+        if let Some(cwd) = self.launch_cwd_for_pane_in_workspace(ws_idx, id) {
             if cwd.is_dir() {
                 return Ok(crate::worktree::canonical_or_original(&cwd));
             }
@@ -121,7 +121,9 @@ impl App {
             .state
             .workspaces
             .get(ws_idx)
-            .and_then(|workspace| workspace.resolved_identity_cwd())
+            .and_then(|workspace| {
+                workspace.resolved_identity_cwd_from(&self.state.terminals, &self.terminal_runtimes)
+            })
             .filter(|path| path.is_dir());
         match fallback {
             Some(root) => Ok(crate::worktree::canonical_or_original(&root)),

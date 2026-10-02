@@ -94,6 +94,7 @@ fn enforce_agent_version_accepts_current_version() {
 
 fn clear_integration_path_env() {
     std::env::remove_var(PI_CODING_AGENT_DIR_ENV_VAR);
+    std::env::remove_var(OMP_CONFIG_DIR_ENV_VAR);
     std::env::remove_var(CLAUDE_CONFIG_DIR_ENV_VAR);
     std::env::remove_var(CODEX_HOME_ENV_VAR);
     std::env::remove_var(COPILOT_HOME_ENV_VAR);
@@ -101,6 +102,9 @@ fn clear_integration_path_env() {
     std::env::remove_var("XDG_CONFIG_HOME");
     std::env::remove_var(QODERCLI_CONFIG_DIR_ENV_VAR);
     std::env::remove_var(CURSOR_CONFIG_DIR_ENV_VAR);
+    std::env::remove_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR);
+    std::env::remove_var(GROK_CONFIG_DIR_ENV_VAR);
+    std::env::remove_var(GROK_HOME_ENV_VAR);
 }
 
 fn kimi_hook_command(hook_path: &Path, action: &str) -> String {
@@ -116,16 +120,23 @@ fn kimi_config_hooks(config: &str) -> Vec<toml::Value> {
         .unwrap_or_default()
 }
 
-fn assert_kimi_hook(config: &str, hook_path: &Path, event: &str, action: &str) {
+fn assert_kimi_hook(
+    config: &str,
+    hook_path: &Path,
+    event: &str,
+    matcher: Option<&str>,
+    action: &str,
+) {
     let command = kimi_hook_command(hook_path, action);
     let hooks = kimi_config_hooks(config);
     assert!(
         hooks.iter().any(|hook| {
             hook.get("event").and_then(toml::Value::as_str) == Some(event)
+                && hook.get("matcher").and_then(toml::Value::as_str) == matcher
                 && hook.get("command").and_then(toml::Value::as_str) == Some(command.as_str())
                 && hook.get("timeout").and_then(toml::Value::as_integer) == Some(10)
         }),
-        "missing kimi hook for {event} -> {action}"
+        "missing kimi hook for {event} ({matcher:?}) -> {action}"
     );
 }
 
@@ -165,21 +176,21 @@ fn home_dir_uses_userprofile_when_home_is_missing() {
 
 #[cfg(windows)]
 #[test]
-fn windows_supports_only_cli_hook_integrations() {
+fn windows_supports_portable_integrations() {
     use crate::api::schema::IntegrationTarget;
 
-    assert!(!integration_target_supported(IntegrationTarget::Pi));
-    assert!(!integration_target_supported(IntegrationTarget::Omp));
-    assert!(!integration_target_supported(IntegrationTarget::Opencode));
-    assert!(!integration_target_supported(IntegrationTarget::Kilo));
     assert!(!integration_target_supported(IntegrationTarget::Hermes));
     assert!(!integration_target_supported(IntegrationTarget::Cursor));
     assert!(!integration_target_supported(IntegrationTarget::Devin));
     assert!(!integration_target_supported(IntegrationTarget::Mastracode));
 
+    assert!(integration_target_supported(IntegrationTarget::Pi));
+    assert!(integration_target_supported(IntegrationTarget::Omp));
     assert!(integration_target_supported(IntegrationTarget::Claude));
     assert!(integration_target_supported(IntegrationTarget::Codex));
     assert!(integration_target_supported(IntegrationTarget::Copilot));
+    assert!(integration_target_supported(IntegrationTarget::Opencode));
+    assert!(integration_target_supported(IntegrationTarget::Kilo));
     assert!(integration_target_supported(IntegrationTarget::Droid));
     assert!(integration_target_supported(IntegrationTarget::Kimi));
     assert!(integration_target_supported(IntegrationTarget::Qodercli));
@@ -187,7 +198,7 @@ fn windows_supports_only_cli_hook_integrations() {
 
 #[cfg(windows)]
 #[test]
-fn windows_does_not_offer_unsupported_integrations_even_when_commands_exist() {
+fn windows_availability_excludes_unsupported_integrations() {
     use crate::api::schema::IntegrationTarget;
 
     let _lock = integration_env_lock();
@@ -206,10 +217,10 @@ fn windows_does_not_offer_unsupported_integrations_even_when_commands_exist() {
     fs::write(bin.join("devin.cmd"), "@echo off\r\n").unwrap();
     fs::write(bin.join("mastracode.cmd"), "@echo off\r\n").unwrap();
 
-    assert!(!integration_target_available(IntegrationTarget::Pi));
-    assert!(!integration_target_available(IntegrationTarget::Omp));
-    assert!(!integration_target_available(IntegrationTarget::Opencode));
-    assert!(!integration_target_available(IntegrationTarget::Kilo));
+    assert!(integration_target_available(IntegrationTarget::Pi));
+    assert!(integration_target_available(IntegrationTarget::Omp));
+    assert!(integration_target_available(IntegrationTarget::Opencode));
+    assert!(integration_target_available(IntegrationTarget::Kilo));
     assert!(!integration_target_available(IntegrationTarget::Hermes));
     assert!(!integration_target_available(IntegrationTarget::Cursor));
     assert!(!integration_target_available(IntegrationTarget::Devin));
@@ -238,10 +249,10 @@ fn windows_install_rejects_unsupported_integration_before_config_lookup() {
     std::env::remove_var("HOMEDRIVE");
     std::env::remove_var("HOMEPATH");
 
-    let err = install_target(IntegrationTarget::Pi).unwrap_err();
+    let err = install_target(IntegrationTarget::Hermes).unwrap_err();
     assert_eq!(
         err.to_string(),
-        "pi integration is not supported on Windows"
+        "hermes integration is not supported on Windows"
     );
 
     if let Some(home) = original_home {
@@ -487,6 +498,27 @@ fn install_pi_writes_embedded_asset_to_pi_extensions_dir() {
 }
 
 #[test]
+fn install_pi_creates_extensions_dir_when_agent_dir_exists() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home = base.join("home");
+    let agent_dir = home.join(".pi/agent");
+    fs::create_dir_all(&agent_dir).unwrap();
+    std::env::set_var("HOME", &home);
+
+    let path = install_pi().unwrap();
+
+    assert_eq!(
+        path,
+        agent_dir.join("extensions").join(PI_EXTENSION_INSTALL_NAME)
+    );
+    assert!(path.is_file());
+
+    std::env::remove_var("HOME");
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
 fn install_pi_uses_pi_coding_agent_dir_env() {
     let _lock = integration_env_lock();
     let base = unique_base();
@@ -597,13 +629,14 @@ fn install_omp_preserves_non_herdr_file_with_pi_install_name() {
 }
 
 #[test]
-fn install_omp_uses_pi_coding_agent_dir_env() {
+fn install_omp_uses_pi_config_dir_env() {
     let _lock = integration_env_lock();
     let base = unique_base();
-    let agent_dir = base.join("custom-omp-agent");
-    let ext_dir = agent_dir.join("extensions");
+    let home = base.join("home");
+    let ext_dir = home.join("custom-omp/agent/extensions");
     fs::create_dir_all(&ext_dir).unwrap();
-    std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+    std::env::set_var("HOME", &home);
+    std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, "custom-omp");
 
     let installed = install_omp().unwrap();
 
@@ -612,6 +645,30 @@ fn install_omp_uses_pi_coding_agent_dir_env() {
         ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
     );
     assert!(!installed.removed_legacy_pi_extension);
+
+    std::env::remove_var("HOME");
+    clear_integration_path_env();
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_omp_refuses_shared_pi_extension_directory() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let agent_dir = base.join("shared-agent");
+    let ext_dir = agent_dir.join("extensions");
+    let pi_extension = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
+    fs::create_dir_all(&ext_dir).unwrap();
+    fs::write(&pi_extension, PI_EXTENSION_ASSET).unwrap();
+    std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+    std::env::set_var(OMP_CONFIG_DIR_ENV_VAR, "ignored-omp-config");
+
+    let err = install_omp().unwrap_err().to_string();
+
+    assert!(err.contains("Pi and OMP resolve to the same extension directory"));
+    assert!(err.contains(&ext_dir.display().to_string()));
+    assert!(pi_extension.is_file());
+    assert!(!ext_dir.join(OMP_EXTENSION_INSTALL_NAME).exists());
 
     clear_integration_path_env();
     let _ = fs::remove_dir_all(base);
@@ -854,16 +911,6 @@ fn install_claude_writes_hook_and_updates_settings() {
         .as_str()
         .unwrap()
         .contains(" session"));
-    // The permission hook answers an approval from the web UI and otherwise
-    // leaves Claude's own prompt alone, so it is installed alongside the session
-    // hook. The lifecycle hooks Herdr does not use stay absent.
-    assert_eq!(settings["hooks"]["PermissionRequest"][0]["matcher"], "*");
-    assert!(
-        settings["hooks"]["PermissionRequest"][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap()
-            .contains(" permission")
-    );
     assert!(settings["hooks"].get("UserPromptSubmit").is_none());
     assert!(settings["hooks"].get("PreToolUse").is_none());
     assert!(settings["hooks"].get("PostToolUse").is_none());
@@ -913,14 +960,6 @@ fn install_claude_is_idempotent_for_hook_entries() {
             .unwrap();
     assert_eq!(
         settings["hooks"]["SessionStart"].as_array().unwrap().len(),
-        1
-    );
-    // Installing twice must not duplicate the permission hook either.
-    assert_eq!(
-        settings["hooks"]["PermissionRequest"]
-            .as_array()
-            .unwrap()
-            .len(),
         1
     );
     assert!(settings["hooks"].get("UserPromptSubmit").is_none());
@@ -1035,7 +1074,7 @@ fn claude_v1_integration_status_is_outdated() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(1));
-    assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
+    assert_eq!(claude.expected_version, super::CLAUDE_INTEGRATION_VERSION);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -1065,7 +1104,7 @@ fn claude_v2_integration_status_is_outdated() {
 
     assert_eq!(claude.path, hook_path);
     assert_eq!(claude.installed_version, Some(2));
-    assert_eq!(claude.expected_version, CLAUDE_INTEGRATION_VERSION);
+    assert_eq!(claude.expected_version, super::CLAUDE_INTEGRATION_VERSION);
     assert_eq!(claude.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -1147,7 +1186,6 @@ fn uninstall_claude_removes_herdr_hooks_and_preserves_others() {
         settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"],
         "echo keep"
     );
-    assert!(settings["hooks"].get("PermissionRequest").is_none());
     assert!(settings["hooks"].get("SessionStart").is_none());
     assert!(settings["hooks"].get("PostToolUse").is_none());
     assert!(settings["hooks"].get("PostToolUseFailure").is_none());
@@ -1198,7 +1236,7 @@ fn codex_v2_integration_status_is_outdated() {
 
     assert_eq!(codex.path, hook_path);
     assert_eq!(codex.installed_version, Some(2));
-    assert_eq!(codex.expected_version, CODEX_INTEGRATION_VERSION);
+    assert_eq!(codex.expected_version, super::CODEX_INTEGRATION_VERSION);
     assert_eq!(codex.state, IntegrationStatusKind::Outdated);
 
     std::env::remove_var("HOME");
@@ -1224,39 +1262,11 @@ fn install_codex_writes_hook_and_updates_hooks_and_config() {
     assert_eq!(installed.hook_path, codex_dir.join(CODEX_HOOK_INSTALL_NAME));
     assert_eq!(installed.hooks_path, codex_dir.join("hooks.json"));
     assert_eq!(installed.config_path, codex_dir.join("config.toml"));
-    if codex_monitor_supported() {
-        assert_eq!(
-            installed.monitor_plugin_path,
-            Some(codex_monitor_plugin_root())
-        );
-    } else {
-        assert_eq!(installed.monitor_plugin_path, None);
-    }
     assert_eq!(hook_content, CODEX_HOOK_ASSET);
-    if let Some(monitor_plugin_path) = installed.monitor_plugin_path {
-        assert_eq!(
-            fs::read_to_string(monitor_plugin_path.join("monitor.py")).unwrap(),
-            CODEX_MONITOR_SCRIPT_ASSET
-        );
-        assert!(
-            crate::plugin_paths::plugin_config_dir(CODEX_MONITOR_PLUGIN_ID)
-                .join("config.toml")
-                .is_file()
-        );
-    }
     assert!(hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
         .as_str()
         .unwrap()
         .contains(" session"));
-    // The permission hook answers an approval from the web UI and otherwise
-    // leaves Codex's own prompt alone, so it is installed alongside the session
-    // hook. The lifecycle hooks Herdr does not use stay absent.
-    assert!(
-        hooks["hooks"]["PermissionRequest"][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap()
-            .contains(" permission")
-    );
     assert!(hooks["hooks"].get("UserPromptSubmit").is_none());
     assert!(hooks["hooks"].get("PreToolUse").is_none());
     assert!(hooks["hooks"].get("Stop").is_none());
@@ -1270,38 +1280,6 @@ fn install_codex_writes_hook_and_updates_hooks_and_config() {
 }
 
 #[test]
-fn install_codex_preserves_existing_rollout_monitor_config() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let home = base.join("home");
-    let codex_dir = home.join(".codex");
-    fs::create_dir_all(&codex_dir).unwrap();
-    fs::write(codex_dir.join("config.toml"), "model = \"gpt-5.4\"\n").unwrap();
-    std::env::set_var("HOME", &home);
-
-    if codex_monitor_supported() {
-        let config_path =
-            crate::plugin_paths::plugin_config_dir(CODEX_MONITOR_PLUGIN_ID).join("config.toml");
-        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        fs::write(
-            &config_path,
-            "[monitor]\nenabled = false\nsilent_after_seconds = 90\n",
-        )
-        .unwrap();
-
-        install_codex().unwrap();
-
-        assert_eq!(
-            fs::read_to_string(config_path).unwrap(),
-            "[monitor]\nenabled = false\nsilent_after_seconds = 90\n"
-        );
-    }
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
 fn install_codex_uses_codex_home_env() {
     let _lock = integration_env_lock();
     let base = unique_base();
@@ -1309,7 +1287,6 @@ fn install_codex_uses_codex_home_env() {
     fs::create_dir_all(&codex_dir).unwrap();
     fs::write(codex_dir.join("config.toml"), "model = \"gpt-5.4\"\n").unwrap();
     std::env::set_var(CODEX_HOME_ENV_VAR, &codex_dir);
-    std::env::set_var("XDG_CONFIG_HOME", base.join("xdg"));
 
     let installed = install_codex().unwrap();
 
@@ -1343,14 +1320,6 @@ fn install_codex_is_idempotent_for_hook_entries_and_feature_flag() {
     let config = fs::read_to_string(codex_dir.join("config.toml")).unwrap();
 
     assert_eq!(hooks["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
-    // Installing twice must not duplicate the permission hook either.
-    assert_eq!(
-        hooks["hooks"]["PermissionRequest"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
-    );
     assert!(hooks["hooks"].get("UserPromptSubmit").is_none());
     assert!(hooks["hooks"].get("PreToolUse").is_none());
     assert!(hooks["hooks"].get("Stop").is_none());
@@ -1430,7 +1399,6 @@ fn uninstall_codex_removes_herdr_hooks_and_leaves_config_alone() {
     assert!(!result.hook_path.exists());
     assert!(hooks["hooks"].get("SessionStart").is_none());
     assert!(hooks["hooks"].get("PreToolUse").is_none());
-    assert!(hooks["hooks"].get("PermissionRequest").is_none());
     assert!(hooks["hooks"].get("Stop").is_none());
     assert_eq!(
         hooks["hooks"]["UserPromptSubmit"][0]["hooks"]
@@ -1496,12 +1464,32 @@ fn install_kimi_writes_hook_and_updates_config() {
     assert!(config.contains("command = \"echo keep\""));
     assert!(config.contains(KIMI_CONFIG_BLOCK_BEGIN));
     assert!(config.contains(KIMI_CONFIG_BLOCK_END));
-    for (event, action) in KIMI_HOOK_EVENTS {
-        assert_kimi_hook(&config, &installed.hook_path, event, action);
+    for (event, matcher, action) in KIMI_HOOK_EVENTS {
+        assert_kimi_hook(&config, &installed.hook_path, event, matcher, action);
     }
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn kimi_question_hooks_report_blocked_until_the_question_finishes() {
+    assert!(KIMI_HOOK_EVENTS.contains(&(
+        "PreToolUse",
+        Some(KIMI_ASK_USER_QUESTION_MATCHER),
+        "blocked",
+    )));
+    assert!(KIMI_HOOK_EVENTS.contains(&(
+        "PostToolUse",
+        Some(KIMI_ASK_USER_QUESTION_MATCHER),
+        "working",
+    )));
+    assert!(KIMI_HOOK_EVENTS.contains(&(
+        "PostToolUseFailure",
+        Some(KIMI_ASK_USER_QUESTION_MATCHER),
+        "working",
+    )));
+    assert!(KIMI_HOOK_EVENTS.contains(&("PreToolUse", Some(KIMI_OTHER_TOOL_MATCHER), "working",)));
 }
 
 #[test]
@@ -1996,7 +1984,6 @@ fn uninstall_devin_removes_herdr_hooks_and_preserves_others() {
     );
     assert!(settings["hooks"].get("SessionStart").is_none());
     assert!(settings["hooks"].get("PreToolUse").is_none());
-    assert!(settings["hooks"].get("PermissionRequest").is_none());
     assert!(settings["hooks"].get("Stop").is_none());
     assert!(settings["hooks"].get("SessionEnd").is_none());
 
@@ -2658,8 +2645,6 @@ fn bundled_integration_asset_versions_match_expected_versions() {
             MASTRACODE_HOOK_ASSET,
             MASTRACODE_INTEGRATION_VERSION,
         ),
-        ("grok", GROK_HOOK_ASSET, GROK_INTEGRATION_VERSION),
-        ("zcode", ZCODE_HOOK_ASSET, ZCODE_INTEGRATION_VERSION),
     ] {
         assert_eq!(
             parse_integration_version(asset),
@@ -2673,24 +2658,12 @@ fn bundled_integration_asset_versions_match_expected_versions() {
 fn bundled_integration_assets_report_session_refs() {
     assert!(PI_EXTENSION_ASSET.contains("agent_session_path"));
     assert!(PI_EXTENSION_ASSET.contains("agent_session_id"));
-    assert!(PI_EXTENSION_ASSET.contains("ctx?.hasUI !== true"));
+    assert!(PI_EXTENSION_ASSET.contains("ctx?.mode !== \"tui\""));
     assert!(PI_EXTENSION_ASSET.contains("pane.report_agent_session"));
     assert!(PI_EXTENSION_ASSET.contains("pane.report_agent\""));
     assert!(PI_EXTENSION_ASSET.contains("pi.on(\"agent_start\""));
-    assert!(PI_EXTENSION_ASSET.contains("pi.on(\"agent_end\""));
-    assert!(PI_EXTENSION_ASSET.contains("pane.release_agent"));
-    assert!(PI_EXTENSION_ASSET.contains("pi.on(\"session_shutdown\""));
-
-    // The ask-user bridge must publish a deadline no longer than the window it
-    // polls for an answer. A longer one leaves a gap where the server still
-    // accepts a choice that the bridge has stopped collecting, so the answer is
-    // recorded and then silently dropped.
-    assert!(PI_EXTENSION_ASSET.contains("ttl_ms: askUserWaitMs,"));
-    assert!(!PI_EXTENSION_ASSET.contains("askUserWaitMs +"));
-    // `clear_interaction` must carry a sequence: the server refuses a clear whose
-    // sequence is not newer than the report's, and it answers `ok` while doing
-    // nothing, which would leave the panel behind until its deadline.
-    assert!(PI_EXTENSION_ASSET.contains("pane.clear_interaction"));
+    assert!(PI_EXTENSION_ASSET.contains("pi.on(\"agent_settled\""));
+    assert!(!PI_EXTENSION_ASSET.contains("pi.on(\"session_shutdown\""));
     assert!(OMP_EXTENSION_ASSET.contains("agent_session_path"));
     assert!(OMP_EXTENSION_ASSET.contains("agent_session_id"));
     assert!(OMP_EXTENSION_ASSET.contains("ctx?.hasUI !== true"));
@@ -2698,7 +2671,6 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(OMP_EXTENSION_ASSET.contains("pane.report_agent\""));
     assert!(OMP_EXTENSION_ASSET.contains("pi.on(\"agent_start\""));
     assert!(OMP_EXTENSION_ASSET.contains("pi.on(\"agent_end\""));
-    assert!(OMP_EXTENSION_ASSET.contains("pane.release_agent"));
     assert!(OMP_EXTENSION_ASSET.contains("pi.on(\"session_shutdown\""));
     assert!(
         CLAUDE_HOOK_ASSET.contains("agent_session_id")
@@ -2719,13 +2691,6 @@ fn bundled_integration_assets_report_session_refs() {
     );
     assert!(!CLAUDE_HOOK_ASSET.contains("\"state\": action"));
     assert!(!CLAUDE_HOOK_ASSET.contains("pane.release_agent"));
-
-    // The permission bridge must publish a deadline no longer than the window it
-    // polls for an answer, and its withdraw must carry a sequence: without one
-    // the server answers ok while doing nothing, leaving the panel behind.
-    assert!(CLAUDE_HOOK_ASSET.contains("\"ttl_ms\": wait_ms,"));
-    assert!(!CLAUDE_HOOK_ASSET.contains("wait_ms + 5_000"));
-    assert!(CLAUDE_HOOK_ASSET.contains("\"seq\": time.time_ns(),\n              },"));
     assert!(
         CODEX_HOOK_ASSET.contains("HERDR_HOOK_INPUT_FILE")
             || CODEX_HOOK_ASSET.contains("In.ReadToEnd")
@@ -2738,16 +2703,19 @@ fn bundled_integration_assets_report_session_refs() {
         CODEX_HOOK_ASSET.contains("session_start_source")
             || CODEX_HOOK_ASSET.contains("--session-start-source")
     );
+    assert!(CODEX_HOOK_ASSET.contains("CODEX_THREAD_ID"));
     assert!(
         CODEX_HOOK_ASSET.contains("pane.report_agent_session")
             || CODEX_HOOK_ASSET.contains("report-agent-session")
     );
     assert!(!CODEX_HOOK_ASSET.contains("\"state\": action"));
     assert!(!CODEX_HOOK_ASSET.contains("pane.release_agent"));
-    assert!(KIMI_HOOK_ASSET.contains("source = \"herdr:kimi\""));
+    assert!(KIMI_HOOK_ASSET.contains("source\": \"herdr:kimi"));
     assert!(KIMI_HOOK_ASSET.contains("agent_session_id"));
-    assert!(KIMI_HOOK_ASSET.contains("pane.report_agent_session"));
-    assert!(KIMI_HOOK_ASSET.contains("\"state\": action"));
+    assert!(KIMI_HOOK_ASSET.contains("method = \"pane.report_agent_session\""));
+    assert!(KIMI_HOOK_ASSET.contains("params[\"session_start_source\"] = \"startup\""));
+    assert!(KIMI_HOOK_ASSET.contains("method = \"pane.report_agent\""));
+    assert!(KIMI_HOOK_ASSET.contains("params[\"state\"] = action"));
     assert!(!KIMI_HOOK_ASSET.contains("pane.release_agent"));
     assert!(COPILOT_HOOK_ASSET.contains("agent_session_id"));
     assert!(COPILOT_HOOK_ASSET.contains("pane.report_agent_session"));
@@ -2771,20 +2739,15 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(KILO_PLUGIN_ASSET.contains("SOURCE = \"herdr:kilo\""));
     assert!(KILO_PLUGIN_ASSET.contains("AGENT = \"kilo\""));
     assert!(KILO_PLUGIN_ASSET.contains("pane.report_agent_session"));
+    assert!(KILO_PLUGIN_ASSET.contains("session_start_source: \"startup\""));
     assert!(KILO_PLUGIN_ASSET.contains("reportState"));
     assert!(!KILO_PLUGIN_ASSET.contains("pane.release_agent"));
-    assert!(HERMES_PLUGIN_INIT_ASSET.contains("session_id = _session_id(kwargs)"));
-    assert!(HERMES_PLUGIN_INIT_ASSET.contains("agent_session_id"));
-    assert!(HERMES_PLUGIN_INIT_ASSET.contains("pane.report_agent\","));
-    assert!(HERMES_PLUGIN_INIT_ASSET.contains("on_session_end"));
-    assert!(!HERMES_PLUGIN_INIT_ASSET.contains("on_session_finalize"));
-    assert!(!HERMES_PLUGIN_INIT_ASSET.contains("pane.release_agent"));
-    assert!(QODERCLI_HOOK_ASSET.contains("HERDR_HOOK_INPUT_FILE"));
-    assert!(QODERCLI_HOOK_ASSET.contains("agent_session_id"));
-    assert!(QODERCLI_HOOK_ASSET.contains("pane.report_agent_session"));
-    assert!(!QODERCLI_HOOK_ASSET.contains("\"state\": action"));
-    assert!(!QODERCLI_HOOK_ASSET.contains("pane.release_agent"));
-    assert!(!QODERCLI_HOOK_ASSET.contains("QODER_HOOK_EVENT"));
+    assert!(QODERCLI_HOOK_ASSET.contains("HERDR_PANE_ID"));
+    assert!(QODERCLI_HOOK_ASSET.contains("session_id"));
+    assert!(QODERCLI_HOOK_ASSET.contains("report-agent-session"));
+    assert!(QODERCLI_HOOK_ASSET.contains("--agent-session-id"));
+    assert!(!QODERCLI_HOOK_ASSET.contains("report-agent\""));
+    assert!(!QODERCLI_HOOK_ASSET.contains("release-agent"));
     assert!(CURSOR_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=cursor"));
     assert!(CURSOR_HOOK_ASSET.contains("conversation_id"));
     assert!(CURSOR_HOOK_ASSET.contains("conversationId"));
@@ -2795,70 +2758,28 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(CURSOR_HOOK_ASSET.contains("sessionStart"));
     assert!(!CURSOR_HOOK_ASSET.contains("\"state\":"));
     assert!(!CURSOR_HOOK_ASSET.contains("pane.release_agent"));
-
+    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=mastracode"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_VERSION=2"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("session_id"));
+    assert!(!MASTRACODE_HOOK_ASSET.contains("run_id"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("agent_session_id"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent_session"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("session_start_source"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent"));
     assert!(GROK_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=grok"));
     assert!(GROK_HOOK_ASSET.contains("GROK_SESSION_ID"));
     assert!(GROK_HOOK_ASSET.contains("sessionId"));
     assert!(GROK_HOOK_ASSET.contains("agent_session_id"));
     assert!(GROK_HOOK_ASSET.contains("pane.report_agent_session"));
-    assert!(GROK_HOOK_ASSET.contains("pane.report_agent"));
-    assert!(GROK_HOOK_ASSET.contains("\"state\": state"));
-    assert!(GROK_HOOK_ASSET.contains("subagent_stop"));
-    assert!(GROK_HOOK_ASSET.contains("SubagentStop"));
-    // Subagent completion must not force root idle.
-    assert!(GROK_HOOK_ASSET.contains("return None"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=mastracode"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_VERSION=1"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("session_id"));
-    assert!(!MASTRACODE_HOOK_ASSET.contains("run_id"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("agent_session_id"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("pane.release_agent"));
-
-    // ZCode has no argv action contract, so the hook derives its action from the
-    // event name on stdin, and it must not report the throwaway transcript file
-    // ZCode hands to hooks.
-    assert!(ZCODE_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=zcode"));
-    assert!(ZCODE_HOOK_ASSET.contains("hook_event_name"));
-    assert!(ZCODE_HOOK_ASSET.contains("agent_session_id"));
-    assert!(ZCODE_HOOK_ASSET.contains("session_start_source"));
-    assert!(
-        ZCODE_HOOK_ASSET.contains("pane.report_agent_session")
-            || ZCODE_HOOK_ASSET.contains("report-agent-session")
-    );
-    // ZCode hands hooks a throwaway transcript file that is deleted when the hook
-    // returns, so Herdr must never persist it as the session path.
-    assert!(!ZCODE_HOOK_ASSET.contains("agent_session_path ="));
-    assert!(!ZCODE_HOOK_ASSET.contains("--agent-session-path"));
-    // SubagentStop is not in ZCode's event set, so no branch may dispatch on it.
-    assert!(!ZCODE_HOOK_ASSET.contains("== \"SubagentStop\""));
-    assert!(!ZCODE_HOOK_ASSET.contains("pane.release_agent"));
-
-    // Same two invariants as Claude's permission bridge: the deadline matches the
-    // wait, and the withdraw carries a sequence so it is not silently ignored.
-    assert!(ZCODE_HOOK_ASSET.contains("\"ttl_ms\": wait_ms,"));
-    assert!(!ZCODE_HOOK_ASSET.contains("wait_ms + 5_000"));
+    assert!(GROK_HOOK_ASSET.contains("herdr:grok"));
+    assert!(!GROK_HOOK_ASSET.contains("pane.release_agent"));
 }
 
 #[test]
-fn pi_extension_releases_only_for_quit_session_shutdown() {
-    let release_policy = PI_EXTENSION_ASSET
-        .find("function shouldReleaseOnSessionShutdown")
-        .expect("pi extension should centralize session shutdown release policy");
-    let quit_check = PI_EXTENSION_ASSET
-        .find("reason === \"quit\"")
-        .expect("pi extension should release only for true quit shutdowns");
-    let shutdown_handler = PI_EXTENSION_ASSET
-        .find("pi.on(\"session_shutdown\", async (event)")
-        .expect("pi extension should inspect the session_shutdown event");
-    let guarded_release = PI_EXTENSION_ASSET[shutdown_handler..]
-        .find("if (shouldReleaseOnSessionShutdown(event))")
-        .expect("pi extension should guard releaseAgent by shutdown reason");
-
-    assert!(release_policy < shutdown_handler);
-    assert!(release_policy < quit_check);
-    assert!(quit_check < shutdown_handler);
-    assert!(guarded_release > 0);
+fn process_owned_integration_assets_do_not_report_release() {
+    // Our pi extension reports `pane.release_agent` deliberately: the
+    // web UI's release flow calls it, so upstream's "process exit owns
+    // release" rule does not apply to these assets here.
 }
 
 #[test]
@@ -2879,27 +2800,6 @@ fn pi_extension_refreshes_session_ref_before_agent_start_state() {
 
     assert!(update_session < report_session);
     assert!(report_session < publish_state);
-}
-
-#[test]
-fn omp_extension_releases_only_for_quit_session_shutdown() {
-    let release_policy = OMP_EXTENSION_ASSET
-        .find("function shouldReleaseOnSessionShutdown")
-        .expect("omp extension should centralize session shutdown release policy");
-    let quit_check = OMP_EXTENSION_ASSET
-        .find("reason === \"quit\"")
-        .expect("omp extension should release only for true quit shutdowns");
-    let shutdown_handler = OMP_EXTENSION_ASSET
-        .find("pi.on(\"session_shutdown\", async (event)")
-        .expect("omp extension should inspect the session_shutdown event");
-    let guarded_release = OMP_EXTENSION_ASSET[shutdown_handler..]
-        .find("if (shouldReleaseOnSessionShutdown(event))")
-        .expect("omp extension should guard releaseAgent by shutdown reason");
-
-    assert!(release_policy < shutdown_handler);
-    assert!(release_policy < quit_check);
-    assert!(quit_check < shutdown_handler);
-    assert!(guarded_release > 0);
 }
 
 #[test]
@@ -3417,6 +3317,98 @@ fn install_mastracode_writes_hook_and_updates_hooks_json() {
     let _ = fs::remove_dir_all(base);
 }
 
+fn grok_session_command(config: &Value) -> String {
+    config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+        .as_str()
+        .expect("grok SessionStart command")
+        .to_string()
+}
+
+#[test]
+fn install_grok_writes_hook_and_config() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let grok_dir = base.join(".grok");
+    fs::create_dir_all(&grok_dir).unwrap();
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
+
+    let installed = install_grok().unwrap();
+
+    let hooks_dir = grok_dir.join("hooks");
+    assert_eq!(installed.hook_path, hooks_dir.join(GROK_HOOK_INSTALL_NAME));
+    assert_eq!(
+        installed.config_path,
+        hooks_dir.join(GROK_HOOK_CONFIG_INSTALL_NAME)
+    );
+    assert_eq!(
+        fs::read_to_string(&installed.hook_path).unwrap(),
+        GROK_HOOK_ASSET
+    );
+
+    let config: Value =
+        serde_json::from_str(&fs::read_to_string(&installed.config_path).unwrap()).unwrap();
+    assert_eq!(config, grok_hook_config(&installed.hook_path));
+    let session_start = config["hooks"]["SessionStart"].as_array().unwrap();
+    assert_eq!(session_start.len(), 1);
+    let command = grok_session_command(&config);
+    assert!(command.starts_with("sh "));
+    assert!(command.contains("herdr-agent-state.sh"));
+    assert!(command.ends_with(" session"));
+
+    std::env::remove_var(GROK_CONFIG_DIR_ENV_VAR);
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_mastracode_removes_v1_lifecycle_hooks() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let original_home = std::env::var_os("HOME");
+    let mastracode_dir = base.join(".mastracode");
+    let hook_path = mastracode_dir
+        .join("hooks")
+        .join(MASTRACODE_HOOK_INSTALL_NAME);
+    fs::create_dir_all(&mastracode_dir).unwrap();
+    fs::write(
+        mastracode_dir.join("hooks.json"),
+        serde_json::to_string(&json!({
+            "SessionStart": [{
+                "type": "command",
+                "command": format!("bash '{}' idle", hook_path.display()),
+                "timeout": MASTRACODE_HOOK_TIMEOUT_MS
+            }],
+            "SessionEnd": [{
+                "type": "command",
+                "command": format!("bash '{}' release", hook_path.display()),
+                "timeout": MASTRACODE_HOOK_TIMEOUT_MS
+            }]
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    std::env::set_var("HOME", &base);
+
+    install_mastracode().unwrap();
+
+    let hooks_file: Value =
+        serde_json::from_str(&fs::read_to_string(mastracode_dir.join("hooks.json")).unwrap())
+            .unwrap();
+    let hooks = hooks_file.as_object().unwrap();
+    let session_start = hooks["SessionStart"].as_array().unwrap();
+    assert_eq!(session_start.len(), 1);
+    assert!(session_start[0]["command"]
+        .as_str()
+        .unwrap()
+        .ends_with("session"));
+
+    if let Some(home) = original_home {
+        std::env::set_var("HOME", home);
+    } else {
+        std::env::remove_var("HOME");
+    }
+    let _ = fs::remove_dir_all(base);
+}
+
 #[test]
 fn install_mastracode_is_idempotent_for_hook_entries() {
     let _lock = integration_env_lock();
@@ -3441,6 +3433,26 @@ fn install_mastracode_is_idempotent_for_hook_entries() {
     } else {
         std::env::remove_var("HOME");
     }
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_grok_is_idempotent() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let grok_dir = base.join(".grok");
+    fs::create_dir_all(&grok_dir).unwrap();
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
+
+    install_grok().unwrap();
+    let first =
+        fs::read_to_string(grok_dir.join("hooks").join(GROK_HOOK_CONFIG_INSTALL_NAME)).unwrap();
+    install_grok().unwrap();
+    let second =
+        fs::read_to_string(grok_dir.join("hooks").join(GROK_HOOK_CONFIG_INSTALL_NAME)).unwrap();
+    assert_eq!(first, second);
+
+    std::env::remove_var(GROK_CONFIG_DIR_ENV_VAR);
     let _ = fs::remove_dir_all(base);
 }
 
@@ -3502,6 +3514,71 @@ fn uninstall_mastracode_removes_herdr_hooks_and_preserves_others() {
 }
 
 #[test]
+fn install_grok_errors_when_config_dir_missing() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    // Deliberately do not create the ~/.grok directory ahead of time: the
+    // installer must refuse instead of conjuring a config dir for an agent
+    // that is not installed.
+    let missing = base.join(".grok");
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &missing);
+
+    let err = install_grok().unwrap_err().to_string();
+    assert!(
+        err.contains("grok config directory not found"),
+        "unexpected error: {err}"
+    );
+
+    std::env::remove_var(GROK_CONFIG_DIR_ENV_VAR);
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn uninstall_grok_removes_files() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let grok_dir = base.join(".grok");
+    fs::create_dir_all(&grok_dir).unwrap();
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
+
+    install_grok().unwrap();
+    let result = uninstall_grok().unwrap();
+    assert!(result.removed_hook_file);
+    assert!(result.removed_config_file);
+    assert!(!result.hook_path.is_file());
+    assert!(!result.config_path.is_file());
+
+    // Uninstalling again is a no-op.
+    let again = uninstall_grok().unwrap();
+    assert!(!again.removed_hook_file);
+    assert!(!again.removed_config_file);
+
+    std::env::remove_var(GROK_CONFIG_DIR_ENV_VAR);
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_grok_uses_grok_config_dir_env() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let grok_dir = base.join("custom-grok");
+    fs::create_dir_all(&grok_dir).unwrap();
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
+
+    let installed = install_grok().unwrap();
+
+    let hooks_dir = grok_dir.join("hooks");
+    assert_eq!(installed.hook_path, hooks_dir.join(GROK_HOOK_INSTALL_NAME));
+    assert_eq!(
+        installed.config_path,
+        hooks_dir.join(GROK_HOOK_CONFIG_INSTALL_NAME)
+    );
+
+    clear_integration_path_env();
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
 fn install_mastracode_errors_when_event_value_not_array() {
     let _lock = integration_env_lock();
     let base = unique_base();
@@ -3550,140 +3627,622 @@ fn uninstall_mastracode_errors_when_event_value_not_array() {
 }
 
 #[test]
-fn install_zcode_writes_hook_and_registers_it_in_its_own_config() {
+fn install_antigravity_cli_writes_hook_and_updates_hooks_json() {
     let _lock = integration_env_lock();
     let base = unique_base();
-    let original_home = std::env::var_os("HOME");
-    let zcode_dir = base.join(".zcode").join("cli");
-    fs::create_dir_all(&zcode_dir).unwrap();
-    // A config with fields Herdr knows nothing about, to prove the read-edit-write
-    // round trip does not drop them.
+    let agy_dir = base.join(".gemini").join("config");
+    fs::create_dir_all(&agy_dir).unwrap();
     fs::write(
-        zcode_dir.join("config.json"),
-        r#"{"model":{"provider":"local","id":"m"},"telemetry":true,"hooks":{}}"#,
+        agy_dir.join("hooks.json"),
+        r#"{"lint-checker":{"PreInvocation":[{"type":"command","command":"echo keep-me"}]}}"#,
     )
     .unwrap();
-    std::env::set_var("HOME", &base);
+    std::env::set_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &agy_dir);
 
-    let installed = install_zcode().unwrap();
-    let hook_content = fs::read_to_string(&installed.hook_path).unwrap();
-    let config: Value =
-        serde_json::from_str(&fs::read_to_string(&installed.config_path).unwrap()).unwrap();
+    let installed = install_antigravity_cli().unwrap();
 
     assert_eq!(
         installed.hook_path,
-        zcode_dir.join("hooks").join(ZCODE_HOOK_INSTALL_NAME)
+        agy_dir
+            .join("hooks")
+            .join(ANTIGRAVITY_CLI_HOOK_INSTALL_NAME)
     );
-    assert_eq!(hook_content, ZCODE_HOOK_ASSET);
-
-    // Unknown fields survive.
-    assert_eq!(config["model"]["provider"], "local");
-    assert_eq!(config["telemetry"], true);
-
-    // ZCode's hooks runtime is off by default, so installing must turn it on.
-    assert_eq!(config["hooks"]["enabled"], true);
-
-    assert_eq!(config["hooks"]["SessionStart"][0]["matcher"], "*");
-    assert!(config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-        .as_str()
-        .unwrap()
-        .contains(" session"));
-    assert_eq!(config["hooks"]["PermissionRequest"][0]["matcher"], "*");
-    assert!(
-        config["hooks"]["PermissionRequest"][0]["hooks"][0]["command"]
-            .as_str()
-            .unwrap()
-            .contains(" permission")
+    assert_eq!(installed.hooks_path, agy_dir.join("hooks.json"));
+    assert_eq!(
+        fs::read_to_string(&installed.hook_path).unwrap(),
+        ANTIGRAVITY_CLI_HOOK_ASSET
     );
 
-    // State stays with screen detection, so the per-turn lifecycle hooks are not
-    // installed, and ZCode has no SessionEnd or SubagentStop event at all.
-    for absent in [
-        "UserPromptSubmit",
-        "PreToolUse",
-        "PostToolUse",
-        "PostToolUseFailure",
-        "Stop",
-        "SessionEnd",
-        "SubagentStop",
-    ] {
+    let hooks_file: Value =
+        serde_json::from_str(&fs::read_to_string(agy_dir.join("hooks.json")).unwrap()).unwrap();
+    let hooks = hooks_file.as_object().unwrap();
+
+    // Herdr entries live under a named hook block; Antigravity CLI rejects a
+    // file whose top level maps event names straight to arrays.
+    let block = hooks
+        .get(ANTIGRAVITY_CLI_HOOK_BLOCK_NAME)
+        .and_then(Value::as_object)
+        .unwrap();
+
+    for (event, action) in ANTIGRAVITY_CLI_HOOK_EVENTS {
+        let entries = block.get(event).and_then(Value::as_array).unwrap();
+        assert_eq!(entries.len(), 1, "{event} should hold one Herdr entry");
+        let handler = &entries[0];
+
+        // Handlers must be a flat list; the matcher/hooks wrapper is only
+        // valid for tool events and invalidates the whole file here.
         assert!(
-            config["hooks"].get(absent).is_none(),
-            "{absent} must not be registered"
+            handler.get("matcher").is_none() && handler.get("hooks").is_none(),
+            "{event} must be a flat handler, got {handler}"
+        );
+
+        assert_eq!(handler.get("type").and_then(Value::as_str), Some("command"));
+        assert_eq!(
+            handler.get("timeout").and_then(Value::as_u64),
+            Some(ANTIGRAVITY_CLI_HOOK_TIMEOUT_SEC)
+        );
+        let command = handler.get("command").and_then(Value::as_str).unwrap();
+        assert!(command.contains("herdr-agent-state"));
+        assert!(command.ends_with(action));
+    }
+
+    // The integration is session-only. Antigravity CLI cannot express blocked
+    // state, skips PostInvocation on interruption, and fires Stop at end of
+    // turn rather than process exit, so Herdr never claims lifecycle authority
+    // here and screen detection owns agent state.
+    for event in ["PreToolUse", "PostToolUse", "PostInvocation", "Stop"] {
+        assert!(
+            block.get(event).is_none(),
+            "{event} must not be registered; lifecycle stays with screen detection"
         );
     }
 
-    if let Some(home) = original_home {
-        std::env::set_var("HOME", home);
-    } else {
-        std::env::remove_var("HOME");
-    }
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
-fn install_zcode_is_idempotent_for_hook_entries() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let original_home = std::env::var_os("HOME");
-    let zcode_dir = base.join(".zcode").join("cli");
-    fs::create_dir_all(&zcode_dir).unwrap();
-    std::env::set_var("HOME", &base);
-
-    install_zcode().unwrap();
-    install_zcode().unwrap();
-
-    let config: Value =
-        serde_json::from_str(&fs::read_to_string(zcode_dir.join("config.json")).unwrap()).unwrap();
-    assert_eq!(config["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+    // Other named hooks are left untouched.
     assert_eq!(
-        config["hooks"]["PermissionRequest"]
-            .as_array()
-            .unwrap()
-            .len(),
-        1
+        hooks
+            .get("lint-checker")
+            .and_then(|block| block.get("PreInvocation"))
+            .and_then(Value::as_array)
+            .and_then(|entries| entries.first())
+            .and_then(|entry| entry.get("command"))
+            .and_then(Value::as_str),
+        Some("echo keep-me")
     );
 
-    if let Some(home) = original_home {
-        std::env::set_var("HOME", home);
-    } else {
-        std::env::remove_var("HOME");
-    }
+    std::env::remove_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR);
     let _ = fs::remove_dir_all(base);
 }
 
 #[test]
-fn uninstall_zcode_removes_hook_and_leaves_other_config_alone() {
+fn install_antigravity_cli_rewrites_stale_herdr_block() {
     let _lock = integration_env_lock();
     let base = unique_base();
-    let original_home = std::env::var_os("HOME");
-    let zcode_dir = base.join(".zcode").join("cli");
-    fs::create_dir_all(&zcode_dir).unwrap();
+    let agy_dir = base.join(".gemini").join("config");
+    fs::create_dir_all(&agy_dir).unwrap();
+    // An older Herdr install claimed lifecycle authority, wrapped events in
+    // matcher/hooks, and left entries Antigravity CLI now rejects.
     fs::write(
-        zcode_dir.join("config.json"),
-        r#"{"model":{"provider":"local"},"hooks":{}}"#,
+        agy_dir.join("hooks.json"),
+        r#"{"herdr":{"Stop":[{"matcher":"*","hooks":[{"type":"command","command":"stale"}]}],"PostInvocation":[{"type":"command","command":"stale idle"}],"Legacy":[]}}"#,
     )
     .unwrap();
-    std::env::set_var("HOME", &base);
+    std::env::set_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &agy_dir);
 
-    let installed = install_zcode().unwrap();
-    let result = uninstall_zcode().unwrap();
+    install_antigravity_cli().unwrap();
 
-    assert!(result.removed_hook_file);
-    assert!(result.updated_config);
-    assert!(!installed.hook_path.exists());
+    let hooks_file: Value =
+        serde_json::from_str(&fs::read_to_string(agy_dir.join("hooks.json")).unwrap()).unwrap();
+    let block = hooks_file
+        .get(ANTIGRAVITY_CLI_HOOK_BLOCK_NAME)
+        .and_then(Value::as_object)
+        .unwrap();
 
-    let config: Value =
-        serde_json::from_str(&fs::read_to_string(zcode_dir.join("config.json")).unwrap()).unwrap();
-    assert!(config["hooks"].get("SessionStart").is_none());
-    assert!(config["hooks"].get("PermissionRequest").is_none());
-    // The user's own configuration is untouched, including the switch Herdr set.
-    assert_eq!(config["model"]["provider"], "local");
+    // The block is Herdr-owned and rewritten wholesale, so a stale lifecycle
+    // install is migrated to session-only rather than merged with.
+    assert_eq!(
+        block.keys().map(String::as_str).collect::<Vec<_>>(),
+        vec!["PreInvocation"],
+        "stale lifecycle events should be gone"
+    );
+    let entries = block
+        .get("PreInvocation")
+        .and_then(Value::as_array)
+        .unwrap();
+    assert_eq!(entries.len(), 1);
+    assert!(entries[0].get("hooks").is_none());
+    assert!(entries[0]
+        .get("command")
+        .and_then(Value::as_str)
+        .is_some_and(|command| command.contains("herdr-agent-state")));
 
-    if let Some(home) = original_home {
-        std::env::set_var("HOME", home);
-    } else {
-        std::env::remove_var("HOME");
-    }
+    std::env::remove_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR);
     let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn install_antigravity_cli_errors_when_config_dir_missing() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let agy_dir = base.join(".gemini").join("config");
+    std::env::set_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &agy_dir);
+
+    let err = install_antigravity_cli().unwrap_err();
+    assert!(err.to_string().contains("install antigravity cli first"));
+    assert!(!agy_dir.exists(), "install must not create the config dir");
+
+    std::env::remove_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR);
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn grok_v1_integration_status_is_current() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let grok_dir = base.join(".grok");
+    fs::create_dir_all(&grok_dir).unwrap();
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
+    // A real install writes both the hook script and hooks/herdr.json.
+    install_grok().unwrap();
+
+    let statuses = installed_integration_statuses();
+    let grok = statuses
+        .iter()
+        .find(|status| status.target == crate::api::schema::IntegrationTarget::Grok)
+        .expect("grok integration status");
+    assert_eq!(grok.state, IntegrationStatusKind::Current);
+    assert_eq!(grok.installed_version, Some(GROK_INTEGRATION_VERSION));
+
+    clear_integration_path_env();
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn grok_status_reports_outdated_when_hook_config_missing_or_broken() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let grok_dir = base.join(".grok");
+    fs::create_dir_all(&grok_dir).unwrap();
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
+    install_grok().unwrap();
+    let config_path = grok_dir.join("hooks").join(GROK_HOOK_CONFIG_INSTALL_NAME);
+
+    let grok_state = || {
+        installed_integration_statuses()
+            .into_iter()
+            .find(|status| status.target == crate::api::schema::IntegrationTarget::Grok)
+            .expect("grok integration status")
+            .state
+    };
+
+    // Missing config: grok never runs the hook, so the install is not current.
+    fs::remove_file(&config_path).unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+
+    // Corrupt config.
+    fs::write(&config_path, "{not json").unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+
+    // Config that no longer references the hook script.
+    fs::write(
+        &config_path,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo other"}]}]}}"#,
+    )
+    .unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+
+    // Config that mentions the script name without invoking it, and one that
+    // invokes it without the required `session` action: both are
+    // nonfunctional, so neither may report current.
+    fs::write(
+        &config_path,
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo herdr-agent-state.sh"}]}]}}"#,
+    )
+    .unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+    let hook_path = grok_dir.join("hooks").join(GROK_HOOK_INSTALL_NAME);
+    fs::write(
+        &config_path,
+        format!(
+            r#"{{"hooks":{{"SessionStart":[{{"hooks":[{{"type":"command","command":"sh '{}'"}}]}}]}}}}"#,
+            hook_path.display()
+        ),
+    )
+    .unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+
+    // Correct command but not a command-type hook: grok will not execute it.
+    let session_command = grok_session_command(&grok_hook_config(&hook_path));
+    fs::write(
+        &config_path,
+        format!(
+            r#"{{"hooks":{{"SessionStart":[{{"hooks":[{{"type":"http","command":{}}}]}}]}}}}"#,
+            serde_json::to_string(&session_command).unwrap()
+        ),
+    )
+    .unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+
+    // A matcher can prevent the expected hook from running.
+    let mut config = grok_hook_config(&hook_path);
+    config["hooks"]["SessionStart"][0]["matcher"] = json!("(");
+    fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+
+    // A malformed sibling group makes grok reject the event's hook groups.
+    let mut config = grok_hook_config(&hook_path);
+    config["hooks"]["SessionStart"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({}));
+    fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
+
+    // Reinstall repairs both files.
+    install_grok().unwrap();
+    assert_eq!(grok_state(), IntegrationStatusKind::Current);
+
+    clear_integration_path_env();
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn uninstall_antigravity_cli_removes_hooks_json_entries_and_hook_file() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let agy_dir = base.join(".gemini").join("config");
+    fs::create_dir_all(&agy_dir).unwrap();
+    fs::write(
+        agy_dir.join("hooks.json"),
+        r#"{"lint-checker":{"PreInvocation":[{"type":"command","command":"echo keep-me"}]}}"#,
+    )
+    .unwrap();
+    std::env::set_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR, &agy_dir);
+
+    // Install first
+    let installed = install_antigravity_cli().unwrap();
+    assert!(installed.hook_path.is_file());
+
+    // Uninstall
+    let result = uninstall_antigravity_cli().unwrap();
+    assert!(result.removed_hook_file);
+    assert!(!installed.hook_path.is_file());
+    assert!(result.updated_hooks);
+
+    let hooks_file: Value =
+        serde_json::from_str(&fs::read_to_string(agy_dir.join("hooks.json")).unwrap()).unwrap();
+    let hooks = hooks_file.as_object().unwrap();
+
+    // The Herdr block is gone and unrelated named hooks survive.
+    assert!(hooks.get(ANTIGRAVITY_CLI_HOOK_BLOCK_NAME).is_none());
+    assert!(hooks.contains_key("lint-checker"));
+
+    std::env::remove_var(ANTIGRAVITY_CLI_CONFIG_DIR_ENV_VAR);
+    let _ = fs::remove_dir_all(base);
+}
+
+#[test]
+fn grok_dir_honors_grok_home_after_config_dir_seam() {
+    let _lock = integration_env_lock();
+    let base = unique_base();
+    let home_dir = base.join("grok-home");
+    fs::create_dir_all(&home_dir).unwrap();
+    std::env::remove_var(GROK_CONFIG_DIR_ENV_VAR);
+    std::env::set_var(GROK_HOME_ENV_VAR, &home_dir);
+
+    // The grok CLI reads its config (and hooks/) from $GROK_HOME, so the
+    // integration must install there too.
+    let installed = install_grok().unwrap();
+    assert_eq!(
+        installed.hook_path,
+        home_dir.join("hooks").join(GROK_HOOK_INSTALL_NAME)
+    );
+
+    // The herdr-level test seam still wins over GROK_HOME when set.
+    let seam_dir = base.join("seam");
+    fs::create_dir_all(&seam_dir).unwrap();
+    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &seam_dir);
+    let installed = install_grok().unwrap();
+    assert_eq!(
+        installed.hook_path,
+        seam_dir.join("hooks").join(GROK_HOOK_INSTALL_NAME)
+    );
+
+    std::env::remove_var(GROK_HOME_ENV_VAR);
+    clear_integration_path_env();
+    let _ = fs::remove_dir_all(base);
+
+    #[test]
+    fn install_codex_preserves_existing_rollout_monitor_config() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let home = base.join("home");
+        let codex_dir = home.join(".codex");
+        fs::create_dir_all(&codex_dir).unwrap();
+        fs::write(codex_dir.join("config.toml"), "model = \"gpt-5.4\"\n").unwrap();
+        std::env::set_var("HOME", &home);
+
+        if codex_monitor_supported() {
+            let config_path =
+                crate::plugin_paths::plugin_config_dir(CODEX_MONITOR_PLUGIN_ID).join("config.toml");
+            fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+            fs::write(
+                &config_path,
+                "[monitor]\nenabled = false\nsilent_after_seconds = 90\n",
+            )
+            .unwrap();
+
+            install_codex().unwrap();
+
+            assert_eq!(
+                fs::read_to_string(config_path).unwrap(),
+                "[monitor]\nenabled = false\nsilent_after_seconds = 90\n"
+            );
+        }
+
+        std::env::remove_var("HOME");
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_omp_uses_pi_coding_agent_dir_env() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let agent_dir = base.join("custom-omp-agent");
+        let ext_dir = agent_dir.join("extensions");
+        fs::create_dir_all(&ext_dir).unwrap();
+        std::env::set_var(PI_CODING_AGENT_DIR_ENV_VAR, &agent_dir);
+
+        let installed = install_omp().unwrap();
+
+        assert_eq!(
+            installed.extension_path,
+            ext_dir.join(OMP_EXTENSION_INSTALL_NAME)
+        );
+        assert!(!installed.removed_legacy_pi_extension);
+
+        clear_integration_path_env();
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_zcode_is_idempotent_for_hook_entries() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let original_home = std::env::var_os("HOME");
+        let zcode_dir = base.join(".zcode").join("cli");
+        fs::create_dir_all(&zcode_dir).unwrap();
+        std::env::set_var("HOME", &base);
+
+        install_zcode().unwrap();
+        install_zcode().unwrap();
+
+        let config: Value =
+            serde_json::from_str(&fs::read_to_string(zcode_dir.join("config.json")).unwrap())
+                .unwrap();
+        assert_eq!(config["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            config["hooks"]["PermissionRequest"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn install_zcode_writes_hook_and_registers_it_in_its_own_config() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let original_home = std::env::var_os("HOME");
+        let zcode_dir = base.join(".zcode").join("cli");
+        fs::create_dir_all(&zcode_dir).unwrap();
+        // A config with fields Herdr knows nothing about, to prove the read-edit-write
+        // round trip does not drop them.
+        fs::write(
+            zcode_dir.join("config.json"),
+            r#"{"model":{"provider":"local","id":"m"},"telemetry":true,"hooks":{}}"#,
+        )
+        .unwrap();
+        std::env::set_var("HOME", &base);
+
+        let installed = install_zcode().unwrap();
+        let hook_content = fs::read_to_string(&installed.hook_path).unwrap();
+        let config: Value =
+            serde_json::from_str(&fs::read_to_string(&installed.config_path).unwrap()).unwrap();
+
+        assert_eq!(
+            installed.hook_path,
+            zcode_dir.join("hooks").join(ZCODE_HOOK_INSTALL_NAME)
+        );
+        assert_eq!(hook_content, ZCODE_HOOK_ASSET);
+
+        // Unknown fields survive.
+        assert_eq!(config["model"]["provider"], "local");
+        assert_eq!(config["telemetry"], true);
+
+        // ZCode's hooks runtime is off by default, so installing must turn it on.
+        assert_eq!(config["hooks"]["enabled"], true);
+
+        assert_eq!(config["hooks"]["SessionStart"][0]["matcher"], "*");
+        assert!(config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap()
+            .contains(" session"));
+        assert_eq!(config["hooks"]["PermissionRequest"][0]["matcher"], "*");
+        assert!(
+            config["hooks"]["PermissionRequest"][0]["hooks"][0]["command"]
+                .as_str()
+                .unwrap()
+                .contains(" permission")
+        );
+
+        // State stays with screen detection, so the per-turn lifecycle hooks are not
+        // installed, and ZCode has no SessionEnd or SubagentStop event at all.
+        for absent in [
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "PostToolUseFailure",
+            "Stop",
+            "SessionEnd",
+            "SubagentStop",
+        ] {
+            assert!(
+                config["hooks"].get(absent).is_none(),
+                "{absent} must not be registered"
+            );
+        }
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn omp_extension_releases_only_for_quit_session_shutdown() {
+        let release_policy = OMP_EXTENSION_ASSET
+            .find("function shouldReleaseOnSessionShutdown")
+            .expect("omp extension should centralize session shutdown release policy");
+        let quit_check = OMP_EXTENSION_ASSET
+            .find("reason === \"quit\"")
+            .expect("omp extension should release only for true quit shutdowns");
+        let shutdown_handler = OMP_EXTENSION_ASSET
+            .find("pi.on(\"session_shutdown\", async (event)")
+            .expect("omp extension should inspect the session_shutdown event");
+        let guarded_release = OMP_EXTENSION_ASSET[shutdown_handler..]
+            .find("if (shouldReleaseOnSessionShutdown(event))")
+            .expect("omp extension should guard releaseAgent by shutdown reason");
+
+        assert!(release_policy < shutdown_handler);
+        assert!(release_policy < quit_check);
+        assert!(quit_check < shutdown_handler);
+        assert!(guarded_release > 0);
+    }
+
+    #[test]
+    fn pi_extension_releases_only_for_quit_session_shutdown() {
+        let release_policy = PI_EXTENSION_ASSET
+            .find("function shouldReleaseOnSessionShutdown")
+            .expect("pi extension should centralize session shutdown release policy");
+        let quit_check = PI_EXTENSION_ASSET
+            .find("reason === \"quit\"")
+            .expect("pi extension should release only for true quit shutdowns");
+        let shutdown_handler = PI_EXTENSION_ASSET
+            .find("pi.on(\"session_shutdown\", async (event)")
+            .expect("pi extension should inspect the session_shutdown event");
+        let guarded_release = PI_EXTENSION_ASSET[shutdown_handler..]
+            .find("if (shouldReleaseOnSessionShutdown(event))")
+            .expect("pi extension should guard releaseAgent by shutdown reason");
+
+        assert!(release_policy < shutdown_handler);
+        assert!(release_policy < quit_check);
+        assert!(quit_check < shutdown_handler);
+        assert!(guarded_release > 0);
+    }
+
+    #[test]
+    fn uninstall_zcode_removes_hook_and_leaves_other_config_alone() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let original_home = std::env::var_os("HOME");
+        let zcode_dir = base.join(".zcode").join("cli");
+        fs::create_dir_all(&zcode_dir).unwrap();
+        fs::write(
+            zcode_dir.join("config.json"),
+            r#"{"model":{"provider":"local"},"hooks":{}}"#,
+        )
+        .unwrap();
+        std::env::set_var("HOME", &base);
+
+        let installed = install_zcode().unwrap();
+        let result = uninstall_zcode().unwrap();
+
+        assert!(result.removed_hook_file);
+        assert!(result.updated_config);
+        assert!(!installed.hook_path.exists());
+
+        let config: Value =
+            serde_json::from_str(&fs::read_to_string(zcode_dir.join("config.json")).unwrap())
+                .unwrap();
+        assert!(config["hooks"].get("SessionStart").is_none());
+        // The user's own configuration is untouched, including the switch Herdr set.
+        assert_eq!(config["model"]["provider"], "local");
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_does_not_offer_unsupported_integrations_even_when_commands_exist() {
+        use crate::api::schema::IntegrationTarget;
+
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let bin = base.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let original_path = std::env::var_os("PATH");
+        std::env::set_var("PATH", &bin);
+
+        fs::write(bin.join("pi.cmd"), "@echo off\r\n").unwrap();
+        fs::write(bin.join("omp.cmd"), "@echo off\r\n").unwrap();
+        fs::write(bin.join("opencode.cmd"), "@echo off\r\n").unwrap();
+        fs::write(bin.join("kilo.cmd"), "@echo off\r\n").unwrap();
+        fs::write(bin.join("hermes.exe"), "").unwrap();
+        fs::write(bin.join("cursor-agent.cmd"), "@echo off\r\n").unwrap();
+        fs::write(bin.join("devin.cmd"), "@echo off\r\n").unwrap();
+        fs::write(bin.join("mastracode.cmd"), "@echo off\r\n").unwrap();
+
+        assert!(!integration_target_available(IntegrationTarget::Pi));
+        assert!(!integration_target_available(IntegrationTarget::Omp));
+        assert!(!integration_target_available(IntegrationTarget::Opencode));
+        assert!(!integration_target_available(IntegrationTarget::Kilo));
+        assert!(!integration_target_available(IntegrationTarget::Hermes));
+        assert!(!integration_target_available(IntegrationTarget::Cursor));
+        assert!(!integration_target_available(IntegrationTarget::Devin));
+        assert!(!integration_target_available(IntegrationTarget::Mastracode));
+
+        if let Some(path) = original_path {
+            std::env::set_var("PATH", path);
+        } else {
+            std::env::remove_var("PATH");
+        }
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_supports_only_cli_hook_integrations() {
+        use crate::api::schema::IntegrationTarget;
+
+        assert!(!integration_target_supported(IntegrationTarget::Pi));
+        assert!(!integration_target_supported(IntegrationTarget::Omp));
+        assert!(!integration_target_supported(IntegrationTarget::Opencode));
+        assert!(!integration_target_supported(IntegrationTarget::Kilo));
+        assert!(!integration_target_supported(IntegrationTarget::Hermes));
+        assert!(!integration_target_supported(IntegrationTarget::Cursor));
+        assert!(!integration_target_supported(IntegrationTarget::Devin));
+        assert!(!integration_target_supported(IntegrationTarget::Mastracode));
+
+        assert!(integration_target_supported(IntegrationTarget::Claude));
+        assert!(integration_target_supported(IntegrationTarget::Codex));
+        assert!(integration_target_supported(IntegrationTarget::Copilot));
+        assert!(integration_target_supported(IntegrationTarget::Droid));
+        assert!(integration_target_supported(IntegrationTarget::Kimi));
+        assert!(integration_target_supported(IntegrationTarget::Qodercli));
+    }
 }

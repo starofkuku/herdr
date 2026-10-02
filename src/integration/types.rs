@@ -113,15 +113,15 @@ pub(crate) struct ZcodeUninstallResult {
 #[derive(Debug)]
 pub(crate) struct GrokInstallPaths {
     pub hook_path: PathBuf,
-    pub hooks_json_path: PathBuf,
+    pub config_path: PathBuf,
 }
 
 #[derive(Debug)]
 pub(crate) struct GrokUninstallResult {
     pub hook_path: PathBuf,
-    pub hooks_json_path: PathBuf,
+    pub config_path: PathBuf,
     pub removed_hook_file: bool,
-    pub removed_hooks_json: bool,
+    pub removed_config_file: bool,
 }
 
 #[derive(Debug)]
@@ -257,4 +257,18 @@ pub(crate) struct HermesUninstallResult {
     pub config_path: PathBuf,
     pub removed_plugin_dir: bool,
     pub updated_config: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct AntigravityCliInstallPaths {
+    pub hook_path: PathBuf,
+    pub hooks_path: PathBuf,
+}
+
+#[derive(Debug)]
+pub(crate) struct AntigravityCliUninstallResult {
+    pub hook_path: PathBuf,
+    pub hooks_path: PathBuf,
+    pub removed_hook_file: bool,
+    pub updated_hooks: bool,
 }

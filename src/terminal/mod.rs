@@ -1,4 +1,5 @@
 mod diagnostics;
+mod history_read;
 mod id;
 mod interactions;
 mod runtime;
@@ -7,6 +8,7 @@ pub mod state;
 mod title;
 
 pub(crate) use diagnostics::{PaneDiagnosticReportError, MAX_PANE_DIAGNOSTICS};
+pub(crate) use history_read::{merge_scrolled_up, snapshot_text, ScreenSnapshot, UpwardMerge};
 pub use id::TerminalId;
 pub(crate) use interactions::PaneInteractionError;
 pub use runtime::TerminalRuntime;

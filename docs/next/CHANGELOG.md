@@ -2,413 +2,171 @@
 
 ## Unreleased
 
-## [0.7.48] - 2026-09-30
+## [0.8.0] - 2026-08-03
 
 ### Added
-- ZCode panes get the structured conversation view, and ZCode gets its own mark. ZCode keeps its sessions in a SQLite database rather than a file per session — the only JSONL it writes is a model-I/O diagnostic log that is truncated as it rotates — so it is the first agent whose conversation Herdr reads itself instead of through the transcript parser. The store is opened read-only, and ZCode's own rule for what belongs in a transcript is applied, so hidden runtime traffic such as todo reminders does not surface as conversation. A new `store` session kind says a session's conversation lives in an agent's own store, which is what lets `pane.session` serve it; what an agent reports, and what herdr persists for `--resume`, stays an id. The mark is traced from ZCode's official application icon, which ships only as a bitmap.
-- The web UI connects to several saved gateways at once. The page opens on a list of them — a name, an address, and a key each — and every screen behind one says which gateway it is, because session names repeat across gateways. Each keeps its own connection, session list, and remembered session. The gateway is part of the address (`#/<gateway>/<session>/<pane>`), so a link names the one it means; links written before gateways were addressable no longer resolve.
-- `Shift`+`Tab` in a conversation opens a window switcher over the page: hold the chord, the candidates turn past on a ring, release and the highlighted one opens. The candidates are every agent open on every saved gateway, ordered by who needs you — waiting, then working, then the rest — so the first press reaches whoever is blocked. `Esc` cancels; pointing at a card turns the ring to it and clicking one opens it directly.
-- The agent rail, the jump palette, and both switcher menus span every saved gateway, grouped by gateway, and each row carries the agent's own mark.
-- A search over every file in the project (`files.search`), scoped to one pane's project root with the same pruning and path checks as `files.list`.
-- The conversation header hides the agent's full working directory and session id behind a click on the directory name, each with its own copy button.
+- Added `herdr --skill` to print the agent skill bundled with the running Herdr binary.
+- Added `ui.pane_scrollbars = false` to hide terminal pane scrollbars and reclaim their reserved column. (#2167)
+- Added `ui.tab_bar_position = "bottom"` to place the desktop tab row below terminal panes. (#2117)
+- Added live filtering to the keybind help with `/`, Backspace, and `Ctrl+U`. (#1825, #1832, thanks @corrius)
+- Added Windows support for `experimental.switch_ascii_input_source_in_prefix` with Korean IMEs. (#1802, #1823, thanks @joonhwan)
+- Added Grok CLI session reporting and native restore with `grok --resume <id>`. (#1800, #1807, thanks @carlesso)
+- Added Antigravity CLI session reporting and native restore with `agy --conversation <id>`. (#1011, #1571, #2087, thanks @ludoo)
+- Added automatic text history reads for idle alternate-screen agents, with the application viewport restored after collection.
+- Added `workspace.move_block`, the `workspace.reordered` event, and atomic worktree-group reordering. (#1694)
+- Added a Simplified Chinese README. (#1990, thanks @patrick-xin)
 
 ### Changed
-- Agents are identified by their own mark rather than by their name, which repeats — six panes of one agent all read `pi`. Rows in the rail and the palette are named by project and directory, which is what actually tells those panes apart.
-- The conversation header names an agent by its working directory rather than by a workspace label that may be the only name its panes share.
-- This is the first release built against a bundled SQLite, which is the only database Herdr opens.
+- Experimental options are no longer exposed in the Settings TUI and remain available through the config file.
+- Agent status indicators now use the same static workspace marks across the sidebar, navigator, and mobile views, eliminating continuous spinner rendering while agents work.
+- Hidden pane output no longer triggers unnecessary TUI rendering.
+- Windows preview downloads now include Herdr and a modern app-local ConPTY runtime in one archive. (#1533, #1644, #1828)
+- Worktree parents and children now stay packed together in the sidebar, including while groups are reordered.
+- Public documentation now separates stable, preview, and immutable versioned release snapshots.
+- Repository and installation links now use `herdrdev/herdr` after the GitHub organization migration.
+- Relicensed Herdr from AGPL-3.0-or-later to Apache-2.0.
 
-## [0.7.47] - 2026-09-29
+### Fixed
+- Pane applications now receive semantic light/dark query responses and live Mode 2031 updates when the host appearance changes. (#714)
+- Remote attach now falls back to `sh` when the login shell cannot perform path discovery. (#1201)
+- PTY output continues to be read while pane input is temporarily blocked. (#1295)
+- Worktree CLI help and docs no longer advertise the redundant `--json` flag; worktree commands remain JSON-only and continue accepting the flag for compatibility. (#2171)
+- OpenCode 2 preview panes now appear as OpenCode agents and use the existing OpenCode status detection. (#2169)
+- Pane text copied through VS Code Remote Tunnels now reaches the viewing machine's clipboard instead of overwriting the remote host clipboard. (#2015)
+- Windows agent detection now follows Git Bash-launched agents across emulated `exec` process boundaries. (#2107)
+- Detached Windows servers and pane processes now survive logout from the OpenSSH session that started them. (#2008)
+- Windows `agent start` now launches agents without native arguments instead of timing out on an invalid empty PowerShell argument list. (#2072)
+- Headless servers now resume restored agent sessions without waiting for a TUI client to attach. (#2064)
+- Vibe and other Kitty-keyboard pane applications now receive shifted letters and punctuation when they request associated text. (#2020)
+- Kitty-keyboard pane applications now receive printable key releases without duplicate text input. (#1746)
+- Kitty graphics remain visible during host repaints. (#1628)
+- Pane applications now receive correct XTWINOPS terminal and cell-size query responses. (#835)
+- WSL clients query the host cell size when the terminal ioctl reports no pixels, keeping graphics sharp instead of using the 8x16 fallback. (#2146, #2160, thanks @WakaTaira)
+- Linux runtimes without terminal foreground process groups can opt into child-group agent detection with `HERDR_PROCESS_DETECTION=child-groups`. (#1982)
+- Installing the Herdr agent skill with the `skills` CLI no longer copies the entire repository. (#2022)
+- Nix builds now include the bundled agent skill required by `herdr --skill`. (#1889, #1890, thanks @olafkfreund)
+- Agent prompts now wait briefly after sending text before pressing Enter, preventing prompts from remaining in agent composers without starting a turn. (#1878)
+- Empty clipboard writes from pane applications no longer erase existing clipboard contents or show a copied confirmation. (#1893)
+- Plain mouse movement no longer triggers continuous full renders while preserving Herdr menu hover and pane application mouse tracking. (#1865)
+- Extended-button drags now preserve Herdr hover state while applications receive the drag.
+- `ui.copy_on_select = false` now retains drag and double-click word selections without copying; `Ctrl+C`, or `Cmd+C` when the host terminal forwards it, copies and clears the selection. (#1782)
+- Pane and agent read responses now report `truncated: true` when older terminal rows were omitted. (#1717)
+- Pane applications that query OSC 4 palette colors now inherit the host terminal palette. (#1752)
+- Ctrl-clicking a pane URL no longer forwards an unmatched mouse release to alternate-screen applications, preventing duplicate browser tabs. (#1761)
+- Known-agent integrations now leave pane ownership to confirmed process exit, so restarting Pi with the same saved session restores lifecycle state even with custom working UI. (#1648, #1792)
+- Nested or ephemeral Codex sessions no longer replace the owning pane's resumable session. (#1789, #1927, thanks @Pimpmuckl)
+- Pi RPC, JSON, and print processes no longer claim pane lifecycle state intended for Pi TUI sessions. (#2159, thanks @rhjoh)
+- Hermes state now comes from screen detection while its plugin reports resumable session identity, avoiding stale lifecycle authority from incomplete hooks.
+- OMP integration install, status, and uninstall now respect `PI_CONFIG_DIR` when `PI_CODING_AGENT_DIR` is not set, and installation refuses extension-directory collisions with Pi. (#1696)
+- OMP integrations now preserve Windows absolute session paths for native restore. (#2092, thanks @art-wiedzmin)
+- Claude integration updates preserve existing settings key order and formatting. (#2066)
+- Physical Escape key records on native Windows now bypass raw VT report framing, so pane applications receive Escape immediately and reliably. (#1736)
+- Native Windows key presses, grouped repeats, and releases now preserve their physical lifecycle and stay with the pane that received the initial press. (#2077)
+- Windows `pane send-keys` and `agent send-keys` now deliver semantic Escape as a complete key tap, preventing a following key from being interpreted as an Alt chord.
+- Shift+Enter now reaches native Windows pane applications with its modifier intact. (#1743, #1909, thanks @Pimpmuckl)
+- Ctrl+_ input bytes now decode as Ctrl+_ instead of Ctrl+-. (#2164, #2165, thanks @Sertug17)
+- Prefix and navigate modes now recognize non-US shifted keybindings while retaining legacy US punctuation support. (#1870)
+- Closing a non-focused workspace no longer changes the focused workspace. (#1328, #1877, thanks @yianL)
+- A background workspace that closes after its last pane exits no longer moves focus or hides the current workspace. (#1621, #1912, thanks @season179)
+- Directional pane focus now keeps Navigate mode active. (#1850, #1993, thanks @we11adam)
+- Closing a workspace's last tab through the CLI or API now closes the workspace like the TUI does. (#1760, #1899, thanks @season179)
+- Linked worktree workspaces retain their labels during Git metadata refreshes.
+- Clients repaint after transient terminal resizes instead of leaving stale or missing rows.
+- Repeated workspace Git discovery and foreground-cwd checks no longer block rendering or API handling. (#1838, #2206)
+- Relative plugin commands now resolve from the plugin root. (#1949)
+- Windows installation preserves inherited `PATH` and related environment variables. (#1947)
+- Windows agent process discovery preserves the owning parent agent across wrapper processes. (#1514)
+- The Rose Pine `surface_dim` color remains visible when the outer terminal uses a matching theme. (#1946, #2002, thanks @brabli)
+- CLI socket commands now report a clear `server_not_running` error instead of a raw I/O error. (#1941, #1963, thanks @season179)
+- Non-UTF-8 CLI arguments now produce a usage error instead of panicking. (#2207, thanks @VialFlorian)
+- Copy-mode `e` now crosses long soft-wrapped CJK lines when a read window ends on a wide glyph. (#2145, thanks @kiakiraki)
+- Clients restore terminal state when they receive SIGHUP or SIGTERM. (#2041, thanks @MattJColes)
+- Windows now shows `system` notifications and completes MP3 notification sounds without leaving PowerShell players waiting for a timeout. (#1330)
+
+## [0.7.5] - 2026-07-21
+
+### Breaking Changes
+- Installed and linked plugins, including their enabled state, are now global to the current user instead of isolated by Herdr session. Plugins installed only in a named session on Herdr 0.7.3 must be installed or linked again. (#1174)
 
 ### Added
-- Read-only project files in the web UI: a file tree floating in the slack left of the reading column, with lazy-loaded directories, each file's own type icon, and git status marks (M/A/D/R/U) on files and the directories above them. Clicking a file opens a read-only preview drawer. Three new API methods back it — `files.list`, `files.read`, and `git.status` — scoped to one pane's project root, with build output and dependency stores pruned, and every path checked to stay inside that root. Git calls are bounded by a timeout; a directory that is not a repository answers `available: false` rather than an error.
-- The session's live state moves into a floating status panel at the conversation's top right, ZCode's own shape: a collapsible capsule whose leading glyph turns into an expand mark on hover, and a panel holding the agent's todo list (a tick, a static arrow, or a ring per task) and its running subagents. It starts open on a wide window and collapsed on a narrow one.
-- Codex and Claude Code panes get their transcript view resolved from the agent's own log on disk, by the session id their hooks report.
+- Added a live-agent CLI facade with named `start`, atomic `prompt`, logical `send-keys`, and server-owned `wait` workflows. Agent startup targets an existing pane without changing topology, validates the requested interactive agent kind and strict agent name, and accepts native arguments after `--`.
+- Added transient declarative Agent view queries through `agent.view.set/clear`; filtered and sorted views now define sidebar, mobile, mouse, and agent-keybind navigation order.
+- Added one-shot plugin `[[startup]]` hooks for restoring plugin-owned state after server startup and live handoff.
+- Added per-token foreground, bold, and dim styling to expanded Space and Agent sidebar row layouts.
+- Added `ui.sidebar_start_collapsed` to launch Herdr with the sidebar collapsed. (#1463)
+- Added `ui.prompt_new_workspace_name` to ask for a workspace name before interactive TUI creation.
+- Added macOS support for the `HERDR_AGENT=<agent>` foreground-process hint, allowing agents hidden behind host-visible wrappers such as `nono` to use the named agent's screen manifest. (#679)
 
 ### Changed
-- The conversation column is capped and centred (ZCode's own `max-w-6xl`), so a line of prose reads at ~95 characters instead of stretching to ~157 on a wide window; turns and the pair inside one exchange sit at ZCode's own gaps. The header carries the agent, project, and session id on one line. The palette moves to ZCode's pure neutral scale, and shadows drop to ZCode's own `shadow-md`.
-- Tool calls render per kind with the file's own type icon, a real LCS diff for edits, and an output-only detail for commands and reads; a turn's work folds under one `工作中/已工作` row that opens while the turn runs and folds when it finishes. Thinking reports ZCode-style: a shimmering `正在思考` beside the newest reasoning line while it streams, then `思考 · 持续了 N 秒`.
-- Tables carry ZCode's toolbar: copy as a Markdown table, download as CSV, and a preview that lifts the table over the page. The turn navigator's rail raises a hover card beside a tick, and expands follow ZCode's scroll rule: a reader at the bottom is carried along, a reader who has scrolled up keeps their place.
-- The composer follows ZCode: one line tall by default with an expand control that raises it to three, the attach and send controls on their own row beneath the field, and a fixed ceiling that does not move when a phone keyboard opens.
+- Agent commands now accept only a unique live agent name or the pane ID currently hosting that agent. Names are cleared when the occupant exits, is released, or is replaced. The old top-level `wait` commands were replaced by `agent wait` and `pane wait-output`, and `agent send` was replaced by `agent send-keys`.
+- The session navigator now uses connected tree glyphs, groups matches by workspace, and automatically selects the first result when a search begins. (#1611)
 
 ### Fixed
-- A modified Enter (Shift, Ctrl, or Cmd) inserts a newline instead of sending, and an IME's Enter no longer sends the message being composed. Paragraph spacing in rendered Markdown, which a leftover `white-space: pre-wrap` had inflated to a blank line per block. The composer's field no longer collapses to the right edge from a leftover wide-screen rule.
+- CLI requests now return a machine-readable `protocol_mismatch` error when the client and server protocols differ, while recovery commands remain available. (#1435)
+- Linux sound notifications now terminate and reap audio players that do not exit, preventing unavailable audio from leaving CPU-bound `mpg123` processes behind. (#1622)
+- Oversized bracketed text pastes are now rejected with a client-local notification instead of disconnecting the client. (#1665)
+- Agent prompt waits now report `agent_prompt_stalled` after five seconds without an observed state change instead of waiting indefinitely after an ineffective submission.
+- `herdr config check` now reports unknown config keys with their full paths instead of treating ignored typos as valid configuration. (#1573)
+- Codex panes with customized static terminal titles now fall back to the live working footer instead of remaining idle, while OSC activity remains preferred. (#1563)
+- Grok panes now preserve working and blocked state from terminal signals and pinned background-work status instead of falling back to idle mid-turn.
+- OpenCode lifecycle reports are now serialized so out-of-order plugin events cannot leave an idle pane marked working. (#1519)
+- Kimi question prompts now report blocked until the user answers or dismisses them.
+- Pi lifecycle reporting now uses settled events, preventing transient message boundaries from publishing an idle state mid-turn.
+- The Pi, OMP, OpenCode, and Kilo Code integrations can now be installed on Windows and report lifecycle state and native session identity through Herdr's named-pipe API. (#1531)
+- Named agent prompts now honor live bracketed-paste mode before sending Enter, preserving OpenCode text such as `A != B` instead of triggering shell mode. (#1525)
+- New panes, tabs, layouts, and workspaces using `new_cwd = "follow"` now inherit the foreground process-group leader's working directory instead of an unrelated helper process directory. (#1472)
+- Cached pane working directories no longer trigger repeated filesystem checks, avoiding slow sidebar rendering on network filesystems such as Ceph. (#1603)
+- Windows foreground-process snapshots are now shared across panes, reducing idle CPU use in sessions with many panes. (#1158)
+- Terminal diff streams now batch contiguous writes, reducing the visible wave effect while scrolling pane history. (#283)
+- A standalone Escape arriving beside another key is now preserved as its own input instead of being combined into a fabricated Alt chord. (#541)
+- Pane viewports that were following live output now continue following after a resize.
+- Mouse selections now remain visible when `ui.copy_on_select = false` while clipboard writes stay disabled. (#1471)
+- Workspace close confirmation now shows the current workspace name instead of a stale or unrelated label. (#1364)
+- Plugin command arrays now preserve whitespace-only arguments. (#1594, #1613)
+- Plugins can now be installed or linked while no Herdr server is running. (#1670)
+- Remote attach now discovers Herdr installed in mise's canonical tool path before offering to install a sidecar binary. (#1201)
+- Noninteractive update, plugin, integration, sound, custom-command, and Git subprocesses no longer flash console windows on Windows. (#1468)
+- Live handoff now preserves installed plugins and no longer lets the next plugin installation overwrite the existing registry. (#893)
+- `herdr agent wait` now returns `agent_not_running` promptly when its target pane closes instead of waiting for the full timeout. (#1439)
+- Pane graphics streams now shut down cleanly when a client disconnect races stream teardown.
 
-## [0.7.46] - 2026-09-29
-
-### Added
-- Codex and Claude Code panes get the transcript view. Their hooks report only a session id, so `pane.session` had nothing to read and the web UI fell back to raw terminal text. The id is now resolved to the agent's own log on disk — codex names each rollout after its session id, Claude Code names the file exactly after it — which is the link pi and omp already had through a reported path. Lookups are memoised: hits forever, misses for a few seconds so a session file that appears after the hook still takes over. The reported identity, resume, and persistence are untouched.
-- The web UI renders tool calls the way ZCode does: a glyph and label per kind (终端, 编辑, 写入, 读取, 搜索, 子智能体, 待办), the file's own type icon with its name and directory, `+N -M` from a real line diff, a diff view for edits (patch text, old/new pairs, `edits` arrays, and whole-file writes as all-additions), an output-only detail for commands and reads, and a 500-row cap that says how many lines were left out.
-- Tables carry ZCode's toolbar: copy as a Markdown table, download as CSV, and a preview that lifts the table over the page.
-- The turn navigator's rail raises a hover card beside a tick: the question, then the assistant's reply.
-- Thinking rows report ZCode-style: a shimmering 正在思考 beside the newest reasoning line while the segment streams, then 思考 · 持续了 N 秒 once it finishes. Consecutive thinking folds into one segment.
-
-### Changed
-- A turn's work history folds under one 工作中/已工作 row: open while the turn runs, folded when it finishes (unless the reader opened it themselves), with a closing rule so the fold's contents are bounded on both sides.
-- The composer follows ZCode: three lines tall by default, the attach and send controls on their own row beneath the field, growing with the text up to ZCode's own ceiling (10rem), and no scrollbar chrome. It takes the full page width along with the conversation.
-- Expanding a row follows ZCode's scroll rule: a reader at the bottom is carried along, so the detail opens from below and the row rises; a reader who has scrolled up keeps their place.
-- UI type now comes from one 14px scale, with CJK-aware mono and sans stacks, instead of a spread of one-off sizes. The jump-to-newest control sits centred above the composer.
-
-### Fixed
-- A modified Enter (Shift, Ctrl, or Cmd) inserts a newline instead of sending, and an IME's Enter no longer sends the message being composed. The composer grows through state rather than a DOM-only edit React never saw, so the box actually expands with the text.
-- Paragraph spacing in rendered Markdown: a leftover `white-space: pre-wrap` turned react-markdown's inter-block newlines into a blank line, so two paragraphs sat 36px apart instead of 6px.
-- The composer's field no longer collapses to the right edge. A leftover wide-screen rule kept `align-items: flex-end` from the old horizontal layout, which shrink-wrapped the field and its controls to the right side.
-
-## [0.7.45] - 2026-09-28
-
-### Added
-- The web UI renders a turn as one timeline: each tool call appears between the paragraphs it happened between, in the agent's own entry order, instead of every call sitting collapsed at the end of the reply. `pane.session` now reports that position as `order` on each message and tool call; a server that does not send it falls back to the previous layout.
-
-### Changed
-- The conversation, the todo panel, the subagent bar, and the composer in the web UI share one reading column that takes 80% of the page on a desktop browser. There is no sidebar taking the other share, so the old fixed narrow measure wasted most of a wide window; a phone keeps the full width.
-- Thinking in the web UI starts collapsed. It is the longest part of a turn and the answer is what the conversation was opened for, so the reasoning stays one tap away instead of pushing the reply off screen.
-
-## [0.7.43] - 2026-09-28
-
-### Changed
-- A Feishu push is titled `herdr · <project> · <agent> <state>` rather than `herdr · <agent> <state>`. A chat list is scanned for the workspace first, and the agent name alone does not say which one it is.
-
-## [0.7.42] - 2026-09-27
+## [0.7.4] - 2026-07-15
 
 ### Added
-- `herdr web --detach` runs the gateway detached from the terminal that started it. A shell's `&` only backgrounds it: the gateway stays in that terminal's session and dies when the pane or tab closes. Without the flag `herdr web` is unchanged and still stops with Ctrl+C.
-
-### Fixed
-- A cancelled web subscription no longer keeps its thread and socket alive. Cancelling called `abort`, which does nothing for a task already blocked in a read, so a subscription to a pane with no activity never noticed it had been cancelled. Each page reload leaked a few, and after a couple of days the gateway ran out of file descriptors, which reaches a remote session as `Resource temporarily unavailable` and makes input stall. The server's matching thread leaked alongside it, because the connection was never closed for the server to observe.
-- Writing to a remote session retries when the pipe is full. Ordinary back-pressure used to fail the session outright, which read as a dropped connection rather than as "there is more output than the pipe can carry right now".
-
-## [0.7.41] - 2026-09-25
-
-### Added
-- ZCode support: `herdr integration install zcode` registers a session hook and a permission hook in `~/.zcode/cli/config.json`, so panes get native session restore (`zcode --resume <sess_...>`) and approvals can be answered from the web UI. ZCode reads hooks only from its own config file; the `~/.claude/settings.json` it lists as legacy compatibility is never executed, and its project-scope hooks sit behind a workspace trust review that its CLI and TUI do not enable. Agent state stays with screen detection, the same split as Claude Code. `herdr agent` also detects ZCode panes from their screen.
-
-## [0.7.40] - 2026-09-24
-
-### Changed
-- A Feishu push is titled `herdr · <agent> <event>` rather than `<agent> <event>`. In a busy chat list the agent name alone reads like any other message, and the card's own footer already carries the same prefix, so the two now agree.
-
-## [0.7.39] - 2026-09-24
-
-### Changed
-- In the web UI, a finished subagent is recorded under the turn that asked for it instead of sitting in the bar above the composer forever. Each one appears as a row beneath that turn's answer, with its agent, what it did, and its tool count; the row opens the same drawer for the full detail. The bar is left to report only what is still running, which is the thing worth interrupting a reader for. Runs the transcript cannot place — they started before the oldest loaded page — stay out of the conversation rather than being shown at the wrong turn.
-
-- The todo panel is only shown while something is left to do. A finished list is not context for anything, and leaving it parked over the conversation with nothing to say matched neither the CLI nor the work it described.
-
-## [0.7.38] - 2026-09-24
-
-### Added
-- `herdr switch <version>` installs a specific released version in place of the one you are running, and `herdr switch --list` shows what is available with the installed version marked. The update manifest only ever describes the newest release, so a chosen version is resolved through the release API instead — which also publishes a sha256 digest per asset, so the download is verified. Releases from before that metadata existed have none, and the command says so rather than refusing to install them. Running sessions go through the same decision path `herdr update` uses, including the prompt to stop an old server when the protocol changed.
-
-### Fixed
-- `herdr switch` builds on Windows. Its install path does not exist there, so the release lookup and download it needs were dead code on that target, which a warnings-as-errors build rejects. They are now compiled out with the path that uses them, while `herdr switch --list` still works everywhere.
-- A pane's row count is no longer compared against its rect on every frame. That check ran for every pane of every frame and called into the terminal runtime, which takes a lock and crosses the FFI boundary — on a remote session, where every frame is rendered for a client, it showed up as noticeable lag. The check was diagnostic and is gone; `herdr update` and `herdr switch` are unaffected.
-
-## [0.7.37] - 2026-09-23
-
-### Fixed
-- The unwritten-session test added in 0.7.36 is formatted, so `cargo fmt --check` passes on the release commit. `cargo fmt` had been run to fix it, which rewrites the file in place and therefore never showed the difference on the machine that ran it; `--check` is what surfaces it. Nothing about the behaviour changed.
-
-## [0.7.36] - 2026-09-23
-
-### Fixed
-- A subagent drawer no longer swallows every click. The dismiss-on-outside-click layer is positioned over the whole screen and comes after the panel in the document, and neither had a stack order — so the layer painted over the panel it is meant to sit behind, and the drawer looked right while every click on it dismissed it. Both boxes now declare their order.
-- A session the agent has opened but not written to yet reports an empty conversation instead of an error. The integration publishes the transcript path as soon as the agent opens a session, and the agent only creates the file when it has a first message, so every fresh pane passed through a state that the web UI showed as `ApiError: session file does not exist`.
-- A long subagent run keeps its whole tool history in the detail panel. The API carried only the last 20 entries, which showed a twentieth of a run's work and read as a broken panel; the extension records the full chronological history, so the answer is to pass it through. The cap is now a guard against a pathological run rather than a display budget, and it keeps the start of the run when it does apply.
-- Opening a phone keyboard no longer lets the whole app be dragged up and down. The document was `height: 100%` — the layout viewport, which a keyboard does not change — while the screens inside used `100dvh`, which does; the root was therefore taller than the app it held and the difference was scrollable. Both now use the same unit, the root is pinned to the dynamic viewport, and the viewport asks for `interactive-widget=resizes-content` so a keyboard shrinks the content instead of panning the page.
-- Returning to the web UI after a phone has been asleep no longer leaves the stop control on screen for an agent that has already finished. A backgrounded tab has its timers frozen, so the reconnect backoff never ran and the page came back to a dead socket; it also kept the last status it had seen, because the reconnect path skipped the refresh when the session binding was already correct. The page now reconnects as soon as it is visible, and a reconnect always reloads the agent list. The grace period that follows a send is also measured from the send, so a turn that ended while the page was hidden does not replay the wait.
-
-## [0.7.35] - 2026-09-22
-
-### Added
-- A pane whose terminal row count does not match the rect it is drawn into is now reported in the log, with both numbers. The two are separate pieces of state — the rect comes from layout, the row count from whichever resize ran last — and nothing in the type system keeps them equal, so they can drift and show up as a band of blank rows below an agent's output. Logging the mismatch turns that from a guess into a number, at the moment the frame is built.
-
-## [0.7.34] - 2026-09-22
-
-### Added
-- The web UI has an agent rail on the right edge of every screen, listing every pane in the session. Panes that are working or waiting come first, then the rest by which changed most recently, and a row is tapped to jump straight to it. It is collapsed to a handle by default and slides its list out over the page rather than pushing it, so opening it never reflows the conversation being read.
-
-- The rail opens itself and flashes the row when an agent finishes, because the list is normally closed and a highlight nobody happened to be looking at is not a notification. Clicking outside the open list closes it, and on a window wide enough for the rail the agent switcher is hidden, since the two would be one control for one job in the same corner.
-
-- The rail can be dragged anywhere on the page, and its position is remembered across reloads. Releasing within 100px of an edge attaches it to that edge, with a gradient band showing which edges would hold it; anywhere else it stays exactly where it was dropped. The horizontal and vertical axes attach independently, so it can sit along the top edge at any horizontal position.
-
-### Changed
-- Inside the rail, a working pane is red and a finished one green. The two states are shown side by side there, and the default palette paints both green.
-
-### Fixed
-- A client reporting a new terminal size no longer takes over the shared pane size. Taking over is the foreground client's job, and the foreground client is whichever terminal the user is looking at — a window changing shape is not that. With two windows open, the background one resizing (collapsing the sidebar changes the column count, for example) used to rescale the panes for the window in front, leaving its pane rows no longer matching the height they were drawn in and producing a band of blank rows under the agent's output. The size is still recorded for the client that sent it, and it applies when that client becomes the foreground one.
-
-## [0.7.33] - 2026-09-22
-
-### Fixed
-- Changing the toast delivery in the web UI's notification settings no longer makes the config file unreadable. The value was written bare (`delivery = system`) while the writer takes values verbatim, so the line was not valid TOML — and one bad line makes the whole file fail to parse, which drops *every* setting in it rather than only the one being changed. The failure was quiet in the way that matters most: the setting appeared to save, and the next read returned defaults for everything. Stored values are quoted now, and a test asserts the document still parses after a write.
-
-## [0.7.32] - 2026-09-22
-
-### Added
-- A Feishu push carries a button that opens the conversation it is about, and the time it was sent. The button is left out when the gateway binds an address that only says where to listen (`0.0.0.0`, `::`, loopback) or is not configured at all: a button that goes nowhere is worse than no button, and guessing a host would produce exactly that. The time is rendered in the reader's own zone, which needs a calendar and a time-zone database rather than a Unix timestamp; `chrono` was already in the build through `codex-trace-parser` with its `clock` feature, so naming it as a direct dependency adds no code.
-
-### Changed
-- The web UI's send control is a paper plane and the stop control a rounded outlined square, both drawn with the same icon set as the rest of the interface rather than the text arrow and filled block they replaced.
-
-### Fixed
-- The jump-to-newest control is centred in its circle. It was missing the padding reset its siblings have, so the browser's default button padding left a 24x34 content box inside a 36x36 circle — the mark stayed centred in it, but the box it was centred in was no longer square.
-
-## [0.7.31] - 2026-09-21
-
-### Added
-- The web UI conversation has a control that jumps to the newest output, shown once the newest turn is off screen. It is a sibling of the scroll container rather than a row in the column, so it appears without shifting the text a reader is looking at, and it disappears again the moment they arrive at the bottom.
-
-### Fixed
-- A Feishu push is sent for every state change the terminal notification covers. The push was hooked on the two event paths that carry a state change, but a change can also arrive on the path an API request takes, and that path is the one that raises the terminal notification unconditionally — so a change reaching the server that way notified the terminal and nothing else. Both remaining paths are hooked now.
-- A delivered Feishu push is visible in the log. It was recorded at debug while the default filter is `herdr=info`, so a push that worked left no trace and only a failure said anything; the question "did it send?" could not be answered from the log at all. Delivery is now recorded at info with the title, and a change too small to announce is recorded at debug.
-
-### Changed
-- The web UI's attach control is a plus rather than a circle around an upload glyph, and the button no longer draws a ring of its own: it sits inside the field, where a ring reads as a second input rather than as a control on the one it is in.
-
-## [0.7.30] - 2026-09-21
-
-### Fixed
-- The web UI's notification settings take effect. The panel wrote to a section the config loader did not read, so every value came back as its default: a switch could not be left on, and each save reported `partial` with `unknown config section [notification]`. The loader names every section it reads and keeps a separate list of known keys, so adding a field to the config struct is not enough on its own — the two places that read the file have to name it too.
-
-## [0.7.29] - 2026-09-21
-
-### Added
-- An image pasted into the terminal shows up in the web UI's conversation view. Herdr staged pasted images in a temp directory that no route serves, so a reader in the browser saw an unreachable path where the image should have been. When the web UI is configured the paste now goes to the same served directory an uploaded file goes to and is named the same way, because that route carries no key and the staging directory's name — a client id and a timestamp — would be enumerable enough to expose every paste to anyone on the network. The page needed no change: it already recognises the 32-hex name. A served paste is not deleted when the client that pasted it disconnects, unlike a staged one, because the conversation keeps referring to it. Without a web UI there is nowhere to serve a paste from, so it still goes to the staging directory, which the next paste sweeps.
-- Agent notifications can be pushed to a Feishu (Lark) custom-bot webhook, so they arrive when nobody is at the terminal. Configured under `notification.feishu` with the webhook URL, an optional signing key, and its own `delay_seconds`; the push fires on the same state changes the screen notification does — an agent that needs attention, or one that finished — and is independent of the selected toast delivery mode. The delay is deliberately not `ui.toast.delay_seconds`: the two are read in different places, and a setting made for the interface should not decide how quickly a phone is told. A state that holds for the delay is the one that is pushed, so a brief flicker is not. Two properties of the endpoint shape the failure path: Feishu answers a rejected message with HTTP 200, so the status code says nothing and the `code` in the body is what decides success; and a wrong signing key and a clock more than an hour off share one code and one wording, so the log names both causes.
-- The web UI has a notification settings panel, opened from the gear on the sessions screen. It edits the same config file the CLI edits, so a change made in the browser shows up in the CLI and the other way around. It exposes the screen-side settings and the Feishu push, and nothing else: keys like `web.static_dir` decide where files land, and a page that can write them is a page that can redirect what an agent produces. The signing secret is the one field that cannot be read back — the server reports only whether one is set, and the field is sent only when a new value is typed, so saving another setting cannot clear a key that is already there.
-- `config.notification.get` and `config.notification.set` expose those settings to any client. Both are open-ended in effect but closed in surface: the setter takes named optional fields and writes them one at a time, so a client toggling a single switch cannot clobber the rest, and every string is written as a quoted TOML value so a key containing a space or a `#` cannot corrupt the document.
-- The sidebar footer shows the server's version, which session it is, and whether the client reading it is local or remote. The session name comes from the server's own environment and the locality is read per client, because one server can serve local and remote clients at once and a shared field would let one overwrite the other's.
-
-### Fixed
-- A long inline code span no longer puts a horizontal scrollbar under the whole conversation. Paths and commands have no space to break at, and the message body let the overflow reach the conversation container, which scrolls on that axis; prose now breaks inside a word when it has to, while code blocks keep their own scroll so their content still reads as written.
-- The web UI no longer enters the mobile layout on a desktop window. The narrow layout is the default and the wide one is a `min-width: 50rem` upgrade, so a window under 800px wide rendered the phone arrangement.
-
-### Changed
-- The web UI's notification settings also cover the toast delivery mode and delay, the terminal bell, and sound, so the settings a reader would want from a phone are all reachable there rather than only in the CLI.
-
-## [0.7.28] - 2026-09-21
-
-### Added
-- The sidebar footer shows the server's version in the gap between `new` and `menu`. It is read where the frame is built rather than sent over the handshake, because the frame is rendered on the server and the version worth showing is the one the server is running — on a remote session that is not the client's own. A preview version carries its channel and build id and can outgrow the gap, so it falls back to the base version and shows nothing rather than a clipped fragment that would read as a different version.
-- The web UI switches between the agents of a session from the conversation header, without going back to the list first, and shows an agent's own mark in the list and in the header. A session's panes are often the same agent running in different directories, so the switcher shows the directory under each name: the name alone repeats. Marks come from `simple-icons` where that set carries the brand and are held in the source for the two it does not, because a mark guessed from a similar name would put one product's logo on another. An agent with no mark renders nothing.
-- The web UI shows the version of the page itself on the sessions screen, and the agent's own session id under the conversation title. The page is served from disk and updated apart from the server, so its version is not the server's, and the session id is the value that follows a conversation across the panes it is resumed in.
-
-### Changed
-- The web composer sends on `Ctrl`/`Cmd`+`Enter` and breaks the line on `Enter`. A message that spans lines no longer has to be fought into one keystroke, and the newline key no longer submits the half-written message it was meant to separate. The attach button now floats inside the field's right edge instead of taking a column in the row, and the agent's mark moved from beside the composer to the header.
-- Web UI icons are drawn with `lucide` rather than hand-written CSS shapes and text characters, so the interface reads as one stroked set instead of a mix of outlines, solid silhouettes, and `✓`/`●`/`○` glyphs.
-
-### Fixed
-- The web UI's todo panel no longer shows work the agent has already put away. `rpiv-todo` hides a task as soon as the turn it was finished in ends and disappears entirely once nothing is left, but the panel reported the raw record, so a finished list stayed on screen as though it were live. A task is now visible only until that turn ends, which is the same boundary the agent's own overlay reads.
-- A web UI turn no longer reads as fragments with no answer. An agent that explains itself puts a turn's substance in reasoning and leaves its plain text as connective narration, so a collapsed reasoning block hid the answer behind a few one-line remarks; it now starts expanded and collapses on request.
-- `pane.subagents` finds a pane's runs again. The extension records the parent session path with its `.jsonl` extension stripped and the transcript records it with the extension kept, so an exact comparison matched nothing and every pane reported no runs and no active subagents.
-- The web composer's controls stay against the field. Wrapping the textarea in a field made that field take the row's free space, so the textarea's existing width cap left a hole inside a full-width box and pushed the buttons — and the attach button floating on that box — to the far end of the row.
-
-## [0.7.27] - 2026-09-20
-
-### Added
-- The web UI shows the agent's todo list above the composer, collapsed to a count, and expands to the tasks themselves. pi's `rpiv-todo` extension records the whole list on every `todo` tool call in the transcript's `details` envelope, newest wins. The transcript parser behind `pane.session` exposes a stable subset of its own types and does not carry that envelope through, so `pane.todos` reads it back from the raw JSONL instead: backwards, in a growing window, because a session reaches tens of megabytes and the newest record sits at the end. An agent that keeps no list renders nothing rather than an empty panel.
-- The web UI shows the subagent runs an agent has started. `pane.subagents` reads the `pi-subagents` extension's own state under the temp directory; each run records the parent session path with the extension stripped, which is what ties a run back to a pane. A bar above the composer shows how many are still running and opens a drawer with a card per run: the task it was given, what it is doing now, and the tool calls it has made. Because the extension prunes finished runs, an empty answer is ordinary and is reported as such rather than as an error, and a run that was visible a moment ago can be gone without that meaning anything went wrong. A file the task description names is shown as the declared target, not as evidence of what the run wrote: the extension records no file effects for a child that only runs commands, so the commands themselves are what the drawer shows.
-
-## [0.7.26] - 2026-09-20
-
-### Added
-- The web UI sends files to an agent by pasting, dropping, or choosing them from a new attach button beside the composer. Images are previewed as thumbnails and open full size on click; any other file is shown by name and size and downloads when clicked. Pasted images come from the `paste` event rather than the clipboard API, so this works on a plain-HTTP internal address where `navigator.clipboard` is refused for lacking a secure context. Files wait beside the composer until send, and a multi-file send goes to the pane as one message.
-- Uploaded files are served from `/uploads/<id>.<ext>`, so a conversation can reference them by URL. The id is 32 random bytes, which is what keeps one upload from being found by guessing at another, since this route carries no key: an `<img>` cannot send one. `[web] uploads_dir` chooses where the files live and defaults to an uploads directory inside `web.static_dir`.
-- Non-image uploads download rather than render, and script-capable types (`.html`, `.svg`, `.js`, and similar) are forced to download with `X-Content-Type-Options: nosniff`. The upload route shares the web UI's origin, so a document the browser would execute there could otherwise read the gateway key.
-- `pane.stage_upload` stages one file for a pane and reports the path to paste. Agents differ in how they recognise an attachment, so the server resolves that from the pane's agent: pi gets an `@path` mention while most others take a bare path.
-
-### Fixed
-- The Pi integration keeps a pane `working` while the subagents extension still has child agents running. That extension already announced this through its `herdr:busy` event, but nothing consumed it, so a pane fell back to idle the moment the main turn ended even though its children were still working. A child waiting on a person still reports `blocked`, which outranks ordinary work in progress.
-- A large upload no longer fails with a closed connection and no explanation. Four separate limits applied to it: the gateway's 256 KiB request cap, the server's 1 MiB request cap, a 16 MiB WebSocket frame cap, and a request timeout shorter than the read took. Each is now either raised for this one method or removed as the bottleneck, and a file past the 16 MiB limit reports `upload_too_large` instead of dropping the socket.
-- Reading one API request no longer checks the whole buffer for the line terminator. The read helper reported that bytes arrived without saying how many, so the scan could see a previous chunk's leftovers and splice them into the current request, which surfaced as `trailing characters` errors.
-
-## [0.7.25] - 2026-09-19
-
-### Added
-- Web UI conversations have their own address (`#/<session>/<pane>`), so a refresh returns to the conversation you were reading instead of the connect screen, and the browser's Back and Forward buttons move through the app.
-- The web UI reconnects on its own after the connection drops, which is what a phone browser does to a backgrounded tab. The header shows the connection state, and offers a retry control once the automatic attempts have stopped.
-- The web UI conversation view has a navigation rail beside the transcript: one tick per message you sent, with the turn you are reading highlighted. Hovering a tick shows that message and clicking it jumps there. On a touch screen the rail floats over the transcript so the text keeps the full width, fading to a hint when unused and ignoring touches while faded so line starts stay selectable; the ticks grow to a tap target and the rail can be scrubbed — press anywhere on it, slide to preview each message, and release to jump there.
-- Agents that publish a structured interaction protocol can register the question they are waiting on through `pane.report_interaction`, so a client can present the options the agent actually offered instead of leaving the reader to work them out from the rendered screen. `pane.answer_interaction` delivers the choice back to the integration that asked, `pane.take_interaction_answer` collects it, and `pane.clear_interaction` withdraws a request. `pane.get`, `session.snapshot`, and `pane.updated` carry the pending request. An answer is addressed by request id, so answering a question that was superseded or expired is rejected rather than applied to a different question. The wire protocol is now 21.
-- `herdr pane report-interaction`, `clear-interaction`, `answer-interaction`, and `take-interaction-answer` expose the pending-question API from the command line, so an agent integration can raise and collect a question without a client library of its own. `take-interaction-answer` reports whether the request is still pending, which is how a polling integration tells "not answered yet" from "answered, withdrawn, or expired".
-- The Codex integration answers command, file, and permission approvals from the web UI. Its `PermissionRequest` hook publishes the approval as a structured request, waits a short while for an answer, and returns Codex's own allow/deny decision when one arrives. The wait is bounded and the hook emits nothing when it ends, so an unanswered approval falls through to Codex's normal prompt rather than holding the terminal, and a request is withdrawn when the hook stops waiting so the UI never offers a choice that has gone away.
-- The Claude Code integration answers tool approvals from the web UI the same way, through its `PermissionRequest` hook. The decision is returned in the shape Claude validates (`hookSpecificOutput.decision.behavior`); a top-level `decision` is Claude's legacy approve/block field and would silently do nothing here.
-- The Pi integration mirrors the `@juicesharp/rpiv-ask-user-question` questionnaire into the web UI, so the options shown are the ones the agent authored rather than a screen scrape, and a questionnaire reports `blocked` precisely. An answer is delivered by driving that plugin's own dialog — move to the chosen row, then `Enter` — because the dialog has no number keys. The dialog stays on screen and remains answerable in the terminal. Only a single-question dialog is mirrored: a multi-question one has no faithful key sequence and is left to the terminal instead of answered approximately. The extension also fills the `herdr:blocked` event the Pi and OMP integrations already consumed but nothing emitted, so a questionnaire now reports its wait exactly.
-
-### Fixed
-- The web UI composer grows with what you type instead of showing two lines and hiding the rest on a phone, and the send button's glyph is centred like the stop button's.
-- A finished agent turn now reaches `pane.updated` subscribers instead of only `pane.agent_status_changed`. The web UI's stop button is driven by the agent's reported state, so an agent that finished its turn could leave the button in place and block the composer until something else refreshed the view. The UI also subscribes to the pane-scoped status event directly, for every listed pane and for the one on screen, so a page can be newer than the server it talks to and still keep both the agent list and the stop button correct.
-
-## [0.7.24] - 2026-09-18
-
-### Fixed
-- The web UI keeps up with an agent that is working. The server emits `pane.updated` for title, metadata, and diagnostic changes rather than for output, so a TUI agent writing an answer produced no event and the view froze mid-turn until something unrelated changed a pane. The transcript is now polled while the agent is reported working, and `pane.updated` is filtered to the pane on screen instead of refreshing on every pane in the session.
-- The send button turns into the stop button whenever the agent is working, not only for a turn this browser started. Opening an agent that was already running now offers the interrupt control.
-
-### Changed
-- Thinking is collapsed by default in the conversation view, like the tool calls below it, and expands on click. A turn's reasoning is normally much longer than its answer and was pushing the reply off screen.
-
-### Added
-- `just web-publish` builds the browser UI and publishes it to the rolling `web-ui` release on its own, without a herdr release or rebuilt platform binaries. It stamps a distinct version marker (`<crate version>+web.<timestamp>` by default) so `herdr update web` installs the page instead of treating it as already up to date. `just web-status` reports the installed and last-built versions.
-
-## [0.7.23] - 2026-09-18
-
-### Fixed
-- The web UI follows new agent output again. It stopped tracking the bottom of a conversation, so a growing answer left the viewport stranded partway up and the reader had to scroll down manually after every message. Following pauses while you scroll up to read back and resumes when you return to the bottom.
-- The web UI shows a message as soon as you send it, instead of leaving the composer looking as though the text was dropped until the agent wrote the turn to its transcript. A short **agent is responding** indicator appears underneath it, and the transcript replaces the pending copy once it records the turn.
-
-### Changed
-- The web UI marks a running agent in green rather than the blue used for ordinary controls. The agent's name and its panel border are tinted too, so an active agent stands out when scanning the list rather than being visible only in the small status pill.
-
-## [0.7.22] - 2026-09-18
-
-### Added
-- `herdr update web` downloads and installs the newest web UI page, and `herdr update web --check` reports the available version without writing anything. Set `[web] update_url` to the page to install and `[web] static_dir` to the directory the gateway serves. The download is validated and then renamed over `index.html`, so a failed or interrupted download cannot leave a partial page in place.
-- `pane.session` returns a pane's agent transcript as parsed turns instead of as a rendered screen. It reads the transcript path the agent's own integration reports, so it works for agents that publish one (pi, Claude Code, Codex) and reports `no_transcript` for agents that only report a session id.
-- An Agent pane's right-click menu offers **Copy session link** when `[codex_trace] url` is set, putting a codex-trace URL for that conversation on the clipboard. Copying uses the same OSC 52 path as a mouse selection, so it reaches your own clipboard over SSH and WSL.
-- Parsed transcripts are cached between requests, so paging a long conversation does not re-read the file. A cold read of an 18 MB transcript takes about 120 ms; later pages take single-digit milliseconds.
-
-### Changed
-- The web UI shows an agent's conversation when it publishes one, instead of the rendered terminal. Agents that only report a session id, and plain shells, still show the pane. The `terminal` / `conversation` tabs are gone: the conversation is the view, so there is nothing to switch between.
-- The web UI has a dark/light theme switch in each screen's header, remembered in the browser and defaulting to the operating system preference. State colors and the accent now follow the theme rather than using values tuned for the dark palette.
-- The web UI updates an agent's transcript while output is still being produced, loads earlier output a page at a time when you scroll to the top, and turns the send button into a stop button for the turn you started.
-- The wire protocol is now 20, because `pane.session` adds an API method.
-
-## [0.7.21] - 2026-09-13
-
-### Added
-- `pane.read` accepts an `offset` to page backwards through pane history, exposed as `herdr pane read --offset N`. The per-call cap is now 2000 rows. The web UI uses it to load earlier output when you scroll to the top of an agent transcript.
-
-### Fixed
-- The web UI now updates an agent's transcript while output is still being produced. It subscribed to `pane.output_changed`, which is not a subscribable event, so the detail view never refreshed.
-- Paged transcripts no longer duplicate or merge rows: the UI advances by the rows each page actually returned instead of the requested page size, and it separates pages that do not end with a newline.
-
-## [0.7.20] - 2026-09-13
-
-### Changed
-- The web UI is now a native page instead of a terminal mirror. `herdr web` proxies the public JSON API rather than attaching a terminal client, so it no longer affects pane layout or size. The page lists agents with their state, shows output as selectable plain text, and adds a message composer. The browser protocol version is now 2, so reload the page after upgrading.
-- The browser UI is also published to a rolling `web-ui` release tag that always holds the newest build, so the page can be updated without tracking herdr versions.
-
-## [0.7.19] - 2026-09-13
-
-### Added
-- The web UI remembers the session you last opened and returns to it after a page reload, when the key is stored. Leaving a session on purpose clears the memory so the picker stays put.
-
-## [0.7.18] - 2026-09-13
-
-### Fixed
-- The web UI now forwards mouse input, so clicking tabs, panes, and menus works. The gateway dropped the server's mouse-capture signal, and a full redraw reset the terminal's mouse mode without restoring it. Hold Shift (Option on macOS) while dragging to select text locally instead.
-- `[web]` is now recognized by config validation and `reload config`. Previously `herdr config check` reported it as an unknown section and reload ignored it, so a key set under `[web]` looked accepted while reload dropped it.
-
-## [0.7.17] - 2026-09-13
-
-### Added
-- `[web] key` now accepts the web gateway key directly in `config.toml`, so it survives restarts without exporting `HERDR_WEB_KEY`. Herdr refuses to start when that file is readable by other users and tells you to run `chmod 600`. `HERDR_WEB_KEY` and `HERDR_WEB_KEY_FILE` still take precedence.
-
-## [0.7.16] - 2026-09-13
-
-### Added
-- Added `herdr web`, a browser UI for Herdr sessions. It runs as its own gateway process, lists every session so you can attach or create one, and shares state with terminal clients attached to the same session. It is disabled unless `HERDR_WEB_KEY` is set, supports an optional Origin allowlist, and serves the UI from `[web] static_dir` rather than embedding it in the binary. Configure it with `[web] bind`, `port`, `static_dir`, and `allowed_origins`.
-- Release and preview workflows now publish the browser UI as a separate `herdr-web-ui.html` asset.
-
-## [0.7.15] - 2026-08-18
-
-### Added
-- Added the optional `local.codex-prompt-history` plugin for fuzzy-searching submitted prompts from the current Codex session and inserting a selected prompt without submitting it.
-
-## [0.7.14] - 2026-08-16
-
-### Added
-- Added a first-party Codex rollout monitor on Linux and macOS. `herdr integration install codex` now installs a server-side plugin that reads the matching Codex rollout JSONL, reports suspected stalled tools without changing Agent lifecycle state or sending input, and exposes a closable activity card from the Agent pane context menu.
-- Plugins can now declare managed `[[services]]` that run once for each enabled plugin on the Herdr server, restart with bounded backoff, and stop when the plugin is disabled, unlinked, or the server shuts down.
-
-## [0.7.13] - 2026-08-12
-
-### Removed
-- Removed Codex capacity-error auto-retry, including the automatic `继续` response and the `automation.codex_capacity_retry` configuration.
-
-## [0.7.12] - 2026-08-07
-
-### Fixed
-- Codex capacity retries now send at most one `继续` reply for each visible error occurrence. Stable blocked-state refreshes no longer loop indefinitely when `max_retries = -1`; a later upstream capacity response can still trigger the next retry.
-
-## [0.7.11] - 2026-08-07
-
-### Added
-- Added Codex capacity-error automation. When the Codex screen reports `Selected model is at capacity. Please try a different model.`, Herdr can send `继续` and Enter to the same pane, with configurable finite or infinite retry limits (`automation.codex_capacity_retry`).
-- Added a high-priority Codex screen rule for the capacity blocker so the automation is driven by screen evidence rather than a generic blocked state.
-
-## [0.7.10] - 2026-07-22
-
-### Added
-- Added `herdr integration install grok` for Grok Build lifecycle hooks under `~/.grok/hooks/`. The integration reports pane state and native session ids so Herdr can resume with `grok --resume <id>` after a server restart.
-
-### Fixed
-- Remote image paste for Pi now stages an `@/path` mention instead of a bare path. Pi's editor/CLI attach images via `@file` references; bare paths were treated as plain text, so paste worked for Codex/Grok but not Pi.
-- Grok agent status no longer treats subagent completion as root idle. The Grok integration ignores `SubagentStop` for pane state, and the Grok screen manifest recognizes `watching N command` / active task chrome as working so sidebar state and finished toasts stop thrashing during subagent or background-command work.
-
-## [0.7.9] - 2026-07-22
-
-### Added
-- Added a local `plugins/cc-switch-agent` plugin that can switch providers, add providers, and export sessions through the `cc-switch` CLI from Agent pane context menus. Install with `herdr plugin install starofkuku/herdr/plugins/cc-switch-agent`.
-
-### Fixed
-- Session snapshots now prefer each pane's foreground agent working directory over the shell process cwd. On restore, native agent resume runs in that saved directory for every supported agent (`cd <cwd> && …`), and Codex also receives `resume -C <cwd>` so work-directory prompts are less likely after `herdr server stop`.
-
-## [0.7.8] - 2026-07-19
-
-### Added
-- Plugins and API clients can now schedule an idle Agent pane to restart from its officially reported native session with `agent.restart` or `herdr agent restart <target>`, preserving the pane and layout without restarting Herdr.
-- Agent pane context menus now show enabled plugin Actions that declare the `pane` context, so installed integrations can be launched without a custom keybinding.
-
-## [0.7.7] - 2026-07-16
-
-### Changed
-- Expanded server-authorized clipboard image paste for `herdr --remote` beyond Codex. Herdr now pastes staged absolute image paths for Pi, Claude Code, Codex, Cursor CLI, Cline, OMP, MastraCode, OpenCode, GitHub Copilot CLI, Kiro, Factory Droid, Grok, Hermes, Kilo Code, Qoder CLI, and Maki, and uses an `@path` mention for Amp. Gemini CLI, Kimi CLI, Devin CLI, and Antigravity keep the original shortcut because they do not currently expose a compatible stable path contract.
-
-## [0.7.6] - 2026-07-15
-
-### Added
-- Added server-authorized Codex image paste for `herdr --remote`. The default `keys.remote_image_paste = "alt+v"` reads the local clipboard only when the remote focused pane is detected as Codex, stages the image on the remote host, and lets Codex attach the pasted path as `[Image #1]`. Local clipboard reads support macOS, Linux, and WSL; native Windows Herdr clients remain unsupported.
-
-### Changed
-- Remote clipboard image paste now preserves the original shortcut outside supported remote-agent panes instead of intercepting it, and binds authorized pastes to the terminal that requested them so focus changes cannot redirect an image.
-- Documented remote paste troubleshooting from live macOS/Linux validation: launch `herdr --remote` on the clipboard-owning machine, prefer `ctrl+alt+v` on macOS because terminals usually consume `Command+V` and may compose plain `Option+V`, and treat a remote Codex X11 clipboard error after `Ctrl+V` as evidence that the Herdr bridge was bypassed.
-- Clarified that Ghostty's default `bell-features = attention` requests one Dock bounce only while Ghostty is unfocused, requires no macOS notification or Accessibility permission, and uses the local Mac Herdr client's `[ui.bell]` setting during `herdr --remote` sessions.
-
-## [0.7.5] - 2026-07-15
-
-### Added
-- Added a default-off terminal Bell setting for background agent finished and needs-attention events. Herdr emits BEL through the foreground client so compatible Windows/Linux terminals can flash their taskbar icon and macOS terminals can request a Dock bounce.
-
-### Changed
-- Clarified that Windows Terminal OSC 777 notifications require a Canary/development build containing microsoft/terminal#20012, or Windows Terminal 1.26 or newer once released; Stable 1.24 and Preview 1.25 do not support them.
-
-### Fixed
-- Fork builds now fetch stable and preview update manifests, including remote-install asset lookups, from `starofkuku/herdr` instead of the upstream `herdr.dev` manifests.
-
-## [0.7.4] - 2026-07-14
-
-### Added
+- Added session-modal popup floating terminal panes for `type = "popup"` custom command keybindings and plugin panes, with optional cell or percentage sizing and no changes to the tiled tab layout. (#1125)
+- Added `ui.copy_on_select` to disable automatic clipboard copying after mouse selection while keeping the selection visible.
+- Added configurable row layouts for expanded Space and Agent sidebar entries, including built-in display tokens, per-agent overrides, custom metadata tokens, and pane/workspace metadata reporting through the CLI and socket API.
+- Added independent `row_gap` settings for expanded Space and Agent sidebar entries.
 - Copy mode now supports literal smart-case search with `/` and `?`, repeating with `n` and `N`, match highlighting, and tmux-style cross-line `w`/`b`/`e` word motions. (#1230)
-- Added Maki detection with idle, working, and blocked screen states. (#1301, #1302, thanks @tontinton)
-- Added `ui.copy_on_select` so mouse drag selection and double-click word copying can be disabled while keeping mouse capture enabled.
-- Expanded desktop Agent and Space sidebar rows can now be configured as token layouts, including agent-specific layouts, terminal-title tokens, and values supplied by `pane report-metadata` or `workspace report-metadata`.
-- Windows Terminal clients, including WSL profiles, can deliver agent notifications through OSC 777 when the terminal profile enables `compatibility.allowOSC777`. This requires a Canary/development build containing [microsoft/terminal#20012](https://github.com/microsoft/terminal/pull/20012), or Windows Terminal 1.26 or newer once released; as of 2026-07-15, Stable 1.24.11911.0 and Preview 1.25.1912.0 do not support OSC 777 notifications.
-- Added a repository-root `install.sh` for installing fork release assets on Linux and macOS, with version, repository, install-directory, and download-URL overrides.
+- Added Maki agent support. (#1301, #1302, thanks @tontinton)
+- Added a searchable, version-matched configuration reference and a troubleshooting guide covering duplicate terminal key events, modified-arrow shell bindings, updates, remote access, and logs. (#1116, #1370)
 
 ### Changed
-- `ui.host_cursor = "auto"` now uses Herdr's drawn cursor in WSL as well as native Windows, avoiding ConPTY cursor flicker. Set it to `"native"` to retain the outer terminal cursor. (#930)
+- Expanded Space and Agent sidebar entries now use a packed layout by default; set the corresponding `row_gap` to `1` to restore the previous spacing.
+- Refreshed the bundled Herdr agent skill for current public workspace, tab, and pane ids and the current CLI/API workflow. (#1297)
+- Expanded Japanese and Simplified Chinese CLI documentation with shell completion setup and API schema usage. (#1151)
 
 ### Fixed
-- The collapsed sidebar now follows the configured all-agent ordering, aligns clicks with rendered rows, and numbers rows by their visible list position. (#1168, #1182, #1344)
-- Shifted indexed shortcuts such as `prefix+shift+1..9` now match the punctuation characters reported by terminals while preserving explicit symbol bindings. (#1184)
-- Plugin-driven tab renames now refresh the tab bar immediately. (#1111, #1179, thanks @kovalov)
-- Amp panes now remain working while an active turn is in progress. (#1208)
-- Pi lifecycle reports now re-anchor after session replacement without accepting stale or nested-session state. (#943, #1189, thanks @dmmulroy)
-- Explicit session socket paths now survive live handoff instead of reverting to default socket locations. (#1180)
-- New tabs, workspaces, splits, and applied layouts now prefer the focused pane's reported foreground working directory. (#1245)
-- The Windows installer no longer rewrites an existing config file while installing shell integration. (#1162)
-- Config warnings now state whether defaults or the current live config remain active and direct users to `herdr config check` for details.
-- Outer-terminal focus gained and lost reports now reach the focused pane when its application enables focus reporting, restoring Neovim file autoreload and other focus-aware terminal behavior. (#1337, #1388)
+- Collapsed Agent sidebar rows now follow the same ordering and click targets as the expanded panel, and their shortcut numbers are assigned by visible list position instead of repeating across workspaces. (#1168, #1344)
+- Shifted indexed bindings such as `prefix+shift+1..9` now match terminals that report the corresponding punctuation characters. (#1184)
+- Plugin-driven tab renames now immediately refresh tab-bar geometry and labels. (#1111, #1179, thanks @kovalov)
+- New tabs, splits, layouts, and workspaces configured to follow the foreground directory now start from the focused pane's current working directory. (#1245)
+- Amp, Codex, and Claude Code detection now recognizes current active-turn UI variants, including reordered Codex title spinners and Claude `/btw` turns. (#1208, #1281, #1366)
+- Pi lifecycle state now reanchors after native session replacement, avoiding working panes that remain idle or tied to an abandoned session. (#943, #1189, thanks @dmmulroy)
+- OMP lifecycle reports are now retried when startup races drop the first report. (#1310)
+- WSL now uses Herdr's drawn cursor by default, matching the native Windows workaround for host cursor flicker. (#930)
+- Live handoff now preserves explicit named-session socket paths, waits for slower server shutdowns, and flushes API responses before the old server exits. (#1180, thanks @dvic)
+- The Windows installer no longer rewrites an existing config file or creates a duplicate onboarding line during first-run setup. (#1162)
+- Config diagnostics now reach CLI-only and attached-client startup paths reliably and clearly identify fallback configuration behavior.
+- Detached custom command children are now reaped after exit instead of accumulating zombie processes. (#1360)
+- Renamed single tabs now remain visible in the Agents sidebar instead of losing their tab label. (#1369)
+- Documentation search results are now scoped to the active locale and stable or preview channel.
+- Horizontal wheel and trackpad events now reach pane applications that enable mouse reporting. (#1349)
+- Copy mode `$` and End now stop at the final visible character on the row instead of jumping to the pane edge. (#1405)
+- Split SGR mouse reports are now reassembled across input reads, and a preceding standalone Escape is preserved instead of being swallowed or leaked as mouse bytes. (#1334, #1382)
+- Linux foreground-process discovery now stays within Herdr pane process trees instead of scanning unrelated host processes, reducing CPU use on busy multi-user systems. (#1399)
+- Single-codepoint emoji chosen from the Windows emoji picker now reach panes when WezTerm's kitty keyboard support sends them as CSI-u events with associated text. (#1404)
+- Outer-terminal focus gained and lost reports now reach the focused pane when its application enables focus reporting, restoring Neovim file autoreload and other focus-aware terminal behavior. (#1337)
 - Native Windows servers now detach from the terminal console that launched them, so closing WezTerm, Windows Terminal, or another host terminal no longer stops persistent pane processes. (#1329)
 - Windows API clients now remain connected while waiting for initial named-pipe request bytes, so `status server`, `api snapshot`, and other socket commands no longer intermittently fail with BrokenPipe. (#1279)
 - `herdr --remote` now installs remote helper binaries without routing the binary stream through a multiline `/bin/sh -c` command, fixing installs for non-POSIX login shells such as xonsh. (#1203, thanks @nhumrich)

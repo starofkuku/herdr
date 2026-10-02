@@ -6,6 +6,7 @@ use tracing::warn;
 
 use super::Config;
 use crate::input::TerminalKey;
+use crate::popup_size::PopupSize;
 
 pub type KeyCombo = (KeyCode, KeyModifiers);
 
@@ -80,6 +81,7 @@ pub enum CommandKeybindType {
     #[default]
     Shell,
     Pane,
+    Popup,
     PluginAction,
 }
 
@@ -95,6 +97,10 @@ pub struct CommandKeybindConfig {
     pub action_type: CommandKeybindType,
     /// Optional user-defined description for this custom command.
     pub description: Option<String>,
+    /// Optional popup width as cells or a percentage string when type = "popup".
+    pub width: Option<PopupSize>,
+    /// Optional popup height as cells or a percentage string when type = "popup".
+    pub height: Option<PopupSize>,
 }
 
 impl Default for CommandKeybindConfig {
@@ -104,6 +110,8 @@ impl Default for CommandKeybindConfig {
             command: String::new(),
             action_type: CommandKeybindType::Shell,
             description: None,
+            width: None,
+            height: None,
         }
     }
 }
@@ -112,6 +120,7 @@ impl Default for CommandKeybindConfig {
 pub enum CustomCommandAction {
     Shell,
     Pane,
+    Popup,
     PluginAction,
 }
 
@@ -149,7 +158,7 @@ impl ResolvedBinding {
         key_event_matches_combo(key, self.trigger.combo())
     }
 
-    fn matches_terminal_key(&self, key: TerminalKey) -> bool {
+    fn matches_terminal_key(&self, key: &TerminalKey) -> bool {
         terminal_key_matches_combo(key, self.trigger.combo())
     }
 }
@@ -198,13 +207,13 @@ impl ActionKeybinds {
             .any(|binding| binding.trigger.is_prefix() && binding.matches_key_event(key))
     }
 
-    pub fn matches_prefix_key(&self, key: TerminalKey) -> bool {
+    pub fn matches_prefix_key(&self, key: &TerminalKey) -> bool {
         self.bindings
             .iter()
             .any(|binding| binding.trigger.is_prefix() && binding.matches_terminal_key(key))
     }
 
-    pub fn matches_direct_key(&self, key: TerminalKey) -> bool {
+    pub fn matches_direct_key(&self, key: &TerminalKey) -> bool {
         self.bindings
             .iter()
             .any(|binding| binding.trigger.is_direct() && binding.matches_terminal_key(key))
@@ -254,21 +263,16 @@ pub struct IndexedKeybind {
 }
 
 impl IndexedKeybind {
-    pub fn matched_index(&self, key: TerminalKey) -> Option<usize> {
-        let key_number = match key.code {
-            KeyCode::Char(c @ '1'..='9') => c,
-            KeyCode::Char(c) => {
-                let number = shifted_number_symbol(c)?;
-                if !indexed_shifted_number_matches(key, self.trigger.combo(), number) {
-                    return None;
-                }
-                number
-            }
-            _ => return None,
+    pub fn matched_index(&self, key: &TerminalKey) -> Option<usize> {
+        let combo = self.trigger.combo();
+        let (expected_code, _) = normalize_key_combo(combo);
+        let KeyCode::Char(key_number @ '1'..='9') = expected_code else {
+            return None;
         };
-        let legacy_shifted_number =
-            matches!(key.code, KeyCode::Char(c) if shifted_number_symbol(c) == Some(key_number));
-        if terminal_key_matches_combo(key, self.trigger.combo()) || legacy_shifted_number {
+        let legacy_shifted_number = matches!(key.code, KeyCode::Char(c)
+            if shifted_number_symbol(c) == Some(key_number)
+                && indexed_shifted_number_matches(key, combo, key_number));
+        if terminal_key_matches_combo(key, combo) || legacy_shifted_number {
             Some((key_number as usize) - ('1' as usize))
         } else {
             None
@@ -283,6 +287,8 @@ pub struct CustomCommandKeybind {
     pub command: String,
     pub action: CustomCommandAction,
     pub description: Option<String>,
+    pub width: Option<PopupSize>,
+    pub height: Option<PopupSize>,
 }
 
 /// Parsed keybinds for Herdr actions.
@@ -743,7 +749,20 @@ fn append_custom_command_bindings(
         let action = match command.action_type {
             CommandKeybindType::Shell => CustomCommandAction::Shell,
             CommandKeybindType::Pane => CustomCommandAction::Pane,
+            CommandKeybindType::Popup => CustomCommandAction::Popup,
             CommandKeybindType::PluginAction => CustomCommandAction::PluginAction,
+        };
+        let (width, height) = if action == CustomCommandAction::Popup {
+            (command.width, command.height)
+        } else {
+            if command.width.is_some() || command.height.is_some() {
+                let diag = format!(
+                    "popup size on non-popup custom command: keys.command[{index}]; ignoring width and height"
+                );
+                warn!(message = %diag, "config diagnostic");
+                diagnostics.push(diag);
+            }
+            (None, None)
         };
         let label = bindings.label().unwrap_or_else(|| "unset".to_string());
         keybinds.custom_commands.push(CustomCommandKeybind {
@@ -752,6 +771,8 @@ fn append_custom_command_bindings(
             command: command.command.clone(),
             action,
             description: command.description.clone(),
+            width,
+            height,
         });
     }
 }
@@ -1282,7 +1303,7 @@ pub fn key_event_matches_combo(key: &KeyEvent, combo: KeyCombo) -> bool {
     key_parts_match_combo(key.code, key.modifiers, None, combo)
 }
 
-pub fn terminal_key_matches_combo(key: TerminalKey, combo: KeyCombo) -> bool {
+pub fn terminal_key_matches_combo(key: &TerminalKey, combo: KeyCombo) -> bool {
     key_parts_match_combo(key.code, key.modifiers, key.shifted_codepoint, combo)
 }
 
@@ -1383,7 +1404,7 @@ fn shifted_number_symbol(ch: char) -> Option<char> {
         .find_map(|(number, symbol)| (*symbol == ch).then_some(*number))
 }
 
-fn indexed_shifted_number_matches(key: TerminalKey, combo: KeyCombo, number: char) -> bool {
+fn indexed_shifted_number_matches(key: &TerminalKey, combo: KeyCombo, number: char) -> bool {
     let (expected_code, expected_modifiers) = normalize_key_combo(combo);
     matches!(expected_code, KeyCode::Char(expected) if expected == number)
         && expected_modifiers.contains(KeyModifiers::SHIFT)
@@ -1625,6 +1646,27 @@ close_tab = "X"
     }
 
     #[test]
+    fn unicode_prefix_bindings_match_non_us_keys() {
+        for ch in ['ğ', 'ç', 'ş', 'ı', 'é', 'ø'] {
+            let bindings = ActionKeybinds::prefix(&ch.to_string());
+            assert!(bindings
+                .matches_prefix_key(&TerminalKey::new(KeyCode::Char(ch), KeyModifiers::empty(),)));
+        }
+    }
+
+    #[test]
+    fn shifted_unicode_prefix_bindings_match_layout_aware_input() {
+        for (base, shifted) in [('ğ', 'Ğ'), ('ç', 'Ç'), ('ş', 'Ş'), ('ı', 'I'), ('ø', 'Ø')]
+        {
+            let bindings = ActionKeybinds::prefix(&format!("shift+{base}"));
+            assert!(bindings.matches_prefix_key(
+                &TerminalKey::new(KeyCode::Char(base), KeyModifiers::SHIFT)
+                    .with_shifted_codepoint(shifted as u32)
+            ));
+        }
+    }
+
+    #[test]
     fn shifted_letter_binding_matches_uppercase_key_event() {
         let bindings = ActionKeybinds::prefix("shift+n");
         assert!(bindings.matches_prefix(&KeyEvent::new(KeyCode::Char('N'), KeyModifiers::SHIFT)));
@@ -1634,20 +1676,20 @@ close_tab = "X"
     fn shifted_letter_binding_matches_legacy_uppercase_key_event() {
         let bindings = ActionKeybinds::prefix("shift+n");
         assert!(bindings
-            .matches_prefix_key(TerminalKey::new(KeyCode::Char('N'), KeyModifiers::empty(),)));
+            .matches_prefix_key(&TerminalKey::new(KeyCode::Char('N'), KeyModifiers::empty(),)));
     }
 
     #[test]
     fn shifted_letter_direct_binding_matches_legacy_uppercase_key_event() {
         let bindings = ActionKeybinds::direct("shift+n");
         assert!(bindings
-            .matches_direct_key(TerminalKey::new(KeyCode::Char('N'), KeyModifiers::empty(),)));
+            .matches_direct_key(&TerminalKey::new(KeyCode::Char('N'), KeyModifiers::empty(),)));
     }
 
     #[test]
     fn shifted_letter_binding_matches_modern_modified_key_event() {
         let bindings = ActionKeybinds::direct("cmd+shift+j");
-        assert!(bindings.matches_direct_key(TerminalKey::new(
+        assert!(bindings.matches_direct_key(&TerminalKey::new(
             KeyCode::Char('J'),
             KeyModifiers::SUPER | KeyModifiers::SHIFT,
         )));
@@ -1657,32 +1699,32 @@ close_tab = "X"
     fn legacy_uppercase_key_event_does_not_match_unshifted_letter_binding() {
         let bindings = ActionKeybinds::prefix("n");
         assert!(!bindings
-            .matches_prefix_key(TerminalKey::new(KeyCode::Char('N'), KeyModifiers::empty(),)));
+            .matches_prefix_key(&TerminalKey::new(KeyCode::Char('N'), KeyModifiers::empty(),)));
     }
 
     #[test]
     fn legacy_uppercase_shift_fallback_is_limited_to_ascii_letters() {
         let shifted_number = ActionKeybinds::prefix("shift+1");
         assert!(!shifted_number
-            .matches_prefix_key(TerminalKey::new(KeyCode::Char('!'), KeyModifiers::empty(),)));
+            .matches_prefix_key(&TerminalKey::new(KeyCode::Char('!'), KeyModifiers::empty(),)));
 
         let shifted_non_ascii = ActionKeybinds::prefix("shift+ö");
         assert!(!shifted_non_ascii
-            .matches_prefix_key(TerminalKey::new(KeyCode::Char('Ö'), KeyModifiers::empty(),)));
+            .matches_prefix_key(&TerminalKey::new(KeyCode::Char('Ö'), KeyModifiers::empty(),)));
     }
 
     #[test]
     fn shifted_tab_inputs_match_backtab_canonical_binding() {
         let bindings = ActionKeybinds::prefix("shift+tab");
         assert!(
-            bindings.matches_prefix_key(TerminalKey::new(KeyCode::BackTab, KeyModifiers::empty()))
+            bindings.matches_prefix_key(&TerminalKey::new(KeyCode::BackTab, KeyModifiers::empty()))
         );
         assert!(
-            bindings.matches_prefix_key(TerminalKey::new(KeyCode::BackTab, KeyModifiers::SHIFT))
+            bindings.matches_prefix_key(&TerminalKey::new(KeyCode::BackTab, KeyModifiers::SHIFT))
         );
-        assert!(bindings.matches_prefix_key(TerminalKey::new(KeyCode::Tab, KeyModifiers::SHIFT)));
+        assert!(bindings.matches_prefix_key(&TerminalKey::new(KeyCode::Tab, KeyModifiers::SHIFT)));
         assert!(!ActionKeybinds::prefix("tab")
-            .matches_prefix_key(TerminalKey::new(KeyCode::Tab, KeyModifiers::SHIFT)));
+            .matches_prefix_key(&TerminalKey::new(KeyCode::Tab, KeyModifiers::SHIFT)));
         assert_eq!(
             normalize_key_combo((KeyCode::Tab, KeyModifiers::CONTROL | KeyModifiers::SHIFT)),
             (KeyCode::BackTab, KeyModifiers::CONTROL)
@@ -1704,15 +1746,15 @@ close_tab = "X"
     #[test]
     fn shifted_punctuation_matches_enhanced_input() {
         let help = ActionKeybinds::prefix("?");
-        assert!(help.matches_prefix_key(TerminalKey::new(KeyCode::Char('?'), KeyModifiers::SHIFT)));
+        assert!(help.matches_prefix_key(&TerminalKey::new(KeyCode::Char('?'), KeyModifiers::SHIFT)));
         assert!(help.matches_prefix_key(
-            TerminalKey::new(KeyCode::Char('/'), KeyModifiers::SHIFT)
+            &TerminalKey::new(KeyCode::Char('/'), KeyModifiers::SHIFT)
                 .with_shifted_codepoint('?' as u32)
         ));
 
         let bang = ActionKeybinds::prefix("!");
         assert!(bang.matches_prefix_key(
-            TerminalKey::new(KeyCode::Char('1'), KeyModifiers::SHIFT)
+            &TerminalKey::new(KeyCode::Char('1'), KeyModifiers::SHIFT)
                 .with_shifted_codepoint('!' as u32)
         ));
     }
@@ -1763,12 +1805,12 @@ navigate_pane_down = "ctrl+j"
         assert!(keybinds
             .navigate
             .workspace_up
-            .matches_direct_key(TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty())));
+            .matches_direct_key(&TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty())));
         assert!(keybinds.navigate.workspace_down.bindings.is_empty());
         assert!(keybinds
             .navigate
             .pane_down
-            .matches_direct_key(TerminalKey::new(KeyCode::Char('j'), KeyModifiers::CONTROL)));
+            .matches_direct_key(&TerminalKey::new(KeyCode::Char('j'), KeyModifiers::CONTROL)));
         assert!(diagnostics.iter().any(|diag| {
             diag.contains("kept keys.navigate_workspace_up")
                 && diag.contains("disabled keys.navigate_workspace_down")
@@ -1820,11 +1862,11 @@ command = "echo hi"
         assert!(keybinds
             .navigate
             .workspace_down
-            .matches_direct_key(TerminalKey::new(KeyCode::Char('n'), KeyModifiers::empty())));
+            .matches_direct_key(&TerminalKey::new(KeyCode::Char('n'), KeyModifiers::empty())));
         assert!(keybinds
             .navigate
             .workspace_down
-            .matches_direct_key(TerminalKey::new(KeyCode::Char('f'), KeyModifiers::empty())));
+            .matches_direct_key(&TerminalKey::new(KeyCode::Char('f'), KeyModifiers::empty())));
         assert!(!keybinds.custom_commands.is_empty());
         assert!(!diagnostics.iter().any(|diag| {
             diag.contains("disabled keys.navigate_workspace_down")
@@ -1846,7 +1888,7 @@ navigate_pane_down = "j"
         assert!(keybinds
             .navigate
             .pane_down
-            .matches_direct_key(TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty())));
+            .matches_direct_key(&TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty())));
     }
 
     #[test]
@@ -2184,5 +2226,55 @@ description = "say hello"
             keybinds.custom_commands[0].description,
             Some("say hello".to_string())
         );
+    }
+
+    #[test]
+    fn custom_popup_command_parses() {
+        let config: Config = toml::from_str(
+            r#"
+[[keys.command]]
+key = "prefix+g"
+command = "lazygit"
+type = "popup"
+width = 90
+height = "80%"
+"#,
+        )
+        .unwrap();
+        let keybinds = config.keybinds();
+        assert_eq!(keybinds.custom_commands.len(), 1);
+        assert_eq!(
+            keybinds.custom_commands[0].action,
+            CustomCommandAction::Popup
+        );
+        assert_eq!(
+            keybinds.custom_commands[0].width,
+            Some(PopupSize::Cells(90))
+        );
+        assert_eq!(
+            keybinds.custom_commands[0].height,
+            Some(PopupSize::Percent(80))
+        );
+    }
+
+    #[test]
+    fn non_popup_custom_command_ignores_popup_size_with_diagnostic() {
+        let config: Config = toml::from_str(
+            r#"
+[[keys.command]]
+key = "prefix+g"
+command = "lazygit"
+type = "pane"
+width = "80%"
+"#,
+        )
+        .unwrap();
+
+        let keybinds = config.keybinds();
+        assert_eq!(keybinds.custom_commands[0].width, None);
+        assert!(config
+            .collect_diagnostics()
+            .iter()
+            .any(|diag| diag.contains("popup size on non-popup custom command")));
     }
 }

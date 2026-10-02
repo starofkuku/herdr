@@ -823,6 +823,14 @@ pub struct WorktreesConfig {
     pub directory: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TabBarPositionConfig {
+    #[default]
+    Top,
+    Bottom,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct UiConfig {
@@ -831,6 +839,8 @@ pub struct UiConfig {
     pub sidebar_min_width: u16,
     /// Maximum sidebar width (columns) when expanded. Default: 36.
     pub sidebar_max_width: u16,
+    /// Start with the sidebar collapsed. Default: false.
+    pub sidebar_start_collapsed: bool,
     /// Collapsed sidebar presentation. Default: compact.
     pub sidebar_collapsed_mode: SidebarCollapsedModeConfig,
     /// Terminal width at or below which Herdr uses the mobile single-column layout. Default: 64.
@@ -851,14 +861,20 @@ pub struct UiConfig {
     pub confirm_close: bool,
     /// Ask for a tab name before creating a new tab. Default: true.
     pub prompt_new_tab_name: bool,
+    /// Ask for a workspace name before interactive creation. Default: false.
+    pub prompt_new_workspace_name: bool,
     /// Draw borders around split panes. Default: true.
     pub pane_borders: bool,
+    /// Draw interactive scrollbars beside terminal panes. Default: true.
+    pub pane_scrollbars: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
     pub pane_gaps: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
     /// Hide the tab row when the workspace has one tab. Default: false.
     pub hide_tab_bar_when_single_tab: bool,
+    /// Desktop tab row placement. Default: top.
+    pub tab_bar_position: TabBarPositionConfig,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Expanded sidebar row composition.
@@ -1023,11 +1039,15 @@ pub struct ExperimentalConfig {
     /// Cursor shape rendered for the IME anchor when
     /// `reveal_hidden_cursor_for_cjk_ime` is enabled. Default: "steady_block".
     pub cjk_ime_cursor_shape: ImeCursorShape,
-    /// While prefix mode is active, temporarily switch the macOS host input
-    /// source to an ASCII-capable keyboard layout so prefix commands are read
-    /// as ASCII even when a CJK IME is active, then restore the previous input
-    /// source when prefix mode exits. macOS only; a no-op elsewhere and a
-    /// best-effort no-op if the switch fails. Default: false.
+    /// While prefix mode is active, temporarily switch the host input source
+    /// to an ASCII-capable mode so prefix commands are read as ASCII even when
+    /// an IME is active, then restore the previous input source when prefix
+    /// mode exits. On macOS this selects the ASCII-capable keyboard layout; on
+    /// Windows it switches the IME to English (ASCII) input. Windows support is
+    /// currently limited to the Korean IME; with an IME for any other language,
+    /// the input source is left unchanged. macOS and Windows only; a no-op
+    /// elsewhere and a best-effort no-op if the switch fails.
+    /// Default: false.
     pub switch_ascii_input_source_in_prefix: bool,
 }
 
@@ -1108,6 +1128,7 @@ impl Default for UiConfig {
             sidebar_width: 26,
             sidebar_min_width: 18,
             sidebar_max_width: 36,
+            sidebar_start_collapsed: false,
             sidebar_collapsed_mode: SidebarCollapsedModeConfig::Compact,
             mobile_width_threshold: DEFAULT_MOBILE_WIDTH_THRESHOLD,
             mouse_capture: true,
@@ -1118,10 +1139,13 @@ impl Default for UiConfig {
             mouse_scroll_lines: None,
             confirm_close: true,
             prompt_new_tab_name: true,
+            prompt_new_workspace_name: false,
             pane_borders: true,
+            pane_scrollbars: true,
             pane_gaps: true,
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
+            tab_bar_position: TabBarPositionConfig::Top,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
@@ -1351,22 +1375,31 @@ agent_panel_scope = "current"
     fn pane_appearance_defaults_and_parse() {
         let default_config = Config::default();
         assert!(default_config.ui.pane_borders);
+        assert!(default_config.ui.pane_scrollbars);
         assert!(default_config.ui.pane_gaps);
         assert!(!default_config.ui.show_agent_labels_on_pane_borders);
         assert!(!default_config.ui.hide_tab_bar_when_single_tab);
+        assert_eq!(
+            default_config.ui.tab_bar_position,
+            TabBarPositionConfig::Top
+        );
 
         let toml = r#"
 [ui]
 pane_borders = false
+pane_scrollbars = false
 pane_gaps = true
 show_agent_labels_on_pane_borders = true
 hide_tab_bar_when_single_tab = true
+tab_bar_position = "bottom"
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.ui.pane_borders);
+        assert!(!config.ui.pane_scrollbars);
         assert!(config.ui.pane_gaps);
         assert!(config.ui.show_agent_labels_on_pane_borders);
         assert!(config.ui.hide_tab_bar_when_single_tab);
+        assert_eq!(config.ui.tab_bar_position, TabBarPositionConfig::Bottom);
     }
 
     #[test]
@@ -1393,6 +1426,19 @@ prompt_new_tab_name = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(!config.ui.prompt_new_tab_name);
+    }
+
+    #[test]
+    fn prompt_new_workspace_name_defaults_off_and_parses() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.prompt_new_workspace_name);
+
+        let toml = r#"
+[ui]
+prompt_new_workspace_name = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.prompt_new_workspace_name);
     }
 
     #[test]
@@ -1480,6 +1526,19 @@ mobile_width_threshold = 96
         assert_eq!(config.ui.sidebar_min_width, 12);
         assert_eq!(config.ui.sidebar_max_width, 80);
         assert_eq!(config.ui.mobile_width_threshold, 96);
+    }
+
+    #[test]
+    fn sidebar_start_collapsed_defaults_off_and_parses_on() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.sidebar_start_collapsed);
+
+        let toml = r#"
+[ui]
+sidebar_start_collapsed = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.sidebar_start_collapsed);
     }
 
     #[test]

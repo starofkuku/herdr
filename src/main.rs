@@ -74,11 +74,13 @@ mod kitty_graphics;
 mod layout;
 mod logging;
 mod metadata_tokens;
+mod noninteractive_process;
 mod pane;
 mod persist;
 mod platform;
 mod plugin_command;
 mod plugin_paths;
+mod popup_size;
 mod product_announcements;
 mod protocol;
 mod pty;
@@ -86,6 +88,7 @@ mod raw_input;
 mod release_notes;
 mod remote;
 mod render_prof;
+mod render_signal;
 mod selection;
 mod server;
 mod session;
@@ -224,11 +227,15 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Custom commands use the same binding syntax.
 # type = "shell" runs detached in the background.
 # type = "pane" opens a temporary pane and closes it when the command exits.
+# type = "popup" opens a session-modal terminal without changing the tab layout.
+# Popup width and height accept terminal cells or percentages such as "80%".
 # On Windows, command strings run through cmd.exe /d /c.
 # [[keys.command]]
 # key = "prefix+alt+g"
-# type = "pane"
+# type = "popup"
 # command = "lazygit"
+# width = "80%"
+# height = "80%"
 
 # Legacy indexed shortcut config is still parsed for compatibility.
 # Prefer switch_tab, switch_workspace, and focus_agent for new configs.
@@ -250,6 +257,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Maximum sidebar width when expanded (columns)
 # sidebar_max_width = 36
 
+# Start with the sidebar collapsed. Changes take effect on the next launch.
+# sidebar_start_collapsed = false
+
 # Collapsed sidebar presentation: "compact" keeps the narrow status rail, "hidden" uses zero width.
 # sidebar_collapsed_mode = "compact"
 
@@ -262,8 +272,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
 
-# Copy text selected by mouse drag or double-click.
-# Set false to disable mouse text selection and copying.
+# Automatically copy text selected with the mouse.
+# Set false to retain drag or double-click word selection until Ctrl+C,
+# or Cmd+C when the host forwards it, copies and clears it.
 # copy_on_select = true
 
 # Host cursor policy: "auto", "native", or "drawn".
@@ -290,8 +301,15 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Set false to create tabs immediately with generated names.
 # prompt_new_tab_name = true
 
+# Ask for a workspace name before interactive creation.
+# prompt_new_workspace_name = false
+
 # Draw borders around split panes.
 # pane_borders = true
+
+# Draw interactive scrollbars beside terminal panes.
+# Set false to reclaim the scrollbar column and keep it out of terminal-native selections.
+# pane_scrollbars = true
 
 # Keep split panes visually separated instead of sharing divider borders.
 # pane_gaps = true
@@ -303,6 +321,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # New tabs can still be created with the configured keybinding.
 # hide_tab_bar_when_single_tab = false
 
+# Desktop tab row placement: "top" or "bottom".
+# tab_bar_position = "top"
+
 # Agent panel ordering: "spaces" (grouped by space) or "priority" (attention queue).
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"
@@ -310,7 +331,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Expanded agent rows. Built-ins are state_icon, state_text, workspace, tab, pane, agent,
 # terminal_title, and terminal_title_stripped.
 # Custom values reported through pane metadata use a $name token.
+# A token occurrence may be styled with { token = "workspace", fg = "#89b4fa", bold = true, dim = false }.
+# Omitted style fields preserve the contextual default.
 # [ui.sidebar.agents]
+# Blank rows between agent entries. Set to 1 to restore the previous spacing.
+# row_gap = 0
 # rows = [["state_icon", "workspace", "tab"], ["agent"]]
 # Optional canonical agent IDs replace the default rows for matching agents.
 # [ui.sidebar.agents.rows_by_agent]
@@ -318,7 +343,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # Expanded space rows. Built-ins are state_icon, state_text, workspace, branch, and git_status.
 # Custom values reported through workspace metadata use a $name token, for example $jj_status.
+# Inline token styles accept strict #RGB/#RRGGBB foregrounds plus bold and dim booleans.
 # [ui.sidebar.spaces]
+# Blank rows between space entries. Set to 1 to restore the previous spacing.
+# row_gap = 0
 # rows = [["state_icon", "workspace"], ["branch", "git_status"]]
 
 # Accent color for highlights, borders, and navigation UI.
@@ -402,10 +430,12 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # kitty_graphics = false
 # Save recent pane screen history across full server restarts.
 pane_history = false
-# While prefix mode is active, temporarily switch the macOS host input
-# source to an ASCII-capable keyboard layout so prefix commands register
-# even when a CJK IME is active, then restore the previous input source
-# when prefix mode exits. macOS only; best-effort. Default: false.
+# While prefix mode is active, temporarily switch the host input source to
+# an ASCII-capable mode so prefix commands register even when an IME is
+# active, then restore the previous input source when prefix mode exits. On
+# macOS this selects the ASCII-capable keyboard layout; on Windows it toggles
+# a Korean IME between Hangul and English (other IME languages are left
+# unchanged). macOS and Windows only; best-effort. Default: false.
 # switch_ascii_input_source_in_prefix = false
 # Expose the focused pane's cursor to the outer terminal so macOS input
 # methods keep tracking the candidate window when TUIs paint their own
@@ -427,6 +457,9 @@ pane_history = false
 # Matches Ghostty's default scrollback-limit behavior.
 # scrollback_limit_bytes = 10000000
 "##;
+
+// Bundled at build time so the printed skill always matches this binary's release.
+const SKILL: &str = include_str!("../skills/herdr/SKILL.md");
 
 fn should_block_nested(config: &config::Config) -> bool {
     should_block_nested_for_env(config, std::env::var(HERDR_ENV_VAR).ok().as_deref())
@@ -457,8 +490,28 @@ fn exit_if_nested_disabled(config: &config::Config) {
     }
 }
 
+fn args_as_utf8<I>(args: I) -> Result<Vec<String>, String>
+where
+    I: IntoIterator<Item = std::ffi::OsString>,
+{
+    args.into_iter()
+        .enumerate()
+        .map(|(index, arg)| {
+            arg.into_string()
+                .map_err(|_| format!("argument {index} is not valid UTF-8"))
+        })
+        .collect()
+}
+
 fn main() -> io::Result<()> {
-    let raw_args: Vec<String> = std::env::args().collect();
+    let raw_args: Vec<String> = match args_as_utf8(std::env::args_os()) {
+        Ok(args) => args,
+        Err(err) => {
+            eprintln!("error: {err}");
+            eprintln!("run 'herdr --help' for usage");
+            std::process::exit(2);
+        }
+    };
     let args = match session::configure_from_args(&raw_args) {
         Ok(args) => args,
         Err(err) => {
@@ -481,7 +534,7 @@ fn main() -> io::Result<()> {
         && !args.iter().any(|a| {
             matches!(
                 a.as_str(),
-                "--help" | "-h" | "--version" | "-V" | "--default-config"
+                "--help" | "-h" | "--version" | "-V" | "--default-config" | "--skill"
             )
         })
     {
@@ -490,8 +543,19 @@ fn main() -> io::Result<()> {
         std::process::exit(2);
     }
 
-    if let cli::CommandOutcome::Handled(code) = cli::maybe_run(&args)? {
-        std::process::exit(code);
+    match cli::maybe_run(&args) {
+        Ok(cli::CommandOutcome::Handled(code)) => std::process::exit(code),
+        Ok(cli::CommandOutcome::NotCli) => {}
+        Err(err) if cli::protocol_mismatch_was_reported(&err) => std::process::exit(1),
+        Err(err) if cli::server_not_running_was_reported(&err) => {
+            if let Some(response) = cli::server_not_running_reported_response(&err) {
+                if let Ok(json) = serde_json::to_string(response) {
+                    eprintln!("{json}");
+                }
+            }
+            std::process::exit(1);
+        }
+        Err(err) => return Err(err),
     }
 
     // Subcommands and flags (no TUI, no logging needed)
@@ -596,7 +660,6 @@ fn main() -> io::Result<()> {
         println!("       herdr notification <subcommand> ...");
         println!("       herdr agent <subcommand> ...");
         println!("       herdr pane <subcommand> ...");
-        println!("       herdr wait <subcommand> ...");
         println!("       herdr session <subcommand> ...");
         println!("       herdr integration <subcommand> ...");
         println!();
@@ -655,10 +718,6 @@ fn main() -> io::Result<()> {
                 "Pane control helpers over the socket API",
             ),
             (
-                "herdr wait <subcommand>",
-                "Blocking wait helpers over the socket API",
-            ),
-            (
                 "herdr session <subcommand>",
                 "Manage named persistent sessions",
             ),
@@ -681,6 +740,7 @@ fn main() -> io::Result<()> {
         println!("                      Keybindings for --remote app attach (default: local)");
         println!("  --handoff           Opt into live handoff for update or remote attach");
         println!("  --default-config    Print default configuration and exit");
+        println!("  --skill             Print the agent skill file and exit");
         println!("  --version, -V       Print version and exit");
         println!("  --help, -h          Show this help");
         println!();
@@ -688,6 +748,7 @@ fn main() -> io::Result<()> {
         println!("Logs:   {}", logging::help_log_paths_summary());
         println!("Env:    HERDR_CONFIG_PATH overrides config file path");
         println!("Home:   https://herdr.dev");
+        println!("Skill:  herdr --skill prints agent instructions for driving herdr from a pane");
         return Ok(());
     }
 
@@ -701,6 +762,11 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
+    if args.iter().any(|a| a == "--skill") {
+        print!("{SKILL}");
+        return Ok(());
+    }
+
     // Reject unknown flags
     let known_flags = [
         "--no-session",
@@ -710,6 +776,7 @@ fn main() -> io::Result<()> {
         "--version",
         "-V",
         "--default-config",
+        "--skill",
         "--help",
         "-h",
     ];
@@ -718,7 +785,7 @@ fn main() -> io::Result<()> {
         if arg.starts_with('-') && !known_flags.contains(&arg_name) {
             eprintln!("unknown option: {arg}");
             eprintln!("run 'herdr --help' for usage");
-            std::process::exit(1);
+            std::process::exit(2);
         }
         if !arg.starts_with('-')
             && ![
@@ -732,7 +799,6 @@ fn main() -> io::Result<()> {
                 "workspace",
                 "worktree",
                 "pane",
-                "wait",
                 "session",
                 "integration",
             ]
@@ -740,7 +806,7 @@ fn main() -> io::Result<()> {
         {
             eprintln!("unknown command: {arg}");
             eprintln!("run 'herdr --help' for usage");
-            std::process::exit(1);
+            std::process::exit(2);
         }
     }
 
@@ -922,5 +988,39 @@ mod tests {
         assert!(NESTED_HERDR_MESSAGES
             .iter()
             .all(|message| !message.starts_with("herdr:")));
+    }
+
+    #[cfg(unix)]
+    fn invalid_utf8_arg() -> std::ffi::OsString {
+        use std::os::unix::ffi::OsStringExt;
+        std::ffi::OsString::from_vec(vec![0xff])
+    }
+
+    #[cfg(windows)]
+    fn invalid_utf8_arg() -> std::ffi::OsString {
+        use std::os::windows::ffi::OsStringExt;
+        std::ffi::OsString::from_wide(&[0xd800])
+    }
+
+    #[test]
+    fn args_as_utf8_passes_through_valid_arguments() {
+        let args = ["herdr", "pane", "get", "pane-1"].map(std::ffi::OsString::from);
+        assert_eq!(
+            args_as_utf8(args).unwrap(),
+            ["herdr", "pane", "get", "pane-1"]
+        );
+    }
+
+    #[test]
+    fn args_as_utf8_reports_the_offending_argument_instead_of_panicking() {
+        let args = vec![
+            std::ffi::OsString::from("herdr"),
+            std::ffi::OsString::from("pane"),
+            invalid_utf8_arg(),
+        ];
+        assert_eq!(
+            args_as_utf8(args).unwrap_err(),
+            "argument 2 is not valid UTF-8"
+        );
     }
 }

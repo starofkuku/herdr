@@ -1,11 +1,10 @@
 use std::{
-    collections::HashMap,
+    collections::{HashSet, VecDeque},
     io::Write,
     os::fd::RawFd,
     path::PathBuf,
     process::{Command, Stdio},
-    sync::Mutex,
-    time::{Duration, Instant},
+    sync::OnceLock,
 };
 
 use super::{
@@ -13,30 +12,21 @@ use super::{
     ForegroundJob, ForegroundProcess, LimitedRead, Signal,
 };
 
-const FOREGROUND_MEMBERS_CACHE_TTL: Duration = Duration::from_millis(250);
 const WSL_MARKER_ENV_VARS: &[&str] = &["WSL_DISTRO_NAME", "WSL_INTEROP"];
+const PROCESS_DETECTION_ENV_VAR: &str = "HERDR_PROCESS_DETECTION";
+const CHILD_GROUPS_SCAN_LIMIT: usize = 64;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcessDetectionMode {
+    Native,
+    ChildGroups,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ProcGroupMember {
     pid: u32,
     comm: String,
 }
-
-type ForegroundMembersByGroup = HashMap<u32, Vec<ProcGroupMember>>;
-
-#[derive(Debug, Clone)]
-struct CachedForegroundMembers {
-    built_at: Instant,
-    by_group: ForegroundMembersByGroup,
-}
-
-#[derive(Debug, Default)]
-struct ForegroundMembersCache {
-    cached: Option<CachedForegroundMembers>,
-}
-
-static FOREGROUND_MEMBERS_CACHE: Mutex<ForegroundMembersCache> =
-    Mutex::new(ForegroundMembersCache { cached: None });
 
 pub fn raise_server_nofile_limit() {}
 
@@ -64,6 +54,29 @@ fn text_indicates_wsl(text: &str) -> bool {
     text.contains("microsoft") || text.contains("wsl")
 }
 
+fn parse_process_detection_mode(value: Option<&str>) -> Result<ProcessDetectionMode, &str> {
+    match value {
+        None | Some("") | Some("native") => Ok(ProcessDetectionMode::Native),
+        Some("child-groups") => Ok(ProcessDetectionMode::ChildGroups),
+        Some(value) => Err(value),
+    }
+}
+
+fn process_detection_mode() -> ProcessDetectionMode {
+    static MODE: OnceLock<ProcessDetectionMode> = OnceLock::new();
+    *MODE.get_or_init(|| {
+        let value = std::env::var(PROCESS_DETECTION_ENV_VAR).ok();
+        parse_process_detection_mode(value.as_deref()).unwrap_or_else(|value| {
+            tracing::warn!(
+                variable = PROCESS_DETECTION_ENV_VAR,
+                %value,
+                "unknown process detection mode; using native detection"
+            );
+            ProcessDetectionMode::Native
+        })
+    })
+}
+
 fn raw_command_argv(command: &str, flag: &str) -> Vec<std::ffi::OsString> {
     vec!["/bin/sh".into(), flag.into(), command.into()]
 }
@@ -89,6 +102,10 @@ pub(crate) fn scrollback_editor_argv(path: &std::path::Path) -> std::io::Result<
     Ok(vec!["/bin/sh".to_string(), "-c".to_string(), command])
 }
 
+pub(crate) fn interactive_shell_command(argv: &[String], shell_name: &str) -> Option<String> {
+    super::interactive_unix_shell_command(argv, shell_name, shell_quote)
+}
+
 fn shell_quote(value: &str) -> String {
     if !value.is_empty()
         && value.chars().all(|ch| {
@@ -106,9 +123,24 @@ fn shell_quote(value: &str) -> String {
 }
 
 /// Collect the foreground terminal job for a given child PID.
+pub(crate) fn available_pane_shell(child_pid: u32) -> Option<String> {
+    super::available_pane_shell_from_job(child_pid, foreground_job(child_pid)?)
+}
+
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
-    let tpgid = foreground_process_group_id(child_pid)?;
-    let members = foreground_process_group_members(tpgid)?;
+    if let Some(tpgid) = foreground_process_group_id(child_pid) {
+        return foreground_job_for_group(child_pid, tpgid);
+    }
+
+    if process_detection_mode() != ProcessDetectionMode::ChildGroups {
+        return None;
+    }
+
+    foreground_job_for_group(child_pid, child_groups_foreground_process_group(child_pid)?)
+}
+
+fn foreground_job_for_group(child_pid: u32, process_group_id: u32) -> Option<ForegroundJob> {
+    let members = foreground_process_group_members(child_pid, process_group_id)?;
     let processes = members
         .into_iter()
         .map(|member| {
@@ -128,22 +160,142 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     }
 
     Some(ForegroundJob {
-        process_group_id: tpgid,
+        process_group_id,
         processes,
     })
 }
 
-fn foreground_process_group_members(process_group_id: u32) -> Option<Vec<ProcGroupMember>> {
-    let mut cache = FOREGROUND_MEMBERS_CACHE
-        .lock()
-        .unwrap_or_else(|err| err.into_inner());
-    cache.members(
+/// Best-effort foreground group for environments that do not expose terminal
+/// foreground groups. This mode is explicit because background jobs cannot be
+/// distinguished from foreground jobs without the native terminal signal.
+fn child_groups_foreground_process_group(child_pid: u32) -> Option<u32> {
+    let shell_group_id = process_pgrp_and_comm(child_pid)
+        .map(|(pgrp, _)| pgrp)
+        .filter(|pgrp| *pgrp > 0)? as u32;
+
+    child_groups_foreground_process_group_with(
+        child_pid,
+        shell_group_id,
+        process_task_ids,
+        process_task_children,
+        |pid| process_pgrp_and_comm(pid).map(|(pgrp, _)| pgrp),
+    )
+}
+
+fn child_groups_foreground_process_group_with(
+    child_pid: u32,
+    shell_group_id: u32,
+    mut task_ids: impl FnMut(u32) -> Vec<u32>,
+    mut task_children: impl FnMut(u32, u32) -> Vec<u32>,
+    mut process_group_id: impl FnMut(u32) -> Option<i32>,
+) -> Option<u32> {
+    let mut newest = None;
+    let mut scanned = 0usize;
+    for tid in task_ids(child_pid) {
+        for child in task_children(child_pid, tid) {
+            if scanned >= CHILD_GROUPS_SCAN_LIMIT {
+                return None;
+            }
+            scanned += 1;
+
+            let Some(pgrp) = process_group_id(child) else {
+                continue;
+            };
+            if pgrp <= 0 {
+                continue;
+            }
+            let pgrp = pgrp as u32;
+            if pgrp == shell_group_id {
+                continue;
+            }
+            newest = Some(newest.map_or(pgrp, |current: u32| current.max(pgrp)));
+        }
+    }
+    newest.or(Some(shell_group_id))
+}
+
+fn foreground_process_group_members(
+    child_pid: u32,
+    process_group_id: u32,
+) -> Option<Vec<ProcGroupMember>> {
+    foreground_process_group_members_with(
+        child_pid,
         process_group_id,
-        Instant::now(),
-        FOREGROUND_MEMBERS_CACHE_TTL,
-        build_foreground_members_by_group,
+        process_task_ids,
+        process_task_children,
         live_process_group_member,
     )
+}
+
+fn foreground_process_group_members_with(
+    child_pid: u32,
+    process_group_id: u32,
+    task_ids: impl FnMut(u32) -> Vec<u32>,
+    task_children: impl FnMut(u32, u32) -> Vec<u32>,
+    mut live_member: impl FnMut(u32, u32) -> Option<ProcGroupMember>,
+) -> Option<Vec<ProcGroupMember>> {
+    let mut members = process_tree_pids([child_pid, process_group_id], task_ids, task_children)
+        .into_iter()
+        .filter_map(|pid| live_member(process_group_id, pid))
+        .collect::<Vec<_>>();
+    members.sort_unstable_by_key(|member| member.pid);
+    (!members.is_empty()).then_some(members)
+}
+
+fn process_tree_pids(
+    roots: impl IntoIterator<Item = u32>,
+    mut task_ids: impl FnMut(u32) -> Vec<u32>,
+    mut task_children: impl FnMut(u32, u32) -> Vec<u32>,
+) -> Vec<u32> {
+    let mut pending = VecDeque::new();
+    let mut visited = HashSet::new();
+    for pid in roots {
+        if pid > 0 && visited.insert(pid) {
+            pending.push_back(pid);
+        }
+    }
+
+    let mut pids = Vec::new();
+    while let Some(pid) = pending.pop_front() {
+        pids.push(pid);
+        for tid in task_ids(pid) {
+            for child_pid in task_children(pid, tid) {
+                if child_pid > 0 && visited.insert(child_pid) {
+                    pending.push_back(child_pid);
+                }
+            }
+        }
+    }
+    pids
+}
+
+fn process_task_ids(pid: u32) -> Vec<u32> {
+    std::fs::read_dir(format!("/proc/{pid}/task"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| numeric_file_name(&entry))
+        .collect()
+}
+
+fn process_task_children(pid: u32, tid: u32) -> Vec<u32> {
+    let Some(children) = std::fs::read_to_string(format!("/proc/{pid}/task/{tid}/children")).ok()
+    else {
+        return Vec::new();
+    };
+    children
+        .split_whitespace()
+        .filter_map(|child| child.parse::<u32>().ok())
+        .collect()
+}
+
+fn numeric_file_name(entry: &std::fs::DirEntry) -> Option<u32> {
+    let file_name = entry.file_name();
+    let value = file_name.to_str()?;
+    if !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    value.parse().ok()
 }
 
 fn live_process_group_member(process_group_id: u32, pid: u32) -> Option<ProcGroupMember> {
@@ -200,94 +352,6 @@ fn process_pgrp_and_comm_from_stat(stat: &str) -> Option<(i32, String)> {
     Some((pgrp, comm))
 }
 
-fn build_foreground_members_by_group() -> ForegroundMembersByGroup {
-    let entries = std::fs::read_dir("/proc")
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|entry| {
-            let file_name = entry.file_name();
-            let pid_str = file_name.to_str()?;
-            if !pid_str.bytes().all(|b| b.is_ascii_digit()) {
-                return None;
-            }
-            let pid = pid_str.parse::<u32>().ok()?;
-            let (pgrp, comm) = process_pgrp_and_comm(pid)?;
-            Some(ProcStatEntry { pid, pgrp, comm })
-        });
-    foreground_members_by_group_from_entries(entries)
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ProcStatEntry {
-    pid: u32,
-    pgrp: i32,
-    comm: String,
-}
-
-fn foreground_members_by_group_from_entries(
-    entries: impl IntoIterator<Item = ProcStatEntry>,
-) -> ForegroundMembersByGroup {
-    let mut by_group = ForegroundMembersByGroup::default();
-    for entry in entries {
-        if entry.pgrp <= 0 {
-            continue;
-        }
-        by_group
-            .entry(entry.pgrp as u32)
-            .or_default()
-            .push(ProcGroupMember {
-                pid: entry.pid,
-                comm: entry.comm,
-            });
-    }
-    by_group
-}
-
-impl ForegroundMembersCache {
-    fn members(
-        &mut self,
-        process_group_id: u32,
-        now: Instant,
-        max_age: Duration,
-        build: impl FnMut() -> ForegroundMembersByGroup,
-        mut validate: impl FnMut(u32, u32) -> Option<ProcGroupMember>,
-    ) -> Option<Vec<ProcGroupMember>> {
-        if let Some(cached) = &self.cached {
-            if now.duration_since(cached.built_at) < max_age {
-                if let Some(members) = cached.by_group.get(&process_group_id) {
-                    let members = members
-                        .iter()
-                        .filter_map(|member| validate(process_group_id, member.pid))
-                        .collect::<Vec<_>>();
-                    if !members.is_empty() {
-                        return Some(members);
-                    }
-                }
-                return self.refresh_and_get(process_group_id, now, build);
-            }
-        }
-        self.refresh_and_get(process_group_id, now, build)
-    }
-
-    fn refresh_and_get(
-        &mut self,
-        process_group_id: u32,
-        now: Instant,
-        build: impl FnOnce() -> ForegroundMembersByGroup,
-    ) -> Option<Vec<ProcGroupMember>> {
-        self.cached = Some(CachedForegroundMembers {
-            built_at: now,
-            by_group: build(),
-        });
-        self.cached
-            .as_ref()?
-            .by_group
-            .get(&process_group_id)
-            .cloned()
-    }
-}
-
 fn process_argv(pid: u32) -> Option<Vec<String>> {
     let bytes = std::fs::read(format!("/proc/{pid}/cmdline")).ok()?;
     if bytes.is_empty() {
@@ -316,18 +380,7 @@ pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
         return None;
     }
     let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-    parse_agent_env_hint(&environ)
-}
-
-fn parse_agent_env_hint(environ: &[u8]) -> Option<crate::detect::Agent> {
-    for record in environ.split(|&byte| byte == 0) {
-        let Some(value) = record.strip_prefix(b"HERDR_AGENT=") else {
-            continue;
-        };
-        let value = std::str::from_utf8(value).ok()?;
-        return crate::detect::parse_agent_label(value);
-    }
-    None
+    super::parse_agent_env_hint(&environ)
 }
 
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
@@ -768,53 +821,12 @@ fn process_session_id(pid: u32) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Mutex, OnceLock};
+    use std::{cell::RefCell, collections::HashMap};
 
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn proc_entry(pid: u32, pgrp: i32, comm: &str) -> ProcStatEntry {
-        ProcStatEntry {
-            pid,
-            pgrp,
-            comm: comm.to_string(),
-        }
-    }
-
-    fn foreground_members(groups: &[(u32, &str, i32)]) -> ForegroundMembersByGroup {
-        foreground_members_by_group_from_entries(
-            groups
-                .iter()
-                .map(|(pid, comm, pgrp)| proc_entry(*pid, *pgrp, comm)),
-        )
-    }
-
-    fn validate_from<'a>(
-        groups: &'a [(u32, &'a str, i32)],
-    ) -> impl FnMut(u32, u32) -> Option<ProcGroupMember> + 'a {
-        move |process_group_id, pid| {
-            groups.iter().find_map(|(member_pid, comm, pgrp)| {
-                (*member_pid == pid && *pgrp > 0 && *pgrp as u32 == process_group_id).then(|| {
-                    ProcGroupMember {
-                        pid,
-                        comm: (*comm).to_string(),
-                    }
-                })
-            })
-        }
-    }
-
-    fn member_names(by_group: &ForegroundMembersByGroup, process_group_id: u32) -> Vec<String> {
-        by_group
-            .get(&process_group_id)
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|member| member.comm)
-            .collect()
     }
 
     #[test]
@@ -826,319 +838,227 @@ mod tests {
     }
 
     #[test]
-    fn powershell_clipboard_path_output_trims_bom_and_crlf() {
+    fn process_detection_mode_requires_explicit_child_groups_value() {
         assert_eq!(
-            normalize_powershell_path_output("\u{feff}C:\\Temp\\image.png\r\n".as_bytes())
-                .as_deref(),
-            Some("C:\\Temp\\image.png")
+            parse_process_detection_mode(None),
+            Ok(ProcessDetectionMode::Native)
         );
+        assert_eq!(
+            parse_process_detection_mode(Some("")),
+            Ok(ProcessDetectionMode::Native)
+        );
+        assert_eq!(
+            parse_process_detection_mode(Some("native")),
+            Ok(ProcessDetectionMode::Native)
+        );
+        assert_eq!(
+            parse_process_detection_mode(Some("child-groups")),
+            Ok(ProcessDetectionMode::ChildGroups)
+        );
+        assert_eq!(parse_process_detection_mode(Some("gvisor")), Err("gvisor"));
     }
 
     #[test]
-    fn windows_clipboard_path_maps_to_default_wsl_mount() {
-        assert_eq!(
-            windows_path_to_default_wsl_mount(r"C:\Users\Alice\My Pictures\image.png"),
-            Some(PathBuf::from("/mnt/c/Users/Alice/My Pictures/image.png"))
+    fn child_groups_foreground_group_picks_the_newest_job() {
+        let tasks = HashMap::from([(100, vec![100])]);
+        let children = HashMap::from([((100, 100), vec![200, 300])]);
+        let groups = HashMap::from([(200, 200), (300, 300)]);
+
+        let group = child_groups_foreground_process_group_with(
+            100,
+            100,
+            |pid| tasks.get(&pid).cloned().unwrap_or_default(),
+            |pid, tid| children.get(&(pid, tid)).cloned().unwrap_or_default(),
+            |pid| groups.get(&pid).copied(),
         );
-        assert_eq!(
-            windows_path_to_default_wsl_mount(r"\\server\share\image.png"),
-            None
-        );
+
+        assert_eq!(group, Some(300));
     }
 
     #[test]
-    fn wsl_clipboard_image_path_validates_png_and_size() {
-        let path = std::env::temp_dir().join(format!(
-            "herdr-wsl-clipboard-image-test-{}-{}.png",
-            std::process::id(),
-            std::thread::current().name().unwrap_or("unnamed")
-        ));
-        std::fs::write(&path, b"\x89PNG\r\n\x1a\nimage").unwrap();
-        assert_eq!(
-            read_wsl_clipboard_image_path(&path),
-            Some(ClipboardImage {
-                bytes: b"\x89PNG\r\n\x1a\nimage".to_vec(),
-                extension: "png",
-            })
+    fn child_groups_foreground_group_returns_to_the_shell_group() {
+        let tasks = HashMap::from([(100, vec![100])]);
+        let children = HashMap::from([((100, 100), vec![150, 160])]);
+        let groups = HashMap::from([(150, 90), (160, 90)]);
+
+        let group = child_groups_foreground_process_group_with(
+            100,
+            90,
+            |pid| tasks.get(&pid).cloned().unwrap_or_default(),
+            |pid, tid| children.get(&(pid, tid)).cloned().unwrap_or_default(),
+            |pid| groups.get(&pid).copied(),
         );
-        std::fs::write(&path, b"plain text").unwrap();
-        assert_eq!(read_wsl_clipboard_image_path(&path), None);
-        let _ = std::fs::remove_file(path);
+
+        assert_eq!(group, Some(90));
     }
 
     #[test]
-    fn wsl_clipboard_image_prefers_powershell_over_wslg_clipboard_tools() {
-        let _guard = env_lock().lock().unwrap();
-        let temp_dir =
-            std::env::temp_dir().join(format!("herdr-wsl-clipboard-tools-{}", std::process::id()));
-        std::fs::create_dir_all(&temp_dir).unwrap();
-        let image_path = temp_dir.join("clipboard image.png");
-        let wl_paste_called = temp_dir.join("wl-paste-called");
-        std::fs::write(&image_path, b"\x89PNG\r\n\x1a\nimage").unwrap();
+    fn child_groups_foreground_group_skips_the_shell_group() {
+        let tasks = HashMap::from([(100, vec![100])]);
+        let children = HashMap::from([((100, 100), vec![150, 160, 300])]);
+        let groups = HashMap::from([(150, 90), (160, 90), (300, 300)]);
 
-        let powershell = temp_dir.join("powershell.exe");
-        let wslpath = temp_dir.join("wslpath");
-        let wl_paste = temp_dir.join("wl-paste");
-        std::fs::write(
-            &powershell,
-            "#!/bin/sh\nprintf '%s\\r\\n' 'C:\\Temp\\clipboard image.png'\n",
-        )
-        .unwrap();
-        std::fs::write(
-            &wslpath,
-            "#!/bin/sh\nprintf '%s\\n' \"$HERDR_WSL_IMAGE_PATH\"\n",
-        )
-        .unwrap();
-        std::fs::write(
-            &wl_paste,
-            "#!/bin/sh\ntouch \"$HERDR_WL_PASTE_CALLED\"\nexit 1\n",
-        )
-        .unwrap();
-        use std::os::unix::fs::PermissionsExt;
-        for path in [&powershell, &wslpath, &wl_paste] {
-            let mut permissions = std::fs::metadata(path).unwrap().permissions();
-            permissions.set_mode(0o700);
-            std::fs::set_permissions(path, permissions).unwrap();
-        }
-
-        let old_path = std::env::var_os("PATH");
-        let old_wsl = std::env::var_os("WSL_DISTRO_NAME");
-        let old_wayland = std::env::var_os("WAYLAND_DISPLAY");
-        let old_image_path = std::env::var_os("HERDR_WSL_IMAGE_PATH");
-        let old_wl_called = std::env::var_os("HERDR_WL_PASTE_CALLED");
-        unsafe {
-            std::env::set_var("PATH", &temp_dir);
-            std::env::set_var("WSL_DISTRO_NAME", "Ubuntu");
-            std::env::set_var("WAYLAND_DISPLAY", "wayland-0");
-            std::env::set_var("HERDR_WSL_IMAGE_PATH", &image_path);
-            std::env::set_var("HERDR_WL_PASTE_CALLED", &wl_paste_called);
-        }
-
-        let image = read_clipboard_image();
-
-        unsafe {
-            for (key, value) in [
-                ("PATH", old_path),
-                ("WSL_DISTRO_NAME", old_wsl),
-                ("WAYLAND_DISPLAY", old_wayland),
-                ("HERDR_WSL_IMAGE_PATH", old_image_path),
-                ("HERDR_WL_PASTE_CALLED", old_wl_called),
-            ] {
-                match value {
-                    Some(value) => std::env::set_var(key, value),
-                    None => std::env::remove_var(key),
-                }
-            }
-        }
-
-        assert_eq!(
-            image,
-            Some(ClipboardImage {
-                bytes: b"\x89PNG\r\n\x1a\nimage".to_vec(),
-                extension: "png",
-            })
+        let group = child_groups_foreground_process_group_with(
+            100,
+            90,
+            |pid| tasks.get(&pid).cloned().unwrap_or_default(),
+            |pid, tid| children.get(&(pid, tid)).cloned().unwrap_or_default(),
+            |pid| groups.get(&pid).copied(),
         );
-        assert!(!wl_paste_called.exists());
-        assert!(
-            !image_path.exists(),
-            "WSL clipboard temp image should be removed"
-        );
-        let _ = std::fs::remove_file(powershell);
-        let _ = std::fs::remove_file(wslpath);
-        let _ = std::fs::remove_file(wl_paste);
-        let _ = std::fs::remove_dir(temp_dir);
+
+        assert_eq!(group, Some(300));
     }
 
     #[test]
-    fn foreground_members_indexes_by_process_group() {
-        let by_group = foreground_members(&[
-            (10, "shell", 10),
-            (11, "claude", 11),
-            (12, "node", 11),
-            (13, "ignored", -1),
+    fn child_groups_foreground_group_fails_closed_at_the_scan_limit() {
+        let children: Vec<u32> = (1..=(CHILD_GROUPS_SCAN_LIMIT as u32 + 10)).collect();
+        let mut inspected = 0usize;
+
+        let group = child_groups_foreground_process_group_with(
+            100,
+            100,
+            |_| vec![100],
+            |_, _| children.clone(),
+            |pid| {
+                inspected += 1;
+                Some(pid as i32)
+            },
+        );
+
+        assert_eq!(inspected, CHILD_GROUPS_SCAN_LIMIT);
+        assert_eq!(group, None);
+    }
+
+    #[test]
+    fn foreground_members_follow_the_pane_tree_and_filter_by_process_group() {
+        let tasks = HashMap::from([
+            (100, vec![100, 101]),
+            (200, vec![200]),
+            (201, vec![201]),
+            (210, vec![210]),
+            (220, vec![220]),
+            (221, vec![221]),
+            (300, vec![300]),
         ]);
+        let children = HashMap::from([
+            ((100, 100), vec![200, 201, 300]),
+            ((100, 101), vec![210]),
+            ((200, 200), vec![220]),
+            ((220, 220), vec![221]),
+        ]);
+        let processes = HashMap::from([
+            (100, (100, "shell")),
+            (200, (200, "leader")),
+            (201, (200, "pipeline")),
+            (210, (200, "thread-child")),
+            (220, (220, "intermediate")),
+            (221, (200, "nested-agent")),
+            (300, (300, "background")),
+            (9999, (200, "unrelated-host-process")),
+        ]);
+        let task_reads = RefCell::new(Vec::new());
+        let child_reads = RefCell::new(Vec::new());
+        let member_reads = RefCell::new(Vec::new());
 
-        assert_eq!(member_names(&by_group, 10), vec!["shell"]);
-        assert_eq!(member_names(&by_group, 11), vec!["claude", "node"]);
-        assert_eq!(by_group.get(&13), None);
+        let members = foreground_process_group_members_with(
+            100,
+            200,
+            |pid| {
+                task_reads.borrow_mut().push(pid);
+                tasks.get(&pid).cloned().unwrap_or_default()
+            },
+            |pid, tid| {
+                child_reads.borrow_mut().push((pid, tid));
+                children.get(&(pid, tid)).cloned().unwrap_or_default()
+            },
+            |process_group_id, pid| {
+                member_reads.borrow_mut().push(pid);
+                let (pgrp, comm) = processes.get(&pid)?;
+                (*pgrp == process_group_id).then(|| ProcGroupMember {
+                    pid,
+                    comm: (*comm).to_string(),
+                })
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            members
+                .into_iter()
+                .map(|member| (member.pid, member.comm))
+                .collect::<Vec<_>>(),
+            vec![
+                (200, "leader".to_string()),
+                (201, "pipeline".to_string()),
+                (210, "thread-child".to_string()),
+                (221, "nested-agent".to_string()),
+            ]
+        );
+        assert!(child_reads.borrow().contains(&(100, 101)));
+        assert!(task_reads.borrow().contains(&220));
+        assert!(!task_reads.borrow().contains(&9999));
+        assert!(!member_reads.borrow().contains(&9999));
     }
 
     #[test]
-    fn foreground_members_cache_reuses_snapshot_inside_ttl() {
-        let mut cache = ForegroundMembersCache::default();
-        let now = Instant::now();
-        let builds = AtomicUsize::new(0);
-
-        let first = cache.members(
-            10,
-            now,
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(10, "shell", 10)])
+    fn foreground_members_degrade_to_the_direct_group_leader() {
+        let members = foreground_process_group_members_with(
+            100,
+            200,
+            |_| Vec::new(),
+            |_, _| Vec::new(),
+            |process_group_id, pid| {
+                (pid == process_group_id).then(|| ProcGroupMember {
+                    pid,
+                    comm: "leader".to_string(),
+                })
             },
-            validate_from(&[(10, "shell", 10)]),
-        );
-        let second = cache.members(
-            10,
-            now + Duration::from_millis(100),
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(20, "new", 20)])
-            },
-            validate_from(&[(10, "shell-live", 10)]),
-        );
+        )
+        .unwrap();
 
         assert_eq!(
-            first
-                .unwrap()
-                .into_iter()
-                .map(|member| member.comm)
-                .collect::<Vec<_>>(),
-            vec!["shell"]
-        );
-        assert_eq!(
-            second
-                .unwrap()
-                .into_iter()
-                .map(|member| member.comm)
-                .collect::<Vec<_>>(),
-            vec!["shell-live"]
-        );
-        assert_eq!(builds.load(Ordering::Relaxed), 1);
-    }
-
-    #[test]
-    fn foreground_members_cache_rebuilds_after_ttl() {
-        let mut cache = ForegroundMembersCache::default();
-        let now = Instant::now();
-        let builds = AtomicUsize::new(0);
-
-        let _ = cache.members(
-            10,
-            now,
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(10, "shell", 10)])
-            },
-            validate_from(&[(10, "shell", 10)]),
-        );
-        let second = cache.members(
-            20,
-            now + FOREGROUND_MEMBERS_CACHE_TTL,
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(20, "new", 20)])
-            },
-            validate_from(&[(20, "new", 20)]),
-        );
-
-        assert_eq!(builds.load(Ordering::Relaxed), 2);
-        assert_eq!(
-            second
-                .unwrap()
-                .into_iter()
-                .map(|member| member.comm)
-                .collect::<Vec<_>>(),
-            vec!["new"]
+            members,
+            vec![ProcGroupMember {
+                pid: 200,
+                comm: "leader".to_string()
+            }]
         );
     }
 
     #[test]
-    fn foreground_members_cache_refreshes_reused_snapshot_on_group_miss() {
-        let mut cache = ForegroundMembersCache::default();
-        let now = Instant::now();
-        let builds = AtomicUsize::new(0);
+    fn foreground_members_observe_new_children_without_a_snapshot_cache() {
+        let children = RefCell::new(HashMap::from([((100, 100), vec![200])]));
+        let discover = || {
+            foreground_process_group_members_with(
+                100,
+                200,
+                |pid| vec![pid],
+                |pid, tid| {
+                    children
+                        .borrow()
+                        .get(&(pid, tid))
+                        .cloned()
+                        .unwrap_or_default()
+                },
+                |process_group_id, pid| {
+                    [200, 201]
+                        .contains(&pid)
+                        .then(|| ProcGroupMember {
+                            pid,
+                            comm: format!("member-{pid}"),
+                        })
+                        .filter(|_| process_group_id == 200)
+                },
+            )
+            .unwrap()
+            .into_iter()
+            .map(|member| member.pid)
+            .collect::<Vec<_>>()
+        };
 
-        let stale = cache.members(
-            10,
-            now,
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(10, "shell", 10)])
-            },
-            validate_from(&[(10, "shell", 10)]),
-        );
-        assert_eq!(
-            stale
-                .unwrap()
-                .into_iter()
-                .map(|member| member.comm)
-                .collect::<Vec<_>>(),
-            vec!["shell"]
-        );
-
-        let refreshed = cache.members(
-            42,
-            now + Duration::from_millis(10),
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(42, "claude", 42)])
-            },
-            validate_from(&[(42, "claude", 42)]),
-        );
-
-        assert_eq!(builds.load(Ordering::Relaxed), 2);
-        assert_eq!(
-            refreshed
-                .unwrap()
-                .into_iter()
-                .map(|member| member.comm)
-                .collect::<Vec<_>>(),
-            vec!["claude"]
-        );
-    }
-
-    #[test]
-    fn foreground_members_cache_refreshes_existing_group_when_cached_members_are_stale() {
-        let mut cache = ForegroundMembersCache::default();
-        let now = Instant::now();
-        let builds = AtomicUsize::new(0);
-
-        let stale = cache.members(
-            42,
-            now,
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(10, "old", 42)])
-            },
-            validate_from(&[(10, "old", 42)]),
-        );
-        assert_eq!(
-            stale
-                .unwrap()
-                .into_iter()
-                .map(|member| member.comm)
-                .collect::<Vec<_>>(),
-            vec!["old"]
-        );
-
-        let refreshed = cache.members(
-            42,
-            now + Duration::from_millis(10),
-            FOREGROUND_MEMBERS_CACHE_TTL,
-            || {
-                builds.fetch_add(1, Ordering::Relaxed);
-                foreground_members(&[(20, "new", 42)])
-            },
-            validate_from(&[(10, "old", 7), (20, "new", 42)]),
-        );
-
-        assert_eq!(builds.load(Ordering::Relaxed), 2);
-        assert_eq!(
-            refreshed
-                .unwrap()
-                .into_iter()
-                .map(|member| member.comm)
-                .collect::<Vec<_>>(),
-            vec!["new"]
-        );
+        assert_eq!(discover(), vec![200]);
+        children.borrow_mut().insert((100, 100), vec![200, 201]);
+        assert_eq!(discover(), vec![200, 201]);
     }
 
     #[test]
@@ -1147,24 +1067,6 @@ mod tests {
             process_pgrp_and_comm_from_stat("123 (name with ) paren) S 1 456 789 0 456"),
             Some((456, "name with ) paren".to_string()))
         );
-    }
-
-    #[test]
-    fn parse_agent_env_hint_accepts_known_agents() {
-        assert_eq!(
-            parse_agent_env_hint(b"PATH=/bin\0HERDR_AGENT=claude\0TERM=xterm\0"),
-            Some(crate::detect::Agent::Claude)
-        );
-        assert_eq!(
-            parse_agent_env_hint(b"HERDR_AGENT=codex"),
-            Some(crate::detect::Agent::Codex)
-        );
-    }
-
-    #[test]
-    fn parse_agent_env_hint_ignores_missing_or_unknown_agents() {
-        assert_eq!(parse_agent_env_hint(b"PATH=/bin\0TERM=xterm\0"), None);
-        assert_eq!(parse_agent_env_hint(b"HERDR_AGENT=not-an-agent\0"), None);
     }
 
     #[test]
@@ -1378,49 +1280,6 @@ mod tests {
     }
 
     #[test]
-    fn image_signatures_match_only_their_format() {
-        assert!(clipboard_image_matches_signature(
-            "png",
-            b"\x89PNG\r\n\x1a\n..."
-        ));
-        assert!(clipboard_image_matches_signature(
-            "jpg",
-            &[0xFF, 0xD8, 0xFF, 0xE0]
-        ));
-        assert!(clipboard_image_matches_signature("gif", b"GIF87a..."));
-        assert!(clipboard_image_matches_signature("gif", b"GIF89a..."));
-        assert!(clipboard_image_matches_signature(
-            "webp",
-            b"RIFF\x10\x00\x00\x00WEBPVP8 "
-        ));
-
-        let mut bmp = vec![0u8; 26];
-        bmp[..2].copy_from_slice(b"BM");
-        bmp[10] = 26;
-        assert!(clipboard_image_matches_signature("bmp", &bmp));
-
-        assert!(!clipboard_image_matches_signature("png", b"# Tasks"));
-        assert!(!clipboard_image_matches_signature(
-            "jpg",
-            b"plain clipboard text"
-        ));
-        assert!(!clipboard_image_matches_signature("gif", b""));
-        assert!(!clipboard_image_matches_signature(
-            "webp",
-            b"RIFF but not webp"
-        ));
-        assert!(!clipboard_image_matches_signature(
-            "bmp",
-            b"\x89PNG\r\n\x1a\n"
-        ));
-        assert!(!clipboard_image_matches_signature(
-            "bmp",
-            b"BM text is not a bitmap"
-        ));
-        assert!(!clipboard_image_matches_signature("svg", b"<svg></svg>"));
-    }
-
-    #[test]
     fn desktop_notification_separates_option_like_titles() {
         let _guard = env_lock().lock().unwrap();
         unsafe {
@@ -1457,4 +1316,44 @@ mod tests {
         assert!(argv[2].contains("EDITOR:-vi"));
         assert!(argv[2].contains("/tmp/herdr scrollback.txt"));
     }
+}
+
+#[test]
+fn powershell_clipboard_path_output_trims_bom_and_crlf() {
+    assert_eq!(
+        normalize_powershell_path_output("\u{feff}C:\\Temp\\image.png\r\n".as_bytes()).as_deref(),
+        Some("C:\\Temp\\image.png")
+    );
+}
+
+#[test]
+fn windows_clipboard_path_maps_to_default_wsl_mount() {
+    assert_eq!(
+        windows_path_to_default_wsl_mount(r"C:\Users\Alice\My Pictures\image.png"),
+        Some(PathBuf::from("/mnt/c/Users/Alice/My Pictures/image.png"))
+    );
+    assert_eq!(
+        windows_path_to_default_wsl_mount(r"\\server\share\image.png"),
+        None
+    );
+}
+
+#[test]
+fn wsl_clipboard_image_path_validates_png_and_size() {
+    let path = std::env::temp_dir().join(format!(
+        "herdr-wsl-clipboard-image-test-{}-{}.png",
+        std::process::id(),
+        std::thread::current().name().unwrap_or("unnamed")
+    ));
+    std::fs::write(&path, b"\x89PNG\r\n\x1a\nimage").unwrap();
+    assert_eq!(
+        read_wsl_clipboard_image_path(&path),
+        Some(ClipboardImage {
+            bytes: b"\x89PNG\r\n\x1a\nimage".to_vec(),
+            extension: "png",
+        })
+    );
+    std::fs::write(&path, b"plain text").unwrap();
+    assert_eq!(read_wsl_clipboard_image_path(&path), None);
+    let _ = std::fs::remove_file(path);
 }
