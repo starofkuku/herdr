@@ -4143,14 +4143,15 @@ fn windows_does_not_offer_unsupported_integrations_even_when_commands_exist() {
     fs::write(bin.join("devin.cmd"), "@echo off\r\n").unwrap();
     fs::write(bin.join("mastracode.cmd"), "@echo off\r\n").unwrap();
 
-    assert!(!integration_target_available(IntegrationTarget::Pi));
-    assert!(!integration_target_available(IntegrationTarget::Omp));
-    assert!(!integration_target_available(IntegrationTarget::Opencode));
-    assert!(!integration_target_available(IntegrationTarget::Kilo));
+    assert!(integration_target_available(IntegrationTarget::Pi));
+    assert!(integration_target_available(IntegrationTarget::Omp));
+    assert!(integration_target_available(IntegrationTarget::Opencode));
+    assert!(integration_target_available(IntegrationTarget::Kilo));
     assert!(!integration_target_available(IntegrationTarget::Hermes));
     assert!(!integration_target_available(IntegrationTarget::Cursor));
     assert!(!integration_target_available(IntegrationTarget::Devin));
     assert!(!integration_target_available(IntegrationTarget::Mastracode));
+    assert!(!integration_target_available(IntegrationTarget::Grok));
 
     if let Some(path) = original_path {
         std::env::set_var("PATH", path);
@@ -4165,14 +4166,16 @@ fn windows_does_not_offer_unsupported_integrations_even_when_commands_exist() {
 fn windows_supports_only_cli_hook_integrations() {
     use crate::api::schema::IntegrationTarget;
 
-    assert!(!integration_target_supported(IntegrationTarget::Pi));
-    assert!(!integration_target_supported(IntegrationTarget::Omp));
-    assert!(!integration_target_supported(IntegrationTarget::Opencode));
-    assert!(!integration_target_supported(IntegrationTarget::Kilo));
+    assert!(integration_target_supported(IntegrationTarget::Pi));
+    assert!(integration_target_supported(IntegrationTarget::Omp));
+    assert!(integration_target_supported(IntegrationTarget::Opencode));
+    assert!(integration_target_supported(IntegrationTarget::Kilo));
+    assert!(integration_target_supported(IntegrationTarget::Zcode));
     assert!(!integration_target_supported(IntegrationTarget::Hermes));
     assert!(!integration_target_supported(IntegrationTarget::Cursor));
     assert!(!integration_target_supported(IntegrationTarget::Devin));
     assert!(!integration_target_supported(IntegrationTarget::Mastracode));
+    assert!(!integration_target_supported(IntegrationTarget::Grok));
 
     assert!(integration_target_supported(IntegrationTarget::Claude));
     assert!(integration_target_supported(IntegrationTarget::Codex));
