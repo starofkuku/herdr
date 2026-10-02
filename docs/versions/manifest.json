@@ -1,8 +1,13 @@
 {
   "schema_version": 1,
   "stable_source": "legacy",
-  "current": "0.7.5",
+  "current": "0.7.48",
   "versions": [
+    {
+      "version": "0.7.48",
+      "tag": "v0.7.48",
+      "source": "website/src/content/docs"
+    },
     {
       "version": "0.7.5",
       "tag": "v0.7.5",

@@ -163,33 +163,10 @@ focus_agent = "prefix+alt+1..9"
 ```toml
 [[keys.command]]
 key = "prefix+alt+g"
-type = "popup"
+type = "pane"
 command = "lazygit"
 description = "run lazygit"
-width = "80%"
-height = "80%"
 ```
-
-`type = "popup"` 会打开一个会话级模态弹窗,而不改变标签页布局。
-弹窗会接收包括 Escape 在内的所有终端输入,直到命令退出。
-`width` 和 `height` 是可选的;省略时默认为终端大小的一半,数字表示终端单元格数,`"80%"` 这样的字符串表示终端区域的百分比。
-尺寸包含弹窗边框,过小的值会限制为弹窗最小尺寸。
-弹窗命令不会收到 `HERDR_PANE_ID`;可使用 `HERDR_ACTIVE_PANE_ID` 引用底层平铺窗格。
-
-在 Unix 和 macOS 上,还可以打开一个临时终端,而无需添加分割或标签页:
-
-```toml
-[[keys.command]]
-key = "prefix+t"
-type = "popup"
-command = "exec \"${SHELL:-sh}\""
-description = "open scratch terminal"
-width = "80%"
-height = "80%"
-```
-
-在 Windows 上,请改用 `command = "powershell.exe -NoLogo"` 之类的 shell 命令。
-退出 shell 即可关闭弹窗并恢复平铺终端视图。
 
 `type = "pane"` 会打开一个临时窗格，并在命令退出时关闭它。
 
@@ -258,14 +235,12 @@ yellow = "#f9e2af"
 
 ```toml
 [ui.sidebar.agents]
-row_gap = 0
 rows = [
   ["state_icon", "workspace", "tab"],
   ["agent"],
 ]
 
 [ui.sidebar.spaces]
-row_gap = 0
 rows = [
   ["state_icon", "workspace"],
   ["branch", "git_status"],
@@ -294,8 +269,6 @@ Space 行支持以下内置 token：
 - `$name` — 名为 `name` 的自定义工作区元数据。
 
 token 会按配置顺序渲染。Herdr 通常使用 ` · ` 分隔相邻值，并在 `state_icon` 后使用一个空格。缺失值及其分隔符会消失；当一行中的所有 token 都没有值时，该行会消失。每个布局最多可包含 16 行，每行最多可包含 16 个 token。
-
-`row_gap` 分别控制 Agent 和 Space 面板中条目之间的空白终端行数。默认值为 `0`，会紧密排列条目；设为 `1` 可恢复之前的间距。它不会在 `rows` 声明的内容行之间添加间距。连续缩进的 worktree 子项仍会作为一个 Space 组紧密排列。
 
 在 `rows_by_agent` 下为已知智能体覆盖完整的 Agent 布局：
 
@@ -352,6 +325,8 @@ position = "bottom-right"
 ```
 
 选择 `herdr` 可使用应用内 toast，选择 `terminal` 可使用适合 SSH 场景的外层终端通知，选择 `system` 可使用本地操作系统通知服务，选择 `off` 可禁用弹出通知。Herdr 会抑制活动标签页的弹出通知。在[配置参考](/docs/config-reference/)中搜索 `ui.toast`，可查看位置、延迟行为和剪贴板反馈设置。
+
+Windows Terminal 客户端（包括 WSL 配置文件）会为 `delivery = "terminal"` 使用 OSC 777。请先在 Windows Terminal 配置文件中启用 `compatibility.allowOSC777`；设置方法和安全说明请参阅 [Windows 测试版](/docs/windows-beta/#windows-terminal-通知)。
 
 ## 声音
 

@@ -57,6 +57,29 @@ Windows Terminal は特定のエージェント向けに画像貼り付け経路
 
 Kitty graphics は実験的なままで、まだ Windows でのサポートを謳っていません。Windows Terminal での画像レンダリングを特にテストしているのでない限り、`experimental.kitty_graphics = false` のままにしてください。
 
+### Windows Terminal 通知
+
+Herdr は Windows Terminal の OSC 777 サポートを使い、Windows ネイティブセッションと WSL プロファイルからエージェント通知を送信できます。Windows Terminal の `settings.json` で、Herdr を起動するプロファイルの互換性設定を有効にします:
+
+```json
+{
+  "profiles": {
+    "defaults": {
+      "compatibility.allowOSC777": true
+    }
+  }
+}
+```
+
+次に Herdr を設定します:
+
+```toml
+[ui.toast]
+delivery = "terminal"
+```
+
+最近の Windows Terminal では、プロファイル UI に **Allow OSC 777 (Desktop Notification) to show toast notifications** と表示されます。この設定が見つからない場合は Windows Terminal を更新してください。OSC 777 を有効にすると、ターミナルアプリケーションが任意のテキストを含む Windows 通知を作成できるため、実行するプログラムを信頼できるプロファイルでのみ有効にしてください。
+
 ## 既知の注意点
 
 ### カーソル描画

@@ -359,13 +359,6 @@ impl TerminalRuntime {
         self.0.recent_text_snapshot(lines)
     }
 
-    /// Reads an ANSI page of history as text. Test-only: the API reads
-    /// through the snapshot and paged variants.
-    #[cfg(test)]
-    pub fn recent_ansi(&self, lines: usize) -> String {
-        self.0.recent_ansi_snapshot(lines).text
-    }
-
     pub(crate) fn recent_ansi_snapshot(&self, lines: usize) -> crate::pane::TerminalReadSnapshot {
         self.0.recent_ansi_snapshot(lines)
     }
@@ -395,12 +388,6 @@ impl TerminalRuntime {
     /// Reads an ANSI page of unwrapped history.
     pub fn recent_unwrapped_ansi_at(&self, lines: usize, offset: usize) -> String {
         self.0.recent_unwrapped_ansi_at(lines, offset)
-    }
-
-    /// Test-only: the API reads through the snapshot and paged variants.
-    #[cfg(test)]
-    pub fn recent_unwrapped_ansi(&self, lines: usize) -> String {
-        self.0.recent_unwrapped_ansi(lines)
     }
 
     pub(crate) fn recent_unwrapped_text_snapshot(
