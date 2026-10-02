@@ -4528,6 +4528,35 @@
           },
           "type": "object"
         },
+        "SkillsListParams": {
+          "description": "Which pane's agent to read skills for. The detected agent decides which\nskill directories apply.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
+        "SkillsReadParams": {
+          "description": "The text of one skill, for a reader that shows what a skill does before\ninvoking it.",
+          "properties": {
+            "name": {
+              "description": "The skill's name, as `skills.list` reported it.",
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "name"
+          ],
+          "type": "object"
+        },
         "SplitDirection": {
           "enum": [
             "right",
@@ -5675,6 +5704,38 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/GitStatusParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "skills.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/SkillsListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "skills.read",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/SkillsReadParams"
             }
           },
           "required": [
@@ -11005,6 +11066,38 @@
             },
             {
               "properties": {
+                "skills": {
+                  "$ref": "#/schemas/success_response/$defs/SkillsListResult"
+                },
+                "type": {
+                  "const": "skills_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "skills"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "skill": {
+                  "$ref": "#/schemas/success_response/$defs/SkillsReadResult"
+                },
+                "type": {
+                  "const": "skills_read",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "skill"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "status": {
                   "$ref": "#/schemas/success_response/$defs/GitStatusResult"
                 },
@@ -12236,6 +12329,85 @@
             "panes",
             "layouts",
             "agents"
+          ],
+          "type": "object"
+        },
+        "SkillInfo": {
+          "description": "One installed skill.",
+          "properties": {
+            "description": {
+              "description": "What the skill does, from the frontmatter; empty when absent.",
+              "type": "string"
+            },
+            "dir": {
+              "description": "The skills directory the skill was found in, absolute.",
+              "type": "string"
+            },
+            "name": {
+              "description": "The name an agent recognises, from the frontmatter when it has one and\nfrom the directory otherwise.",
+              "type": "string"
+            },
+            "source": {
+              "description": "`user` for skills installed in the home directory, `project` for ones\ninside the pane's project.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "source",
+            "dir"
+          ],
+          "type": "object"
+        },
+        "SkillsListResult": {
+          "properties": {
+            "available": {
+              "description": "False when the pane's agent has no skill system at all, so a client can\nsay why the list is empty instead of showing a bare panel.",
+              "type": "boolean"
+            },
+            "skills": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/SkillInfo"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "available",
+            "skills"
+          ],
+          "type": "object"
+        },
+        "SkillsReadResult": {
+          "properties": {
+            "content": {
+              "description": "The file's text, empty when `truncated`.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "description": "The `SKILL.md` path on disk, for the reader's context.",
+              "type": "string"
+            },
+            "size": {
+              "description": "Size on disk, for the reader's context.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "truncated": {
+              "description": "True when the file was longer than the cap and `content` is a prefix.",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "name",
+            "path",
+            "content",
+            "truncated",
+            "size"
           ],
           "type": "object"
         },

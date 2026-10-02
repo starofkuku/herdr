@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.8.1] - 2026-10-03
+
+### Added
+- Added `skills.list` and `skills.read` socket API methods that read the skills installed for a pane's agent from its own skill directories (`~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills`, and the shared `.agents/skills`, each also at project level), with same-name skills deduplicated from project to user level.
+- The web UI gains a Skills panel: a per-agent picker that lists installed skills with their descriptions, previews the `SKILL.md` behind a name, and invokes a skill by sending the agent a prompt that names it.
+
 ## [0.8.0] - 2026-08-03
 
 ### Added

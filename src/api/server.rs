@@ -384,6 +384,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::FilesRead(_) => "files.read",
         Method::FilesSearch(_) => "files.search",
         Method::GitStatus(_) => "git.status",
+        Method::SkillsList(_) => "skills.list",
+        Method::SkillsRead(_) => "skills.read",
         Method::WorktreeList(_) => "worktree.list",
         Method::WorktreeCreate(_) => "worktree.create",
         Method::WorktreeOpen(_) => "worktree.open",

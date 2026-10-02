@@ -10,6 +10,7 @@ pub mod plugins;
 pub mod response;
 pub mod server;
 pub mod session;
+pub mod skills;
 pub mod tabs;
 pub mod workspaces;
 pub mod worktrees;
@@ -24,6 +25,7 @@ pub use plugins::*;
 pub use response::*;
 pub use server::*;
 pub use session::*;
+pub use skills::*;
 pub use tabs::*;
 pub use workspaces::*;
 pub use worktrees::*;
@@ -95,6 +97,10 @@ pub enum Method {
     FilesSearch(FilesSearchParams),
     #[serde(rename = "git.status")]
     GitStatus(GitStatusParams),
+    #[serde(rename = "skills.list")]
+    SkillsList(SkillsListParams),
+    #[serde(rename = "skills.read")]
+    SkillsRead(SkillsReadParams),
     #[serde(rename = "worktree.list")]
     WorktreeList(WorktreeListParams),
     #[serde(rename = "worktree.create")]

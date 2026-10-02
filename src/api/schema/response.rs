@@ -19,6 +19,7 @@ use super::plugins::{
 };
 use super::server::ServerCapabilities;
 use super::session::SessionSnapshot;
+use super::skills::{SkillsListResult, SkillsReadResult};
 use super::tabs::TabInfo;
 use super::workspaces::WorkspaceInfo;
 use super::worktrees::{WorktreeInfo, WorktreeSourceInfo};
@@ -72,6 +73,12 @@ pub enum ResponseResult {
     },
     FilesSearch {
         search: FilesSearchResult,
+    },
+    SkillsList {
+        skills: SkillsListResult,
+    },
+    SkillsRead {
+        skill: SkillsReadResult,
     },
     GitStatus {
         status: GitStatusResult,

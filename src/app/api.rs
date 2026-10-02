@@ -11,6 +11,7 @@ mod panes;
 pub(crate) mod plugins;
 mod responses;
 mod session;
+mod skills;
 mod tabs;
 mod workspaces;
 mod worktrees;
@@ -1055,6 +1056,8 @@ impl App {
             Method::FilesList(params) => return self.handle_files_list(request.id, params),
             Method::FilesRead(params) => return self.handle_files_read(request.id, params),
             Method::FilesSearch(params) => return self.handle_files_search(request.id, params),
+            Method::SkillsList(params) => return self.handle_skills_list(request.id, params),
+            Method::SkillsRead(params) => return self.handle_skills_read(request.id, params),
             Method::GitStatus(params) => return self.handle_git_status(request.id, params),
             Method::WorktreeList(params) => return self.handle_worktree_list(request.id, params),
             Method::WorktreeCreate(params) => {

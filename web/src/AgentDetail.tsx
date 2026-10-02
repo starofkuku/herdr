@@ -14,6 +14,7 @@ import { useAgentCycle } from "./useAgentCycle";
 import { PendingUploads } from "./PendingUploads";
 import { BackendBadge } from "./BackendBadge";
 import { FilePreview } from "./FilePreview";
+import { SkillsPanel } from "./SkillsPanel";
 import { FileSearchPalette } from "./FileSearchPalette";
 import { FileTreePanel } from "./FileTreePanel";
 import { SubagentDrawer } from "./SubagentBar";
@@ -288,6 +289,7 @@ export function AgentDetail({
   const [tall, setTall] = useState(false);
   /** The file shown in the preview column, if any. */
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   /**
    * Whether there is room for the side panes.
    *
@@ -1064,6 +1066,14 @@ export function AgentDetail({
         cwd={agent?.cwd ?? ""}
         onOpenFile={setPreviewPath}
       />
+      {skillsOpen ? (
+        <SkillsPanel
+          client={client}
+          paneId={paneId ?? ""}
+          onClose={() => setSkillsOpen(false)}
+          onInvoked={() => void onChanged()}
+        />
+      ) : null}
       <div className="detail-main">
       <header className="topbar">
         <button type="button" className="ghost" onClick={onBack} aria-label="Back">
@@ -1083,6 +1093,15 @@ export function AgentDetail({
           onSelect={onSelectAgent}
         />
         <ThemeToggle />
+        <button
+          type="button"
+          className="ghost skills-toggle"
+          onClick={() => setSkillsOpen(true)}
+          aria-label="Open skills"
+          title="Skills"
+        >
+          Skills
+        </button>
         <ConnectionBadge state={connection} onRetry={onRetry} />
         <span className={`dot ${agent?.status ?? "unknown"}`} aria-label={statusLabel(agent?.status ?? "unknown")} />
       </header>
