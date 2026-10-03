@@ -1,14 +1,24 @@
 {
-  "version": "0.8.1",
+  "version": "0.8.2",
   "protocol": 22,
-  "notes": "### Added\n- Added `skills.list` and `skills.read` socket API methods that read the skills installed for a pane's agent from its own skill directories (`~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills`, and the shared `.agents/skills`, each also at project level), with same-name skills deduplicated from project to user level.\n- The web UI gains a Skills panel: a per-agent picker that lists installed skills with their descriptions, previews the `SKILL.md` behind a name, and invokes a skill by sending the agent a prompt that names it.",
+  "notes": "### Added\n- The web composer now opens a slash menu on `/`: the reader's own commands, the pane agent's installed skills, and that agent's built-in slash commands (curated tables for Claude Code, Codex, ZCode, and Pi), each filtered and keyboard-navigable; picking a skill inserts its invocation while picking a command passes it through to the agent.\n- The web UI gains a settings dialog behind a top-bar gear with a category pane; its first category manages custom slash commands, pieces of text stored in the browser that `/name` expands to on send.\n\n### Fixed\n- The web gateway no longer swallows a clean subscription EOF when a session server stops: the browser is told the event stream closed, force-rebinds the session so a dead server is brought back, and rebuilds its subscriptions instead of leaving the agent list frozen on its last snapshot until the page is reloaded.\n- A visible web page now re-reads the agent lists every ten seconds as a backstop, so a lost event stream can freeze a status for at most one interval.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.1/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.1/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.1/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.1/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-macos-aarch64"
   },
   "releases": {
+    "0.8.2": {
+      "notes": "### Added\n- The web composer now opens a slash menu on `/`: the reader's own commands, the pane agent's installed skills, and that agent's built-in slash commands (curated tables for Claude Code, Codex, ZCode, and Pi), each filtered and keyboard-navigable; picking a skill inserts its invocation while picking a command passes it through to the agent.\n- The web UI gains a settings dialog behind a top-bar gear with a category pane; its first category manages custom slash commands, pieces of text stored in the browser that `/name` expands to on send.\n\n### Fixed\n- The web gateway no longer swallows a clean subscription EOF when a session server stops: the browser is told the event stream closed, force-rebinds the session so a dead server is brought back, and rebuilds its subscriptions instead of leaving the agent list frozen on its last snapshot until the page is reloaded.\n- A visible web page now re-reads the agent lists every ten seconds as a backstop, so a lost event stream can freeze a status for at most one interval.",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.2/herdr-macos-aarch64"
+      }
+    },
     "0.8.1": {
       "notes": "### Added\n- Added `skills.list` and `skills.read` socket API methods that read the skills installed for a pane's agent from its own skill directories (`~/.claude/skills`, `~/.codex/skills`, `~/.pi/agent/skills`, and the shared `.agents/skills`, each also at project level), with same-name skills deduplicated from project to user level.\n- The web UI gains a Skills panel: a per-agent picker that lists installed skills with their descriptions, previews the `SKILL.md` behind a name, and invokes a skill by sending the agent a prompt that names it.",
       "protocol": 22,
