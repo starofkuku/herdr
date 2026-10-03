@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import type { Subscription, ConnectionState } from "./gateway";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { HISTORY_PAGE_LINES, directoryName, statusLabel, paneIdOfEvent, type AgentView } from "./api";
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import type { InteractionAnswer } from "./interaction";
-import { Maximize2, Minimize2, Plus, Send, Square } from "lucide-react";
+import { Maximize2, Minimize2, Plus, Send, Settings, Square } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { CopyButton } from "./Markdown";
 import { AgentCycleOverlay } from "./AgentCycleOverlay";
@@ -14,7 +14,18 @@ import { useAgentCycle } from "./useAgentCycle";
 import { PendingUploads } from "./PendingUploads";
 import { BackendBadge } from "./BackendBadge";
 import { FilePreview } from "./FilePreview";
-import { SkillsPanel } from "./SkillsPanel";
+import { SettingsPanel } from "./SettingsPanel";
+import { commandsForAgent } from "./agentCommands";
+import { customCommandSummary, loadCustomCommands, type CustomCommand } from "./customCommands";
+import {
+  buildSlashMenu,
+  expandSlashMessage,
+  loadSkills,
+  slashQuery,
+  slashSettled,
+  type SkillEntry,
+  type SlashMenuItem,
+} from "./skills";
 import { FileSearchPalette } from "./FileSearchPalette";
 import { FileTreePanel } from "./FileTreePanel";
 import { SubagentDrawer } from "./SubagentBar";
@@ -289,8 +300,15 @@ export function AgentDetail({
   const [tall, setTall] = useState(false);
   /** The file shown in the preview column, if any. */
   const [previewPath, setPreviewPath] = useState<string | null>(null);
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  /**
+  /** The pane's installed skills, fetched once a slash is first typed. */
+  const [skills, setSkills] = useState<SkillEntry[]>([]);
+  /** The reader's own slash commands, kept in this browser. */
+  const [customCommands, setCustomCommands] = useState<CustomCommand[]>(() =>
+    loadCustomCommands(),
+  );
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** The highlighted row of the slash menu. */
+  const [slashIndex, setSlashIndex] = useState(0);  /**
    * Whether there is room for the side panes.
    *
    * The tree and the preview are hidden by CSS on a phone, but their state has
@@ -364,6 +382,90 @@ export function AgentDetail({
   const dragDepth = useRef(0);
 
   const paneId = agent?.paneId ?? null;
+  const skillNames = useMemo(
+    () => new Set(skills.map((skill) => skill.name)),
+    [skills],
+  );
+  const agentCommands = useMemo(
+    () => commandsForAgent(agent?.agent),
+    [agent?.agent],
+  );
+  const customSlashItems = useMemo(
+    () =>
+      customCommands.map((command) => ({
+        name: command.name,
+        description: customCommandSummary(command.content),
+      })),
+    [customCommands],
+  );
+  const customCommandNames = useMemo(
+    () => new Set(customCommands.map((command) => command.name)),
+    [customCommands],
+  );
+  const slashTrigger = slashQuery(draft);
+  const slashMenu =
+    slashTrigger !== null && !slashSettled(draft, skillNames) && !slashSettled(draft, customCommandNames)
+      ? buildSlashMenu(skills, agentCommands, customSlashItems, slashTrigger)
+      : { custom: [], skills: [], commands: [] as SlashMenuItem[], flat: [] as SlashMenuItem[] };
+  // The keyboard walks one flat list across both groups, so the highlighted
+  // row keeps its place as the groups grow and shrink.
+  const slashMatches = slashMenu.flat;
+  /** Esc closes the menu without losing the draft; typing reopens it. */
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  useEffect(() => {
+    setSlashDismissed(false);
+    setSlashIndex(0);
+  }, [slashTrigger]);
+  const slashMenuOpen = slashTrigger !== null && !slashDismissed;
+  const highlightedSlash = Math.min(slashIndex, slashMatches.length - 1);
+  // The list is only worth fetching once a slash is typed, and only once:
+  // reloading the page is the way to see newly installed skills.
+  const [skillsFetched, setSkillsFetched] = useState(false);
+  useEffect(() => {
+    if (skillsFetched || slashTrigger === null || !paneId) return;
+    setSkillsFetched(true);
+    void loadSkills(client, paneId).then((state) => {
+      if (state) setSkills(state.skills);
+    });
+  }, [client, paneId, slashTrigger, skillsFetched]);
+  /** Replaces the draft's slash word with the chosen skill and its trailing space. */
+  const chooseSlashSkill = useCallback((name: string) => {
+    setDraft(`/${name} `);
+    requestAnimationFrame(() => {
+      const field = composerRef.current;
+      if (!field) return;
+      field.focus();
+      const end = field.value.length;
+      field.selectionStart = end;
+      field.selectionEnd = end;
+    });
+  }, []);
+  /**
+   * A custom command drops its whole text into the composer rather than its
+   * name: the point of the command is the text, and the reader may want to add
+   * to it before sending.
+   */
+  const chooseCustomCommand = useCallback((content: string) => {
+    setDraft(content);
+    requestAnimationFrame(() => {
+      const field = composerRef.current;
+      if (!field) return;
+      field.focus();
+      const end = field.value.length;
+      field.selectionStart = end;
+      field.selectionEnd = end;
+    });
+  }, []);
+  /** One selection path for the keyboard and the mouse: custom commands expand. */
+  const chooseSlashItem = useCallback(
+    (item: SlashMenuItem) => {
+      const custom = customCommands.find((command) => command.name === item.name);
+      if (custom) chooseCustomCommand(custom.content);
+      else chooseSlashSkill(item.name);
+    },
+    [chooseCustomCommand, chooseSlashSkill, customCommands],
+  );
+
   /**
    * The agents the switcher and the cycle walk.
    *
@@ -669,7 +771,9 @@ export function AgentDetail({
   }, []);
 
   const send = async () => {
-    const message = draft.trim();
+    // A leading slash that names an installed skill becomes the invocation
+    // prompt; an agent-native command passes through as typed.
+    const message = expandSlashMessage(draft.trim(), skillNames, customCommands);
     // A file with no message is a normal thing to send, so the composer is not
     // required to contain text when something is attached.
     if (!paneId || (!message && uploads.length === 0) || busy || preparing) return;
@@ -1066,12 +1170,10 @@ export function AgentDetail({
         cwd={agent?.cwd ?? ""}
         onOpenFile={setPreviewPath}
       />
-      {skillsOpen ? (
-        <SkillsPanel
-          client={client}
-          paneId={paneId ?? ""}
-          onClose={() => setSkillsOpen(false)}
-          onInvoked={() => void onChanged()}
+      {settingsOpen ? (
+        <SettingsPanel
+          onClose={() => setSettingsOpen(false)}
+          onCommandsSaved={() => setCustomCommands(loadCustomCommands())}
         />
       ) : null}
       <div className="detail-main">
@@ -1095,12 +1197,12 @@ export function AgentDetail({
         <ThemeToggle />
         <button
           type="button"
-          className="ghost skills-toggle"
-          onClick={() => setSkillsOpen(true)}
-          aria-label="Open skills"
-          title="Skills"
+          className="ghost settings-toggle"
+          onClick={() => setSettingsOpen(true)}
+          aria-label="Open settings"
+          title="设置"
         >
-          Skills
+          <Settings size={15} aria-hidden="true" />
         </button>
         <ConnectionBadge state={connection} onRetry={onRetry} />
         <span className={`dot ${agent?.status ?? "unknown"}`} aria-label={statusLabel(agent?.status ?? "unknown")} />
@@ -1205,6 +1307,111 @@ export function AgentDetail({
             buttons keep one place instead of riding up with a growing field.
           */}
           <div className="composer-field">
+            {slashMenuOpen ? (
+              <div className="slash-menu" role="listbox" aria-label="Skills and commands">
+                <ul>
+                  {slashMatches.length === 0 ? (
+                    <li className="slash-menu__empty">
+                      没有匹配的 Skill 或命令。命令提示收录了 Claude Code、Codex、
+                      ZCode 与 Pi；Skills 需要服务端 v0.8.1 及以上。
+                    </li>
+                  ) : null}
+                  {slashMenu.custom.length > 0 ? (
+                    <li className="slash-menu__group" role="presentation">自定义</li>
+                  ) : null}
+                  {slashMenu.custom.map((item) => {
+                    const index = slashMatches.indexOf(item);
+                    return (
+                      <li
+                        key={`custom:${item.name}`}
+                        role="option"
+                        aria-selected={index === highlightedSlash}
+                      >
+                        <button
+                          type="button"
+                          className={index === highlightedSlash ? "selected" : ""}
+                          onMouseDown={(event) => {
+                            // mousedown, not click: the textarea must not blur
+                            // before the choice replaces the draft.
+                            event.preventDefault();
+                            chooseSlashItem(item);
+                          }}
+                        >
+                          <span className="slash-menu__name">/{item.name}</span>
+                          {item.description ? (
+                            <span className="slash-menu__description">{item.description}</span>
+                          ) : null}
+                          <span className="slash-menu__source">自定义</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {slashMenu.skills.length > 0 ? (
+                    <li className="slash-menu__group" role="presentation">Skills</li>
+                  ) : null}
+                  {slashMenu.skills.map((skill) => {
+                    const index = slashMatches.indexOf(skill);
+                    return (
+                      <li
+                        key={`skill:${skill.source}:${skill.name}`}
+                        role="option"
+                        aria-selected={index === highlightedSlash}
+                      >
+                        <button
+                          type="button"
+                          className={index === highlightedSlash ? "selected" : ""}
+                          onMouseDown={(event) => {
+                            // mousedown, not click: the textarea must not blur
+                            // before the choice replaces the draft.
+                            event.preventDefault();
+                            chooseSlashSkill(skill.name);
+                          }}
+                        >
+                          <span className="slash-menu__name">/{skill.name}</span>
+                          {skill.description ? (
+                            <span className="slash-menu__description">{skill.description}</span>
+                          ) : null}
+                          <span className="slash-menu__source">{skill.source}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {slashMenu.commands.length > 0 ? (
+                    <li className="slash-menu__group" role="presentation">命令</li>
+                  ) : null}
+                  {slashMenu.commands.map((command) => {
+                    const index = slashMatches.indexOf(command);
+                    return (
+                      <li
+                        key={`command:${command.name}`}
+                        role="option"
+                        aria-selected={index === highlightedSlash}
+                      >
+                        <button
+                          type="button"
+                          className={index === highlightedSlash ? "selected" : ""}
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            chooseSlashItem(command);
+                          }}
+                        >
+                          <span className="slash-menu__name">/{command.name}</span>
+                          {command.description ? (
+                            <span className="slash-menu__description">{command.description}</span>
+                          ) : null}
+                          <span className="slash-menu__source">命令</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="slash-menu__hint">
+                  <span>↑↓ 选择</span>
+                  <span>Enter 确认</span>
+                  <span>Esc 关闭</span>
+                </p>
+              </div>
+            ) : null}
             <textarea
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
@@ -1222,6 +1429,33 @@ export function AgentDetail({
                 void addFiles(files);
               }}
               onKeyDown={(event) => {
+                // The slash menu owns the arrow, confirm, and dismiss keys
+                // while it is open; every other key keeps typing as normal.
+                if (slashMenuOpen && slashMatches.length > 0) {
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const count = slashMatches.length;
+                    setSlashIndex((index) =>
+                      event.key === "ArrowDown"
+                        ? (index + 1) % count
+                        : (index - 1 + count) % count,
+                    );
+                    return;
+                  }
+                  if (event.key === "Enter" || event.key === "Tab") {
+                    // An IME's Enter commits a candidate; that is not a choice.
+                    if (event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    const chosen = slashMatches[highlightedSlash];
+                    if (chosen) chooseSlashItem(chosen);
+                    return;
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    setSlashDismissed(true);
+                    return;
+                  }
+                }
                 if (event.key !== "Enter") return;
                 // An IME's Enter commits the candidate being typed; treating it
                 // as a send would swallow the character the reader is choosing.

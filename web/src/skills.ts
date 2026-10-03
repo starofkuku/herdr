@@ -118,3 +118,126 @@ export function skillInvocationText(name: string, extra: string): string {
     ? `Use the "${name}" skill to: ${intent}`
     : `Use the "${name}" skill.`;
 }
+
+/**
+ * The slash query a draft carries, or null when the composer is not invoking
+ * one. A trigger is the message's first character: mid-message slashes stay
+ * plain text so a URL or a fraction never opens the picker.
+ */
+export function slashQuery(draft: string): string | null {
+  if (!draft.startsWith("/")) return null;
+  const rest = draft.slice(1);
+  // A space ends the command word: "/git " is a settled invocation, not a query
+  // still being typed.
+  const word = rest.split(/\s/u, 1)[0] ?? "";
+  return word.toLowerCase();
+}
+
+/**
+ * Whether the draft's slash word matches a known skill exactly, meaning the
+ * composer has a settled invocation and the menu can close behind it.
+ */
+export function slashSettled(draft: string, names: ReadonlySet<string>): boolean {
+  const query = slashQuery(draft);
+  return query !== null && names.has(query);
+}
+
+/** Anything the slash menu can offer: a name with an optional description. */
+export interface SlashMenuItem {
+  name: string;
+  description: string;
+}
+
+/**
+ * Entries matching a slash query, best matches first: a prefix beats a
+ * substring, and names sort before descriptions.
+ */
+export function filterSlashItems<T extends SlashMenuItem>(
+  items: readonly T[],
+  query: string,
+): T[] {
+  const needle = query.trim().toLowerCase();
+  const scored: { item: T; rank: number }[] = [];
+  for (const item of items) {
+    const name = item.name.toLowerCase();
+    let rank = -1;
+    if (name.startsWith(needle)) rank = 0;
+    else if (name.includes(needle)) rank = 1;
+    else if (item.description.toLowerCase().includes(needle)) rank = 2;
+    if (rank >= 0) scored.push({ item, rank });
+  }
+  scored.sort(
+    (a, b) =>
+      a.rank - b.rank ||
+      a.item.name.localeCompare(b.item.name),
+  );
+  return scored.map((entry) => entry.item);
+}
+
+/** Kept for the tests and callers that name it what it is. */
+export function filterSkills(
+  skills: readonly SkillEntry[],
+  query: string,
+): SkillEntry[] {
+  return filterSlashItems(skills, query);
+}
+
+/**
+ * The composer's slash menu in one value: the reader's own commands, the
+ * skills, and the agent's own commands, each filtered and grouped, with a flat
+ * order the keyboard walks across the groups. Custom commands come first: they
+ * are the ones this reader reaches for. Entries are capped per group so one
+ * long list cannot push the other off the panel.
+ */
+export function buildSlashMenu(
+  skills: readonly SkillEntry[],
+  commands: readonly SlashMenuItem[],
+  custom: readonly SlashMenuItem[],
+  query: string,
+  perGroupCap = 8,
+): {
+  custom: SlashMenuItem[];
+  skills: SkillEntry[];
+  commands: SlashMenuItem[];
+  flat: SlashMenuItem[];
+} {
+  const customHits = filterSlashItems(custom, query).slice(0, perGroupCap);
+  const skillHits = filterSlashItems(skills, query).slice(0, perGroupCap);
+  const commandHits = filterSlashItems(commands, query).slice(0, perGroupCap);
+  return {
+    custom: customHits,
+    skills: skillHits,
+    commands: commandHits,
+    flat: [...customHits, ...skillHits, ...commandHits],
+  };
+}
+
+/**
+ * The message to send: a custom command expands to its text, one invocation
+ * per known skill is rewritten into the prompt that names it, and anything
+ * else — an agent's own slash command, plain text — passes through untouched.
+ * A name the reader defined wins over a skill of the same name.
+ */
+export function expandSlashMessage(
+  message: string,
+  skillNames: ReadonlySet<string>,
+  customCommands: readonly { name: string; content: string }[],
+): string {
+  const customByName = new Map(customCommands.map((command) => [command.name, command]));
+  return message
+    .split("\n")
+    .map((line) => {
+      if (!line.startsWith("/")) return line;
+      const trimmed = line.slice(1);
+      const spaceAt = trimmed.search(/\s/u);
+      const word = (spaceAt === -1 ? trimmed : trimmed.slice(0, spaceAt)).toLowerCase();
+      const rest = spaceAt === -1 ? "" : trimmed.slice(spaceAt + 1).trim();
+      const custom = customByName.get(word);
+      if (custom) {
+        return rest ? `${custom.content}\n${rest}` : custom.content;
+      }
+      if (!skillNames.has(word)) return line;
+      return skillInvocationText(word, rest);
+    })
+    .join("\n");
+}
