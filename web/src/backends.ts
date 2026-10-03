@@ -24,6 +24,21 @@ import type { BackendProfile } from "./settings";
 const REFRESH_DEBOUNCE_MS = 350;
 
 /**
+ * How long to wait before re-opening a backend whose event stream closed.
+ *
+ * The usual cause is the session server restarting, which may still be coming
+ * up when the close arrives; a beat of delay keeps the retry from racing it.
+ */
+const REOPEN_DELAY_MS = 1000;
+
+/**
+ * How often the agent lists are re-read as a backstop to the event stream.
+ * Slow enough to be idle work, fast enough that a frozen status cannot sit
+ * for minutes the way a dead stream otherwise lets it.
+ */
+const POLL_BACKSTOP_MS = 10_000;
+
+/**
  * The kinds that can move an agent list.
  *
  * `pane.updated` carries status changes on servers that fold them in; the
@@ -82,9 +97,21 @@ export function pickBindableSession(
 export class BackendHub {
   private live = new Map<string, Live>();
   private notify: () => void;
+  private pollTimer: number | null = null;
 
   constructor(notify: () => void) {
     this.notify = notify;
+    // The event stream is the primary sync, but it can die silently: a session
+    // server that stops cleanly ends the gateway's subscription with an EOF
+    // nothing reports to this side, and every request still succeeds on its
+    // own connection, so nothing else says the list has gone stale. A slow
+    // poll bounds how long a frozen status can live — at most one interval.
+    this.pollTimer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      for (const runtime of this.live.values()) {
+        if (runtime.agentsSession) void this.refreshAgents(runtime.profile.id);
+      }
+    }, POLL_BACKSTOP_MS);
   }
 
   /** Every saved backend, in the order they were saved. */
@@ -133,6 +160,8 @@ export class BackendHub {
 
   /** Closes every connection. */
   dispose(): void {
+    if (this.pollTimer !== null) window.clearInterval(this.pollTimer);
+    this.pollTimer = null;
     for (const id of [...this.live.keys()]) this.close(id);
   }
 
@@ -288,8 +317,10 @@ export class BackendHub {
   /** Subscribes to the bound session's events, replacing any earlier stream. */
   private subscribeSession(runtime: Live): void {
     runtime.sessionSubscription?.close();
-    runtime.sessionSubscription = runtime.client.subscribe(SESSION_KINDS, () =>
-      this.scheduleRefresh(runtime),
+    runtime.sessionSubscription = runtime.client.subscribe(
+      SESSION_KINDS,
+      () => this.scheduleRefresh(runtime),
+      () => this.reopenSession(runtime),
     );
   }
 
@@ -312,10 +343,46 @@ export class BackendHub {
       if (runtime.statusSubs.has(paneId)) continue;
       runtime.statusSubs.set(
         paneId,
-        runtime.client.subscribe([{ type: "pane.agent_status_changed", pane_id: paneId }], () =>
-          this.scheduleRefresh(runtime),
+        runtime.client.subscribe(
+          [{ type: "pane.agent_status_changed", pane_id: paneId }],
+          () => this.scheduleRefresh(runtime),
+          () => this.reopenSession(runtime),
         ),
       );
     }
+  }
+
+  /**
+   * Re-opens a backend whose event stream the gateway closed underneath it.
+   *
+   * The usual cause is the session server restarting. Without this the agent
+   * list sits frozen on its last snapshot — everything else keeps working,
+   * because requests travel their own connection — until the page is reloaded
+   * by hand. The rebind is forced rather than `openSession`'s idempotent one:
+   * the gateway must hear `use_session` again, because that is what brings a
+   * dead server back and re-points the gateway at it.
+   */
+  private reopenSession(runtime: Live): void {
+    const id = runtime.profile.id;
+    const session = runtime.agentsSession;
+    if (!session) return;
+    window.setTimeout(() => {
+      // The backend may have been removed, or the reader moved to another
+      // session, while the delay waited.
+      const current = this.live.get(id);
+      if (!current || current.agentsSession !== session) return;
+      void current.client
+        .useSession(session, { force: true })
+        .then(() => {
+          const live = this.live.get(id);
+          if (!live || live.agentsSession !== session) return;
+          this.subscribeSession(live);
+          return this.refreshAgents(id);
+        })
+        .catch(() => {
+          // A server that will not come back reports itself through the
+          // request the poll backstop keeps making; nothing to add here.
+        });
+    }, REOPEN_DELAY_MS);
   }
 }

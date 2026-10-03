@@ -328,11 +328,15 @@ export class GatewayClient {
 
       case "event_closed": {
         const id = message.id ?? "";
-        const handler = this.eventHandlers.get(id);
-        if (handler) {
-          this.eventHandlers.delete(id);
-          this.send({ type: "unsubscribe", id });
-        }
+        const closedHandler = this.eventHandlers.get(`${id}:closed`);
+        if (!this.eventHandlers.delete(id) && !closedHandler) break;
+        // The subscription is gone on the gateway's side, so it must not be
+        // replayed on the next reconnect either: the event handler above is
+        // gone, and a replayed stream with nobody listening is a silent leak.
+        this.eventHandlers.delete(`${id}:closed`);
+        this.subscriptions?.delete(id);
+        this.send({ type: "unsubscribe", id });
+        closedHandler?.(null);
         break;
       }
 
@@ -379,9 +383,16 @@ export class GatewayClient {
     this.send({ type: "sessions_list" });
   }
 
-  /** Binds the connection to a session, starting its server if needed. */
-  useSession(name: string): Promise<void> {
-    if (this.sessionName === name) {
+  /**
+   * Binds the connection to a session, starting its server if needed.
+   *
+   * `force` re-sends the binding even when the session is already bound: after
+   * a session server has died, the gateway still holds the dead socket and
+   * only a fresh `use_session` brings the server back and re-points the
+   * gateway at it. Reopening a closed event stream relies on this.
+   */
+  useSession(name: string, options?: { force?: boolean }): Promise<void> {
+    if (this.sessionName === name && !options?.force) {
       return Promise.resolve();
     }
     return new Promise<void>((resolve, reject) => {

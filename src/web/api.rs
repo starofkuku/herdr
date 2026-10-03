@@ -241,7 +241,19 @@ pub(crate) fn subscribe(
 
         let mut line = String::new();
         match reader.read_line(&mut line) {
-            Ok(0) => return Ok(()),
+            Ok(0) => {
+                // A clean EOF is the session server going away — a restart, a
+                // stop — not an orderly end of the subscription from this
+                // side. Returning it as an error is what makes the caller tell
+                // the browser the stream closed; returning Ok here is how a
+                // stopped server used to leave every web client with a
+                // silently dead event stream that still-serving API requests
+                // kept looking alive.
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "session server closed the subscription",
+                ));
+            }
             Ok(_) => {
                 if line.trim().is_empty() {
                     continue;
