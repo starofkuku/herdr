@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=8
+// HERDR_INTEGRATION_VERSION=9
 // @ts-nocheck
 
 import net from "node:net";
@@ -466,6 +466,14 @@ export default function (pi) {
   let agentActive = false;
   let blockedCount = 0;
   let blockedMessage: string | undefined;
+  // The failure and retry-hold branches in desiredState come from the shared
+  // omp asset's state machine; pi has no retry events to feed them, so both
+  // stay at their defaults and the branches never fire. They are declared
+  // because desiredState names them — leaving them undeclared crashed every
+  // state publication with `failureBlocked is not defined`.
+  let failureBlocked = false;
+  let failureMessage: string | undefined;
+  let retryHoldActive = false;
   // Async child agents the subagents extension still has running, reported
   // through its `herdr:busy` sibling event. The main turn can end while these
   // continue, so without this the pane falls back to idle mid-work.
