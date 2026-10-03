@@ -150,9 +150,35 @@ pub(crate) fn ensure_session_server(name: Option<&str>) -> io::Result<PathBuf> {
     Ok(api_socket)
 }
 
+/// Where the binary lives now, rather than where this process was loaded from.
+///
+/// An update installs by renaming a fresh binary over the old path, which
+/// leaves `/proc/self/exe` — what `current_exe()` reads on Linux — pointing at
+/// the deleted inode with a literal `" (deleted)"` suffix. Spawning that path
+/// fails with ENOENT, which is how a web gateway that outlived an update lost
+/// the ability to start a session server at all. The suffix-free path is where
+/// the replacement binary actually is, so it is preferred whenever it exists;
+/// otherwise the raw answer is returned for the caller's error to speak for
+/// itself.
+fn fresh_exe_path() -> io::Result<PathBuf> {
+    Ok(prefer_fresh_path(std::env::current_exe()?))
+}
+
+/// The suffix-stripping half of [`fresh_exe_path`], on its own for the tests.
+fn prefer_fresh_path(exe: PathBuf) -> PathBuf {
+    let raw = exe.to_string_lossy();
+    if let Some(stripped) = raw.strip_suffix(" (deleted)") {
+        let fresh = PathBuf::from(stripped);
+        if fresh.is_file() {
+            return fresh;
+        }
+    }
+    exe
+}
+
 /// Starts `herdr server` for a session as a detached daemon.
 fn spawn_session_server(name: Option<&str>, api_socket: &Path) -> io::Result<()> {
-    let exe = std::env::current_exe()?;
+    let exe = fresh_exe_path()?;
 
     let mut command = std::process::Command::new(exe);
     command
@@ -285,6 +311,35 @@ pub(crate) fn subscribe(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A replaced binary's `/proc/self/exe` points at the deleted inode, and
+    /// the fresh binary lives at the suffix-free path.
+    ///
+    /// This is the regression that mattered: `herdr update` installs by
+    /// renaming over the old path, a web gateway that outlived it resolved
+    /// its own exe to `.../herdr (deleted)`, and every attempt to start a
+    /// session server failed with ENOENT — which to the browser looked like a
+    /// frozen agent list nothing could revive.
+    #[test]
+    fn a_deleted_exe_suffix_resolves_to_the_replacement_path() {
+        let dir = std::env::temp_dir().join(format!("herdr-exe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let fresh = dir.join("herdr");
+        std::fs::write(&fresh, b"bin").unwrap();
+        let deleted = PathBuf::from(format!("{} (deleted)", fresh.display()));
+        assert_eq!(prefer_fresh_path(deleted), fresh);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A deleted suffix with nothing behind it stays as it was, so a genuine
+    /// error is not papered over.
+    #[test]
+    fn a_deleted_exe_without_a_replacement_is_left_alone() {
+        let gone = PathBuf::from("/nonexistent/herdr (deleted)");
+        assert_eq!(prefer_fresh_path(gone.clone()), gone);
+        let plain = PathBuf::from("/bin/ls");
+        assert_eq!(prefer_fresh_path(plain.clone()), plain);
+    }
 
     /// A quiet subscription must still be cancellable.
     ///
