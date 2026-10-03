@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.8.3] - 2026-10-04
+
+### Fixed
+- The web gateway keeps the ability to start a session server after `herdr update` replaces the binary underneath it: a process whose own executable was swapped now resolves the fresh path instead of the deleted inode, so the request that used to fail with ENOENT — and left every browser's agent list frozen — succeeds.
+- Pi's bundled status-reporting extension declares the failure and retry-hold state its state machine reads; starting Pi no longer crashes with `failureBlocked is not defined`. The integration version is bumped so installed copies migrate automatically.
+
 ## [0.8.2] - 2026-10-03
 
 ### Added
