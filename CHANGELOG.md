@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.8.2] - 2026-10-03
+
+### Added
+- The web composer now opens a slash menu on `/`: the reader's own commands, the pane agent's installed skills, and that agent's built-in slash commands (curated tables for Claude Code, Codex, ZCode, and Pi), each filtered and keyboard-navigable; picking a skill inserts its invocation while picking a command passes it through to the agent.
+- The web UI gains a settings dialog behind a top-bar gear with a category pane; its first category manages custom slash commands, pieces of text stored in the browser that `/name` expands to on send.
+
+### Fixed
+- The web gateway no longer swallows a clean subscription EOF when a session server stops: the browser is told the event stream closed, force-rebinds the session so a dead server is brought back, and rebuilds its subscriptions instead of leaving the agent list frozen on its last snapshot until the page is reloaded.
+- A visible web page now re-reads the agent lists every ten seconds as a backstop, so a lost event stream can freeze a status for at most one interval.
+
 ## [0.8.1] - 2026-10-03
 
 ### Added
