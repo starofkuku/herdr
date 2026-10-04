@@ -1,14 +1,24 @@
 {
-  "version": "0.8.3",
+  "version": "0.8.5",
   "protocol": 22,
-  "notes": "### Fixed\n- The web gateway keeps the ability to start a session server after `herdr update` replaces the binary underneath it: a process whose own executable was swapped now resolves the fresh path instead of the deleted inode, so the request that used to fail with ENOENT \u2014 and left every browser's agent list frozen \u2014 succeeds.\n- Pi's bundled status-reporting extension declares the failure and retry-hold state its state machine reads; starting Pi no longer crashes with `failureBlocked is not defined`. The integration version is bumped so installed copies migrate automatically.",
+  "notes": "### Fixed\n- Fixed browser UI release builds by using the committed pnpm lockfile and a pinned pnpm version across stable, preview, and standalone publishing.\n- Accepted the fork's bracketed Chinese commit convention while preserving conventional commit validation and preview-note categories.\n- Updated the desktop frame characterization for the release version displayed in the sidebar.",
   "assets": {
-    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.3/herdr-linux-x86_64",
-    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.3/herdr-linux-aarch64",
-    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.3/herdr-macos-x86_64",
-    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.3/herdr-macos-aarch64"
+    "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-linux-x86_64",
+    "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-linux-aarch64",
+    "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-macos-x86_64",
+    "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-macos-aarch64"
   },
   "releases": {
+    "0.8.5": {
+      "notes": "### Fixed\n- Fixed browser UI release builds by using the committed pnpm lockfile and a pinned pnpm version across stable, preview, and standalone publishing.\n- Accepted the fork's bracketed Chinese commit convention while preserving conventional commit validation and preview-note categories.\n- Updated the desktop frame characterization for the release version displayed in the sidebar.",
+      "protocol": 22,
+      "assets": {
+        "linux-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-linux-x86_64",
+        "linux-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-linux-aarch64",
+        "macos-x86_64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-macos-x86_64",
+        "macos-aarch64": "https://github.com/starofkuku/herdr/releases/download/v0.8.5/herdr-macos-aarch64"
+      }
+    },
     "0.8.3": {
       "notes": "### Fixed\n- The web gateway keeps the ability to start a session server after `herdr update` replaces the binary underneath it: a process whose own executable was swapped now resolves the fresh path instead of the deleted inode, so the request that used to fail with ENOENT \u2014 and left every browser's agent list frozen \u2014 succeeds.\n- Pi's bundled status-reporting extension declares the failure and retry-hold state its state machine reads; starting Pi no longer crashes with `failureBlocked is not defined`. The integration version is bumped so installed copies migrate automatically.",
       "protocol": 22,
