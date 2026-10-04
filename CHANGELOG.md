@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.8.5] - 2026-10-04
+
+### Fixed
+- Fixed browser UI release builds by using the committed pnpm lockfile and a pinned pnpm version across stable, preview, and standalone publishing.
+- Accepted the fork's bracketed Chinese commit convention while preserving conventional commit validation and preview-note categories.
+- Updated the desktop frame characterization for the release version displayed in the sidebar.
+
 ## [0.8.4] - 2026-10-04
 
 ### Added

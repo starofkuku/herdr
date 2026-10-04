@@ -78,11 +78,11 @@ if [ "$dry_run" = true ]; then
     echo "  (dry run: nothing will be uploaded)"
 fi
 
-# Build. `bun run build` runs tsc first, so a type error fails the publish.
+# Build. `pnpm build` runs tsc first, so a type error fails the publish.
 (
     cd web
-    bun install --frozen-lockfile
-    HERDR_WEB_UI_VERSION="$version" bun run build
+    pnpm install --frozen-lockfile
+    HERDR_WEB_UI_VERSION="$version" pnpm build
 )
 
 built="web/dist/index.html"

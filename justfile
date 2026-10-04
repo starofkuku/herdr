@@ -64,7 +64,7 @@ web-test:
 
 # Build the browser UI served by `herdr web`
 web-build:
-    cd web && bun install --frozen-lockfile && bun run build
+    cd web && pnpm install --frozen-lockfile && pnpm build
 
 # Build and publish the browser UI on its own, without a herdr release
 #

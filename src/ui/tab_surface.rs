@@ -292,7 +292,7 @@ mod tests {
     ///
     /// The digest covers the sidebar footer, which renders the build's version.
     /// So this value changes on every version bump and must be re-pinned in the
-    /// release commit: `28bf3c74…` is the 0.8.1 rendering, and the same value on
+    /// release commit: `89c12f27…` is the 0.8.5 rendering, and the same value on
     /// Linux and macOS is what makes the pin portable rather than platform-local.
     #[tokio::test]
     async fn desktop_full_app_semantic_frame_is_characterized() {
@@ -310,7 +310,7 @@ mod tests {
         assert_eq!(frame.hyperlinks, vec![uri.to_owned()]);
         assert_eq!(
             frame_digest(&frame),
-            "08091fe15d75ae828359a2453b85d4140d28ddedd8ae99bb116e44e4e8d53f39"
+            "89c12f27f8741fa33864108bf47516e033ec6c569a96caa09654ae7101bc0a01"
         );
     }
 

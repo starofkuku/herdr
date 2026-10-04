@@ -292,18 +292,23 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          bun-version: 1.3.14
+          node-version: 22
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 10.30.3
 
       # The browser UI ships as its own asset, never inside the binary, so it
       # can be updated or replaced without a new herdr build.
       - name: Build web UI
         run: |
           cd web
-          bun install --frozen-lockfile
-          bun run build
+          pnpm install --frozen-lockfile
+          pnpm build
           cp dist/index.html ../herdr-web-ui.html
 
       - name: Upload artifact

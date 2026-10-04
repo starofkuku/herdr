@@ -8,6 +8,11 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+if __package__:
+    from .conventional_commits import normalize_subject
+else:
+    from conventional_commits import normalize_subject
+
 ASSET_TARGETS = (
     "linux-x86_64",
     "linux-aarch64",
@@ -34,6 +39,8 @@ TYPE_HEADINGS = {
     "test": "Maintenance",
     "refactor": "Maintenance",
     "chore": "Maintenance",
+    "style": "Maintenance",
+    "build": "Maintenance",
 }
 TYPE_ORDER = ("Added", "Fixed", "Performance", "Maintenance", "Other")
 COMMIT_RE = re.compile(r"^(?P<kind>[a-z]+)(?:\([^)]+\))?!?:\s+(?P<body>.+)$")
@@ -118,6 +125,7 @@ def preview_range_base(previous: str, commit: str) -> str:
 
 
 def humanize_subject(subject: str) -> tuple[str, str]:
+    subject = normalize_subject(subject)
     match = COMMIT_RE.match(subject)
     if not match:
         return "Other", subject[0].upper() + subject[1:]

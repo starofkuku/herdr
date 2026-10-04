@@ -18,6 +18,26 @@ ALLOWED_TYPES = {
     "release",
 }
 SUBJECT_RE = re.compile(r"^(?P<kind>[a-z]+)(?:\([^)]+\))?!?:\s+\S")
+BRACKETED_SUBJECT_RE = re.compile(
+    r"^\[(?P<icon>✨|🐞|⚡️|📚|🎨|🔧|🛠️|✅)\s+(?P<kind>[a-z]+)\s*\]\s+(?P<body>\S.*)$"
+)
+BRACKETED_TYPES = {
+    "✨": "feat",
+    "🐞": "fix",
+    "⚡️": "perf",
+    "📚": "docs",
+    "🎨": "style",
+    "🔧": "chore",
+    "🛠️": "build",
+    "✅": "test",
+}
+
+
+def normalize_subject(subject: str) -> str:
+    match = BRACKETED_SUBJECT_RE.fullmatch(subject)
+    if match and BRACKETED_TYPES[match.group("icon")] == match.group("kind"):
+        return f"{match.group('kind')}: {match.group('body')}"
+    return subject
 
 
 def git_subjects(rev_range: str) -> list[str]:
@@ -28,7 +48,10 @@ def git_subjects(rev_range: str) -> list[str]:
 
 
 def valid_subject(subject: str) -> bool:
-    match = SUBJECT_RE.match(subject)
+    normalized = normalize_subject(subject)
+    if normalized != subject:
+        return True
+    match = SUBJECT_RE.match(normalized)
     return bool(match and match.group("kind") in ALLOWED_TYPES)
 
 
@@ -64,7 +87,7 @@ def main() -> int:
             "commit subjects must use conventional commits because preview notes are generated from them."
         )
         print("example: fix(update): install selected channel")
-        print("expected: type(optional-scope): subject")
+        print("expected: type(optional-scope): subject, or an approved [icon type] subject")
         print("allowed types: " + ", ".join(sorted(ALLOWED_TYPES)))
         return 1
     return 0
