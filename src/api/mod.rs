@@ -1,3 +1,8 @@
+pub(crate) mod agent_catalog;
+pub(crate) mod agent_directories;
+pub(crate) mod agent_history;
+pub(crate) mod agent_launch;
+mod agent_launch_support;
 pub mod client;
 mod event_hub;
 pub mod schema;
@@ -47,6 +52,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::AgentViewClear(_)
             | Method::AgentFocus(_)
             | Method::AgentStart(_)
+            | Method::AgentLaunch(_)
             | Method::AgentPrompt(_)
             | Method::AgentSendKeys(_)
             | Method::PaneSplit(_)

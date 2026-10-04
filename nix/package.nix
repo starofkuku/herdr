@@ -45,6 +45,7 @@ rustPlatform.buildRustPackage {
         ../src
         ../vendor/libghostty-vt
         ../vendor/libghostty-vt.vendor.json
+        ../vendor/codex-trace-parser
         ../vendor/portable-pty
         ../build.rs
         ../Cargo.lock
@@ -56,14 +57,6 @@ rustPlatform.buildRustPackage {
 
   cargoLock = {
     lockFile = ../Cargo.lock;
-    outputHashes = {
-      # `codex-trace-parser` is a git dependency, so its crate source is not in
-      # the crates.io index and Nix cannot vendor it without a hash. Regenerate
-      # this when the pinned revision in Cargo.lock changes:
-      #   nix hash path $(nix eval --impure --raw --expr '\
-      #     (builtins.fetchGit { url = "<repo>"; rev = "<rev>"; }).outPath')
-      "codex-trace-parser-0.4.20" = "sha256-5sXupX5V99Tc4Akz9dTXQZbegqvlPlJP9a+pvEbhssA=";
-    };
   };
 
   nativeBuildInputs = [

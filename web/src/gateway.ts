@@ -52,7 +52,7 @@ interface ServerMessage {
 /** One API response envelope from the gateway. */
 export interface ApiEnvelope {
   result?: Record<string, unknown>;
-  error?: { code: string; message: string };
+  error?: { code: string; message: string; [key: string]: unknown };
 }
 
 export interface GatewayHandlers {
@@ -68,11 +68,13 @@ export interface Subscription {
 /** Thrown when an API call returns an error envelope. */
 export class ApiError extends Error {
   code: string;
+  details?: Record<string, unknown>;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.code = code;
+    this.details = details;
   }
 }
 
@@ -441,7 +443,7 @@ export class GatewayClient {
   ): Promise<T> {
     const envelope = await this.api(method, params);
     if (envelope.error) {
-      throw new ApiError(envelope.error.code, envelope.error.message);
+      throw new ApiError(envelope.error.code, envelope.error.message, envelope.error);
     }
     return (envelope.result ?? {}) as T;
   }

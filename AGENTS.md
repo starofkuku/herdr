@@ -166,6 +166,21 @@ a deploy step for local iteration, not a release. It is fine to do while working
 and it is not what this section is about. `just web-publish` is a release and
 follows the rule above.
 
+### 本机前端测试部署
+
+在本机 `/home/administrator/githubwork/herdr` 修改前端后，必须将最新页面部署到
+`/home/administrator/herdr-web/index.html`，供用户刷新测试，不能只修改源码。
+
+- 用户已持续授权此本机部署流程。部署所需的 `pnpm build`（含 TypeScript 检查）
+  是“前端仅执行 lint、不构建”限制的明确例外；使用 pnpm，并优先复用已安装依赖。
+- 在 `web/` 目录通过 `capped` 执行构建，根据本机资源限制内存和 CPU；使用独特的
+  `HERDR_WEB_UI_VERSION` 标记本次页面，产物为 `web/dist/index.html`。
+- 只有构建成功才能部署。原子替换目标 `index.html`，保留 `uploads/` 和目录中的
+  其他文件，不清空部署目录，也不为静态页面更新重启 Herdr 或 Codex 进程。
+- 部署后核对产物与目标文件的哈希，并检查运行中的网页是否返回新版本；向用户说明
+  部署结果及刷新测试方式。
+- 此授权仅涵盖本机测试部署，不包含自动提交、打 tag 或公开发布。
+
 ## Local Can Machine Workflow
 
 This section applies only on Can's workstation or Windows VM setup when the

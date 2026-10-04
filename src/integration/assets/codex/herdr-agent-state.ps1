@@ -2,9 +2,11 @@
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # HERDR_INTEGRATION_ID=codex
-# HERDR_INTEGRATION_VERSION=8
+# HERDR_INTEGRATION_VERSION=9
 
 param([string]$Action = "")
+
+if ($Action -eq "permission" -and $env:HERDR_CODEX_BRIDGE -eq "1") { exit 0 }
 
 if ($Action -ne "session" -and $Action -ne "permission") { exit 0 }
 if ($env:HERDR_ENV -ne "1") { exit 0 }

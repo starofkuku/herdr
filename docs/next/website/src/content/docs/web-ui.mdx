@@ -7,6 +7,20 @@ description: Serve Herdr to a browser with herdr web — sessions, authenticatio
 
 This is for reaching your own machine over a private network such as WireGuard or an SSH tunnel. It is not a hosted service.
 
+## Create, resume, and close agents
+
+Use **新增 Agent** on the agent list to choose an installed agent, a server directory, and an existing or new project. Each launch creates an independent tab without changing existing CLI focus. Directory browsing also works before any pane exists. The working-directory input completes immediate child directories: type a name prefix, then click a suggestion or use arrow keys and Enter. Escape dismisses suggestions without closing the dialog. Directory listings are cached for 30 seconds and filtered locally while typing within the same directory.
+
+Resume history is searchable by agent and working directory for Codex, Claude, Pi, and ZCode. Other agent kinds can start fresh sessions. Already-open sessions lead to their existing panes. Discovery is briefly cached; a selected session is revalidated before launching.
+
+The row's `⋯` menu closes the pane and its process while preserving native history. Closing a project's final pane also closes that project group; protected worktree groups retain CLI confirmation. This differs from interrupting the current reply.
+
+Creation and resume require backend support for `agent.catalog`, `agent.sessions`, `directories.list`, and `agent.launch`. Repeated request IDs reuse the original result. When startup fails after pane creation, the dialog links to that pane instead of creating another.
+
+## Conversation history and termination
+
+Use **Load earlier messages** above the structured conversation to retrieve history even when the current page is too short to scroll. Cancellation and error states come from explicit agent records, including messages without text. The Pi/Claude transcript and ZCode cancellation/error fixes require an updated Herdr backend; updating only the web page does not change responses from an older backend.
+
 ## Why a separate process
 
 Each Herdr session has its own server, and a session server only knows its own session. Only a process outside them can enumerate every session and offer a chooser. `herdr web` is that process: one listener, one port, all sessions.
@@ -190,7 +204,17 @@ Drag the handle to move the rail. Releasing it within 100px of an edge attaches 
 
 **Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below. Its header names the agent's working directory and carries the agent's own mark; the full path and the session id are one click away on that name, each with its own copy button.
 
+## Custom command backups
+
+Open **Settings → Custom commands** and use **Export** in the header to download the saved command names and their full text as a JSON file. **Import** merges a previously exported file into this browser's commands; existing commands win when names match, and the result shows how many entries were added or skipped. Imported commands appear in the slash menu immediately. Unsaved edits are not exported.
+
+Backups contain only custom commands, without gateway credentials or other settings. Files are limited to 5 MB and the merged list to 100 commands. An invalid file, an exceeded limit, or a storage failure leaves existing commands unchanged.
+
 ## The files panel
+
+Type `@` at the start of a message or after a space to fuzzy-search the current pane's project files and directories. Choose with `↑`/`↓`, then `Enter`/`Tab` or a click to insert `@path`. Directories end in `/`; paths containing spaces are quoted. Selection replaces only the reference at the caret without sending the message. `Esc` dismisses the menu.
+
+Type a directory prefix such as `@src/` to list its immediate children, including empty directories. Search uses the file panel's scope and exclusions. Large projects may have an incomplete file index; the menu indicates this and directory prefixes let you continue browsing.
 
 A conversation opens beside the project's own file tree, so the checkout an agent is working in can be read without leaving the page. It is read-only: nothing here writes, renames, or deletes, and no file is opened for editing.
 
@@ -400,3 +424,13 @@ If you host the page somewhere other than the gateway, set `allowed_origins` so 
 Leave a session with the back button; the session and its panes keep running. Closing the browser tab detaches cleanly and does not stop the server.
 
 To stop a session and its panes, use `herdr session stop <name>`.
+
+## Codex structured interactions
+
+Start Codex inside a Herdr pane with `herdr codex -- [Codex arguments]`. Managed `agent start --kind codex` launches use the same bridge. If the installed Codex integration is older, update it first with `herdr integration install codex` using the new Herdr binary.
+
+The bridge owns one app-server and connects the native CLI to it. Approval and question cards remain pending until answered or cancelled; they do not switch to terminal text after three seconds. CLI and web answers share request IDs, and multiple pending requests are queued. Asynchronous questions use Codex's separate user-message reply protocol and expire when their turn ends.
+
+Unsupported interactions show an explanation with a manual terminal-controls button. Web disconnection disables submission and preserves the current draft. Existing independently launched Codex processes are not taken over: use the bridge for a new session or `herdr codex -- resume <session-id>` after stopping the original client. `--profile` and nested `--remote` options are currently rejected rather than silently changing configuration.
+
+This integration uses Codex's experimental remote CLI interface; validate the installed Codex version before rollout.

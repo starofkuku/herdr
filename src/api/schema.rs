@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+pub mod agent_management;
 pub mod agents;
 pub mod common;
 pub mod events;
@@ -15,6 +16,7 @@ pub mod tabs;
 pub mod workspaces;
 pub mod worktrees;
 
+pub use agent_management::*;
 pub use agents::*;
 pub use common::*;
 pub use events::*;
@@ -141,6 +143,14 @@ pub enum Method {
     AgentViewClear(AgentViewClearParams),
     #[serde(rename = "agent.focus")]
     AgentFocus(AgentTarget),
+    #[serde(rename = "agent.launch")]
+    AgentLaunch(AgentLaunchParams),
+    #[serde(rename = "agent.catalog")]
+    AgentCatalog(EmptyParams),
+    #[serde(rename = "agent.sessions")]
+    AgentSessions(AgentSessionsParams),
+    #[serde(rename = "directories.list")]
+    DirectoriesList(DirectoryListParams),
     #[serde(rename = "agent.start")]
     AgentStart(AgentStartParams),
     #[serde(rename = "agent.restart")]

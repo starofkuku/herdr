@@ -336,6 +336,17 @@ fn handle_request(
     response_write_complete: Option<std::sync::mpsc::Receiver<()>>,
 ) -> String {
     match request.method {
+        Method::AgentLaunch(params) => super::agent_launch::launch(request.id, params, api_tx),
+        Method::AgentCatalog(_) => {
+            super::agent_launch::read_response(request.id, super::agent_catalog::catalog())
+        }
+        Method::AgentSessions(params) => {
+            super::agent_launch::read_response(request.id, super::agent_catalog::sessions(&params))
+        }
+        Method::DirectoriesList(params) => super::agent_launch::read_response(
+            request.id,
+            super::agent_catalog::directories(&params),
+        ),
         Method::Ping(_) => serde_json::to_string(&SuccessResponse {
             id: request.id,
             result: ResponseResult::Pong {
@@ -406,6 +417,10 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::AgentViewSet(_) => "agent.view.set",
         Method::AgentViewClear(_) => "agent.view.clear",
         Method::AgentFocus(_) => "agent.focus",
+        Method::AgentLaunch(_) => "agent.launch",
+        Method::AgentCatalog(_) => "agent.catalog",
+        Method::AgentSessions(_) => "agent.sessions",
+        Method::DirectoriesList(_) => "directories.list",
         Method::AgentStart(_) => "agent.start",
         Method::AgentRestart(_) => "agent.restart",
         Method::AgentPrompt(_) => "agent.prompt",

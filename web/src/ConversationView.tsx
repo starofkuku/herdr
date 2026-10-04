@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ChevronRight } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
-import { LIVE_POLL_MS, paneIdOfEvent } from "./api";
+import { useConversationRefresh } from "./useConversationRefresh";
+import { createConversationReader } from "./conversationReader";
 import { CopyButton, Markdown } from "./Markdown";
 import {
   editDiffLines,
@@ -1014,12 +1015,10 @@ export function ConversationView({
   // be a ref. With state, several handlers read `false` before the first update
   // lands, and each repeat request re-reads the same cursor and duplicates turns.
   const loadingOlderRef = useRef(false);
+  const historyLoaded = useRef(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  /** Guards `refreshNewest` against overlapping reads. */
-  const refreshInFlight = useRef(false);
-  /** Set when a refresh is requested while one is already running. */
-  const refreshAgain = useRef(false);
+  const readerRef = useRef<ReturnType<typeof createConversationReader> | null>(null);
   /**
    * Whether the view should follow new turns.
    *
@@ -1054,35 +1053,9 @@ export function ConversationView({
    */
   const sawSentMessage = useRef<string | null>(null);
 
-  /**
-   * Reloads the newest page. Older pages loaded so far are left untouched.
-   *
-   * Polling and the event path can both request a refresh, and a read can be in
-   * flight when the next request arrives. Rather than run them concurrently, a
-   * request that arrives mid-read is remembered and re-run once, so an update is
-   * never dropped and no two reads race to set the newest page.
-   */
-  const refreshNewest = useCallback(async (): Promise<void> => {
-    if (refreshInFlight.current) {
-      refreshAgain.current = true;
-      return;
-    }
-    refreshInFlight.current = true;
-    try {
-      const data = await loadConversation(client, paneId, { maxBytes: PAGE_BYTES });
-      setConversation(data);
-      setNewest(data.turns ?? []);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof ConversationError ? err.message : String(err));
-    } finally {
-      refreshInFlight.current = false;
-      if (refreshAgain.current) {
-        refreshAgain.current = false;
-        void refreshNewest();
-      }
-    }
-  }, [client, paneId]);
+  const refreshNewest = useCallback(() => {
+    readerRef.current?.refresh();
+  }, []);
 
   // Load the newest page and reset paging state when the pane changes.
   useEffect(() => {
@@ -1097,69 +1070,44 @@ export function ConversationView({
     setOlder([]);
     cursor.current = undefined;
     loadingOlderRef.current = false;
-    refreshInFlight.current = false;
-    refreshAgain.current = false;
+    setLoadingOlder(false);
     // A different pane is a different conversation, so following starts over
     // from the bottom. Carrying the previous pane's scroll-up state across
     // would leave the new conversation unfollowed until the reader scrolled.
     pinnedToBottom.current = true;
 
-    loadConversation(client, paneId, { maxBytes: PAGE_BYTES })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        setConversation(data);
+    historyLoaded.current = false;
+    const reader = createConversationReader(
+      () => loadConversation(client, paneId, { maxBytes: PAGE_BYTES }),
+      (data) => {
+        setConversation((current) => historyLoaded.current && current
+          ? { ...data, pagination: current.pagination } : data);
         setNewest(data.turns ?? []);
-        cursor.current = data.pagination?.next_cursor;
-      })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return;
+        setError(null);
+        if (!historyLoaded.current) cursor.current = data.pagination?.next_cursor;
+        setLoading(false);
+      },
+      (err) => {
         setError(err instanceof ConversationError ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-
-    return () => controller.abort();
+        setLoading(false);
+      },
+    );
+    readerRef.current = reader;
+    reader.refresh();
+    return () => {
+      controller.abort();
+      reader.dispose();
+      if (readerRef.current === reader) readerRef.current = null;
+    };
   }, [client, paneId]);
 
-  // Keep the transcript current while the agent works.
-  //
-  // `pane.updated` is not an output signal: the server emits it for terminal
-  // title, metadata, and diagnostic changes, and not when a pane's scrollback
-  // grows. A TUI agent writing its answer emits nothing at all, so an
-  // event-only view freezes mid-turn. A poll runs while the pane is reported
-  // working, which is exactly when the transcript changes without events.
-  //
-  // The event path is still useful: it refreshes promptly on the state and
-  // title changes that do emit, and it is filtered to this pane because the
-  // subscription delivers every pane's updates.
-  useEffect(() => {
-    let timer: number | null = null;
-    const refresh = () => {
-      if (timer !== null) return;
-      timer = window.setTimeout(() => {
-        timer = null;
-        void refreshNewest();
-      }, 500);
-    };
-    const subscription = client.subscribe(["pane.updated"], (payload) => {
-      const eventPane = paneIdOfEvent(payload);
-      if (eventPane !== undefined && eventPane !== paneId) return;
-      refresh();
-    });
-    return () => {
-      subscription.close();
-      if (timer !== null) window.clearTimeout(timer);
-    };
-  }, [client, paneId, refreshNewest]);
-
-  // Poll while the agent is reported working. The status comes from the pane,
-  // so it covers a turn this client did not start.
-  useEffect(() => {
-    if (!working) return;
-    const id = window.setInterval(() => void refreshNewest(), LIVE_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [working, refreshNewest]);
+  useConversationRefresh(
+    client,
+    paneId,
+    working,
+    newest[newest.length - 1]?.status === "ongoing",
+    refreshNewest,
+  );
 
   const hasMore = conversation?.pagination?.has_more ?? false;
 
@@ -1168,6 +1116,7 @@ export function ConversationView({
     if (loadingOlderRef.current || !hasMore || cursor.current === undefined) return;
     loadingOlderRef.current = true;
     setLoadingOlder(true);
+    const controller = abortRef.current;
     const requestCursor = cursor.current;
     const container = scrollRef.current;
     const previousHeight = container?.scrollHeight ?? 0;
@@ -1176,6 +1125,8 @@ export function ConversationView({
         maxBytes: PAGE_BYTES,
         cursor: requestCursor,
       });
+      if (controller?.signal.aborted) return;
+      historyLoaded.current = true;
       const older_page = data.turns ?? [];
       cursor.current = data.pagination?.next_cursor;
       setConversation((current) => (current ? { ...current, pagination: data.pagination } : data));
@@ -1184,13 +1135,16 @@ export function ConversationView({
         // Older turns are prepended, so anchor the viewport on the content that
         // was already on screen.
         requestAnimationFrame(() => {
+          if (controller?.signal.aborted) return;
           const element = scrollRef.current;
           if (element) element.scrollTop += element.scrollHeight - previousHeight;
         });
       }
     } catch (err) {
+      if (controller?.signal.aborted) return;
       setError(err instanceof ConversationError ? err.message : String(err));
     } finally {
+      if (controller?.signal.aborted) return;
       loadingOlderRef.current = false;
       setLoadingOlder(false);
     }
@@ -1425,7 +1379,13 @@ export function ConversationView({
 
         {conversation?.cwd ? <p className="conversation-cwd">{shorten(conversation.cwd)}</p> : null}
 
-        {loadingOlder ? <p className="pager">loading earlier turns…</p> : null}
+        {hasMore && !loading ? (
+          <div className="pager">
+            <button type="button" disabled={loadingOlder} onClick={() => void loadOlder()}>
+              {loadingOlder ? "loading earlier turns…" : "Load earlier messages"}
+            </button>
+          </div>
+        ) : null}
         {!hasMore && turns.length > 1 && !loading ? (
           <p className="pager">start of conversation</p>
         ) : null}

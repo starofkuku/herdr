@@ -1,0 +1,20 @@
+[package]
+name = "codex-trace-parser"
+version = "0.4.20"
+edition = "2021"
+rust-version = "1.77.2"
+license = "MIT"
+description = "Parse Codex, Claude Code, and pi session logs into turns, tool calls, and token usage"
+repository = "https://github.com/xianchoujiduluo/codex-trace"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+indexmap = { version = "2", features = ["serde"] }
+regex = "1"
+zstd = "0.13"
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3"

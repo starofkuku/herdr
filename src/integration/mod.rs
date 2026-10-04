@@ -12,12 +12,12 @@ pub(crate) use actions::{install_target, uninstall_target};
 #[cfg(test)]
 pub(crate) use env::integration_env_lock;
 pub(crate) use env::{
-    apply_pane_base_env, zcode_session_db, HERDR_PANE_ID_ENV_VAR, HERDR_TAB_ID_ENV_VAR,
+    apply_pane_base_env, home_dir, zcode_session_db, HERDR_PANE_ID_ENV_VAR, HERDR_TAB_ID_ENV_VAR,
     HERDR_WORKSPACE_ID_ENV_VAR,
 };
 pub(crate) use registry::{
-    installed_integration_statuses, integration_recommendations, integration_target_label,
-    print_outdated_update_notice,
+    command_available, installed_integration_statuses, integration_recommendations,
+    integration_target_label, print_outdated_update_notice,
 };
 pub(crate) use targets::{codex_monitor_plugin_root, codex_monitor_supported};
 pub(crate) use types::{IntegrationRecommendation, IntegrationStatus, IntegrationStatusKind};
@@ -58,7 +58,7 @@ const CODEX_MONITOR_README_ASSET: &str =
 const CODEX_MONITOR_CONFIG_ASSET: &str =
     include_str!("../../plugins/codex-rollout-monitor/config.toml");
 pub(crate) const CODEX_MONITOR_PLUGIN_ID: &str = "herdr.codex-rollout-monitor";
-const CODEX_INTEGRATION_VERSION: u32 = 8;
+const CODEX_INTEGRATION_VERSION: u32 = 9;
 const KIMI_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
     "herdr-agent-state.ps1"
 } else {

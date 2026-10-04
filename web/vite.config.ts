@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,7 @@ export default defineConfig({
     __WEB_UI_VERSION__: JSON.stringify(uiVersion()),
   },
   plugins: [
+    tailwindcss(),
     react(),
     {
       name: "herdr-ui-version-marker",

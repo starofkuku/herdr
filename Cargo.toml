@@ -1,6 +1,6 @@
 [package]
 name = "herdr"
-version = "0.8.3"
+version = "0.8.4"
 edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
@@ -52,10 +52,9 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 unicode-width = "0.2"
 schemars = { version = "1.2.1", features = ["derive"] }
-# Pinned to the revision v0.7.48 shipped: `branch = "main"` would track new
-# upstream commits, which both breaks `--locked` reproducibility and invalidates
-# the nix cargoLock outputHash below.
-codex-trace-parser = { git = "https://github.com/xianchoujiduluo/codex-trace", rev = "d15bba979bedf70553d9bced2510dbf26126e5c7" }
+# Vendored at the pinned revision with explicit chat termination fixes.
+# Provenance and removal conditions: vendor/codex-trace-parser.patches.md.
+codex-trace-parser = { path = "vendor/codex-trace-parser" }
 # Reads ZCode's session store: the only agent whose conversation is not a file
 # herdr can parse. Bundled rather than linked against a system SQLite, which no
 # platform could be relied on to have.

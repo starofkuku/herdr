@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { InteractionAnswer, InteractionQuestion, InteractionRequest } from "./interaction";
 import { Markdown } from "./Markdown";
 
@@ -16,10 +16,12 @@ import { Markdown } from "./Markdown";
 export function InteractionPanel({
   request,
   busy,
+  disconnected = false,
   onAnswer,
 }: {
   request: InteractionRequest;
   busy: boolean;
+  disconnected?: boolean;
   /** Sends the collected answers. Resolves once the server has them. */
   onAnswer: (answers: InteractionAnswer[]) => Promise<void>;
 }) {
@@ -29,6 +31,8 @@ export function InteractionPanel({
   // Free-text answers, used when a question allows one.
   const [typed, setTyped] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const submitting = useRef(false);
+  const disabled = busy || disconnected;
 
   const answersFor = (question: InteractionQuestion): InteractionAnswer => {
     const text = (typed[question.id] ?? "").trim();
@@ -62,12 +66,15 @@ export function InteractionPanel({
   const complete = request.questions.every(answered);
 
   const submit = async () => {
-    if (!complete || busy) return;
+    if (!complete || disabled || submitting.current) return;
+    submitting.current = true;
     setError(null);
     try {
       await onAnswer(request.questions.map(answersFor));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      submitting.current = false;
     }
   };
 
@@ -102,7 +109,7 @@ export function InteractionPanel({
                     key={option.id}
                     className={`interaction-option${active ? " selected" : ""}`}
                     aria-pressed={active}
-                    disabled={busy}
+                    disabled={disabled}
                     onClick={() => toggle(question, option.id)}
                   >
                     <span className="interaction-option-main">
@@ -128,9 +135,10 @@ export function InteractionPanel({
               <textarea
                 className="interaction-input"
                 rows={1}
-                placeholder="Or answer in your own words…"
+                placeholder={question.options.length ? "Or answer in your own words…" : "Your answer…"}
+                aria-label={question.question}
                 value={typed[question.id] ?? ""}
-                disabled={busy}
+                disabled={disabled}
                 onChange={(event) =>
                   setTyped((current) => ({ ...current, [question.id]: event.target.value }))
                 }
@@ -141,12 +149,13 @@ export function InteractionPanel({
       })}
 
       {error ? <p className="error">{error}</p> : null}
+      {disconnected ? <p role="status">Connection unavailable. Your answer is preserved; reconnect before sending.</p> : null}
 
       <div className="interaction-actions">
         <button
           type="button"
           className="interaction-submit"
-          disabled={busy || !complete}
+          disabled={disabled || !complete}
           onClick={() => void submit()}
         >
           {busy ? "sending…" : "Send answer"}

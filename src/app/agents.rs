@@ -191,6 +191,15 @@ impl App {
             .ok_or_else(|| AgentStartError::TargetBusy(params.pane_id.clone()))?;
 
         let mut argv = vec![crate::detect::interactive_agent_executable(kind).to_string()];
+        if kind == crate::detect::Agent::Codex {
+            let executable = std::env::current_exe()
+                .map_err(|error| AgentStartError::InputFailed(error.to_string()))?;
+            argv = vec![
+                executable.to_string_lossy().into_owned(),
+                "codex".into(),
+                "--".into(),
+            ];
+        }
         argv.extend(params.args);
         let command = crate::platform::interactive_shell_command(&argv, &shell_name)
             .ok_or(AgentStartError::InvalidArgument)?;

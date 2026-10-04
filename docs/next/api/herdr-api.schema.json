@@ -999,6 +999,11 @@
               "const": "approval",
               "description": "Approve or refuse an action the agent wants to take.",
               "type": "string"
+            },
+            {
+              "const": "notice",
+              "description": "An interaction requiring native controls; no web answer is accepted.",
+              "type": "string"
             }
           ]
         },
@@ -1466,6 +1471,49 @@
     },
     "request": {
       "$defs": {
+        "AgentLaunchParams": {
+          "properties": {
+            "cwd": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "project_label": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "request_id": {
+              "type": "string"
+            },
+            "session_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "request_id",
+            "kind",
+            "cwd"
+          ],
+          "type": "object"
+        },
         "AgentPromptParams": {
           "properties": {
             "target": {
@@ -1584,6 +1632,43 @@
           "required": [
             "target",
             "keys"
+          ],
+          "type": "object"
+        },
+        "AgentSessionsParams": {
+          "properties": {
+            "cursor": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "cwd": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "limit": {
+              "format": "uint",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "query": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "cwd"
           ],
           "type": "object"
         },
@@ -2007,6 +2092,17 @@
             },
             "toast_delivery": {
               "description": "One of `off`, `herdr`, `terminal`, `system`. A string rather than the enum\nbecause the enum has no JSON schema, and the value is validated when it is\nparsed on the way in.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "DirectoryListParams": {
+          "properties": {
+            "path": {
               "type": [
                 "string",
                 "null"
@@ -3087,6 +3183,11 @@
             {
               "const": "approval",
               "description": "Approve or refuse an action the agent wants to take.",
+              "type": "string"
+            },
+            {
+              "const": "notice",
+              "description": "An interaction requiring native controls; no web answer is accepted.",
               "type": "string"
             }
           ]
@@ -6067,6 +6168,70 @@
         {
           "properties": {
             "method": {
+              "const": "agent.launch",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentLaunchParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.catalog",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "agent.sessions",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/AgentSessionsParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "directories.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/DirectoryListParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "agent.start",
               "type": "string"
             },
@@ -7291,6 +7456,60 @@
     },
     "success_response": {
       "$defs": {
+        "AgentCatalogEntry": {
+          "properties": {
+            "available": {
+              "type": "boolean"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            },
+            "resumable": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "available",
+            "resumable"
+          ],
+          "type": "object"
+        },
+        "AgentHistoryEntry": {
+          "properties": {
+            "cwd": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "path": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "title": {
+              "type": "string"
+            },
+            "updated_at": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "id",
+            "title",
+            "cwd",
+            "updated_at"
+          ],
+          "type": "object"
+        },
         "AgentInfo": {
           "properties": {
             "agent": {
@@ -7552,6 +7771,21 @@
             "failed"
           ],
           "type": "string"
+        },
+        "DirectoryEntry": {
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "path"
+          ],
+          "type": "object"
         },
         "EventData": {
           "oneOf": [
@@ -9096,6 +9330,11 @@
             {
               "const": "approval",
               "description": "Approve or refuse an action the agent wants to take.",
+              "type": "string"
+            },
+            {
+              "const": "notice",
+              "description": "An interaction requiring native controls; no web answer is accepted.",
               "type": "string"
             }
           ]
@@ -11287,6 +11526,109 @@
               "required": [
                 "type",
                 "agent"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "existing": {
+                  "type": "boolean"
+                },
+                "pane_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "agent_launched",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pane_id",
+                "workspace_id",
+                "existing"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "agents": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/AgentCatalogEntry"
+                  },
+                  "type": "array"
+                },
+                "home": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "agent_catalog",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "agents",
+                "home"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "next_cursor": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "sessions": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/AgentHistoryEntry"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "agent_sessions",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "sessions"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "directories": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/DirectoryEntry"
+                  },
+                  "type": "array"
+                },
+                "parent": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "path": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "directory_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "path",
+                "directories"
               ],
               "type": "object"
             },

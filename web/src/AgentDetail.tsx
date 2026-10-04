@@ -4,6 +4,7 @@ import { ConnectionBadge } from "./ConnectionBadge";
 import { HISTORY_PAGE_LINES, directoryName, statusLabel, paneIdOfEvent, type AgentView } from "./api";
 import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
+import { CodexInteractionNotice } from "./CodexInteractionNotice";
 import type { InteractionAnswer } from "./interaction";
 import { Maximize2, Minimize2, Plus, Send, Settings, Square } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
@@ -12,6 +13,8 @@ import { AgentCycleOverlay } from "./AgentCycleOverlay";
 import { AgentSwitcher } from "./AgentSwitcher";
 import { useAgentCycle } from "./useAgentCycle";
 import { PendingUploads } from "./PendingUploads";
+import { ComposerInput } from "./ComposerInput";
+import { useInputHistory } from "./useInputHistory";
 import { BackendBadge } from "./BackendBadge";
 import { FilePreview } from "./FilePreview";
 import { SettingsPanel } from "./SettingsPanel";
@@ -497,6 +500,8 @@ export function AgentDetail({
   blockedRef.current = blocked;
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const inputHistory = useInputHistory({ client, paneId, sessionId: agent?.sessionId,
+    readable: hasConversation, onChange: setDraft });
   const nextOffset = useRef(0);
   const pinnedToBottom = useRef(true);
 
@@ -669,7 +674,7 @@ export function AgentDetail({
    * user did not intend.
    */
   const sendKeys = async (keys: string[]) => {
-    if (!paneId || busy) return;
+    if (!paneId || busy || connection !== "ready") return;
     setBusy(true);
     try {
       await client.call("pane.send_input", { pane_id: paneId, text: "", keys });
@@ -785,6 +790,7 @@ export function AgentDetail({
       // succeeded must not leave a copy behind, and a send that failed must not
       // take the user's files with it.
       await client.call("pane.send_input", { pane_id: paneId, text, keys: ["Enter"] });
+      inputHistory.record(draft);
       clearUploads();
       setDraft("");
       setError(null);
@@ -1014,7 +1020,9 @@ export function AgentDetail({
       // already withdrew, so an answer is refused while one is in flight. The
       // panel's buttons read the same flag, but a click landing between the call
       // and the re-render would otherwise get through.
-      if (!paneId || !interaction || busy) return;
+      if (!paneId || !interaction || busy || connection !== "ready") {
+        throw new Error("The interaction is unavailable or the connection is not ready.");
+      }
       setBusy(true);
       try {
         await client.call("pane.answer_interaction", {
@@ -1039,7 +1047,7 @@ export function AgentDetail({
         setBusy(false);
       }
     },
-    [client, paneId, interaction, onChanged, busy],
+    [client, paneId, interaction, onChanged, busy, connection],
   );
 
   const transcript = pages
@@ -1211,41 +1219,44 @@ export function AgentDetail({
       {error ? <p className="error banner">{error}</p> : null}
 
       {/*
-        Two ways to answer, in order of how much the agent told us.
-
-        An agent that publishes a structured request gets the options it
-        actually offered, so answering is one tap. An agent that only reports
-        state falls back to the pane text and a raw key bar: the reader still
-        reads the prompt themselves, but nothing is guessed on their behalf.
+        Structured requests take priority. Codex terminal controls require an
+        explicit action when a structured question is unavailable; other agents
+        keep their existing terminal controls.
       */}
-      {interaction ? (
-        <InteractionPanel request={interaction} busy={busy} onAnswer={answerInteraction} />
-      ) : blocked ? (
-        <div className="blocker">
-          <div className="blocker-head">
-            <span className="blocker-label">waiting for you</span>
-            <span className="blocker-hint">press what the agent is asking for</span>
+      {interaction && interaction.kind !== "notice" ? (
+        <InteractionPanel key={`${paneId}:${interaction.source}:${interaction.requestId}`}
+          request={interaction} busy={busy} disconnected={connection !== "ready"}
+          onAnswer={answerInteraction} />
+      ) : blocked || interaction?.kind === "notice" ? (
+        <CodexInteractionNotice key={`${paneId}:${agent?.agent}`}
+          message={interaction?.kind === "notice" ? interaction.summary : undefined}
+          enabled={agent?.agent === "codex" || interaction?.kind === "notice"} disconnected={connection !== "ready"}>
+          <div className="blocker">
+            <div className="blocker-head">
+              <span className="blocker-label">waiting for you</span>
+              <span className="blocker-hint">press what the agent is asking for</span>
+            </div>
+            {blockerText ? <pre className="blocker-text">{blockerText}</pre> : null}
+            <div className="blocker-keys">
+              {BLOCKER_KEY_GROUPS.map((group, index) => (
+                <div className="blocker-key-group" key={index}>
+                  {group.map((key) => (
+                    <button
+                      type="button"
+                      key={key.label}
+                      className={`key ${key.variant ?? ""}`}
+                      title={key.title}
+                      disabled={busy || connection !== "ready"}
+                      onClick={() => void sendKeys(key.keys)}
+                    >
+                      {key.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
           </div>
-          {blockerText ? <pre className="blocker-text">{blockerText}</pre> : null}
-          <div className="blocker-keys">
-            {BLOCKER_KEY_GROUPS.map((group, index) => (
-              <div className="blocker-key-group" key={index}>
-                {group.map((key) => (
-                  <button
-                    type="button"
-                    key={key.label}
-                    className={`key ${key.variant ?? ""}`}
-                    title={key.title}
-                    disabled={busy}
-                    onClick={() => void sendKeys(key.keys)}
-                  >
-                    {key.label}
-                  </button>
-                ))}
-              </div>
-            ))}
-          </div>
-        </div>
+        </CodexInteractionNotice>
       ) : null}
 
       {/*
@@ -1307,182 +1318,25 @@ export function AgentDetail({
             buttons keep one place instead of riding up with a growing field.
           */}
           <div className="composer-field">
-            {slashMenuOpen ? (
-              <div className="slash-menu" role="listbox" aria-label="Skills and commands">
-                <ul>
-                  {slashMatches.length === 0 ? (
-                    <li className="slash-menu__empty">
-                      没有匹配的 Skill 或命令。命令提示收录了 Claude Code、Codex、
-                      ZCode 与 Pi；Skills 需要服务端 v0.8.1 及以上。
-                    </li>
-                  ) : null}
-                  {slashMenu.custom.length > 0 ? (
-                    <li className="slash-menu__group" role="presentation">自定义</li>
-                  ) : null}
-                  {slashMenu.custom.map((item) => {
-                    const index = slashMatches.indexOf(item);
-                    return (
-                      <li
-                        key={`custom:${item.name}`}
-                        role="option"
-                        aria-selected={index === highlightedSlash}
-                      >
-                        <button
-                          type="button"
-                          className={index === highlightedSlash ? "selected" : ""}
-                          onMouseDown={(event) => {
-                            // mousedown, not click: the textarea must not blur
-                            // before the choice replaces the draft.
-                            event.preventDefault();
-                            chooseSlashItem(item);
-                          }}
-                        >
-                          <span className="slash-menu__name">/{item.name}</span>
-                          {item.description ? (
-                            <span className="slash-menu__description">{item.description}</span>
-                          ) : null}
-                          <span className="slash-menu__source">自定义</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {slashMenu.skills.length > 0 ? (
-                    <li className="slash-menu__group" role="presentation">Skills</li>
-                  ) : null}
-                  {slashMenu.skills.map((skill) => {
-                    const index = slashMatches.indexOf(skill);
-                    return (
-                      <li
-                        key={`skill:${skill.source}:${skill.name}`}
-                        role="option"
-                        aria-selected={index === highlightedSlash}
-                      >
-                        <button
-                          type="button"
-                          className={index === highlightedSlash ? "selected" : ""}
-                          onMouseDown={(event) => {
-                            // mousedown, not click: the textarea must not blur
-                            // before the choice replaces the draft.
-                            event.preventDefault();
-                            chooseSlashSkill(skill.name);
-                          }}
-                        >
-                          <span className="slash-menu__name">/{skill.name}</span>
-                          {skill.description ? (
-                            <span className="slash-menu__description">{skill.description}</span>
-                          ) : null}
-                          <span className="slash-menu__source">{skill.source}</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                  {slashMenu.commands.length > 0 ? (
-                    <li className="slash-menu__group" role="presentation">命令</li>
-                  ) : null}
-                  {slashMenu.commands.map((command) => {
-                    const index = slashMatches.indexOf(command);
-                    return (
-                      <li
-                        key={`command:${command.name}`}
-                        role="option"
-                        aria-selected={index === highlightedSlash}
-                      >
-                        <button
-                          type="button"
-                          className={index === highlightedSlash ? "selected" : ""}
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            chooseSlashItem(command);
-                          }}
-                        >
-                          <span className="slash-menu__name">/{command.name}</span>
-                          {command.description ? (
-                            <span className="slash-menu__description">{command.description}</span>
-                          ) : null}
-                          <span className="slash-menu__source">命令</span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-                <p className="slash-menu__hint">
-                  <span>↑↓ 选择</span>
-                  <span>Enter 确认</span>
-                  <span>Esc 关闭</span>
-                </p>
-              </div>
-            ) : null}
-            <textarea
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="Send a message…"
-              rows={1}
-              ref={composerRef}
-              onPaste={(event) => {
-                const files = Array.from(event.clipboardData?.files ?? []);
-                if (files.length === 0) return;
-                // Only intercepted when the clipboard actually holds files, so
-                // pasting text keeps its default behaviour. The clipboard is read
-                // from the event rather than `navigator.clipboard`, which needs a
-                // secure context this UI does not have on a LAN address.
-                event.preventDefault();
-                void addFiles(files);
+            <ComposerInput
+              client={client}
+              paneId={paneId ?? ""}
+              draft={draft}
+              onChange={setDraft}
+              fieldRef={composerRef}
+              onHistoryKey={inputHistory.onKeyDown}
+              historyError={inputHistory.error}
+              slash={{
+                open: slashMenuOpen,
+                menu: slashMenu,
+                highlighted: highlightedSlash,
+                onIndexChange: setSlashIndex,
+                onChooseItem: chooseSlashItem,
+                onChooseSkill: chooseSlashSkill,
+                onDismiss: () => setSlashDismissed(true),
               }}
-              onKeyDown={(event) => {
-                // The slash menu owns the arrow, confirm, and dismiss keys
-                // while it is open; every other key keeps typing as normal.
-                if (slashMenuOpen && slashMatches.length > 0) {
-                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                    event.preventDefault();
-                    const count = slashMatches.length;
-                    setSlashIndex((index) =>
-                      event.key === "ArrowDown"
-                        ? (index + 1) % count
-                        : (index - 1 + count) % count,
-                    );
-                    return;
-                  }
-                  if (event.key === "Enter" || event.key === "Tab") {
-                    // An IME's Enter commits a candidate; that is not a choice.
-                    if (event.nativeEvent.isComposing) return;
-                    event.preventDefault();
-                    const chosen = slashMatches[highlightedSlash];
-                    if (chosen) chooseSlashItem(chosen);
-                    return;
-                  }
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    setSlashDismissed(true);
-                    return;
-                  }
-                }
-                if (event.key !== "Enter") return;
-                // An IME's Enter commits the candidate being typed; treating it
-                // as a send would swallow the character the reader is choosing.
-                if (event.nativeEvent.isComposing) return;
-                event.preventDefault();
-
-                // Any modified Enter breaks the line, so a message can be laid
-                // out before it is sent — ZCode's own rule, where Shift, Ctrl
-                // and Cmd all decline to submit. The break goes through state
-                // rather than `setRangeText`: a controlled field ignores a
-                // DOM-only edit — React never hears about it, the height effect
-                // never runs, and the box refuses to grow with the text.
-                if (event.ctrlKey || event.metaKey || event.shiftKey) {
-                  const field = event.currentTarget;
-                  const start = field.selectionStart;
-                  const end = field.selectionEnd;
-                  setDraft(`${draft.slice(0, start)}\n${draft.slice(end)}`);
-                  // The caret follows the break once React has re-rendered.
-                  requestAnimationFrame(() => {
-                    field.selectionStart = start + 1;
-                    field.selectionEnd = start + 1;
-                  });
-                  return;
-                }
-
-                void send();
-              }}
+              onFiles={(files) => { void addFiles(files); }}
+              onSend={() => { void send(); }}
             />
             {/*
               Hidden rather than styled away: the visible control below is the

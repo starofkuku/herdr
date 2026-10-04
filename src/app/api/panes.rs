@@ -2074,6 +2074,16 @@ impl App {
         // Collected by the integration through `pane.take_interaction_answer`,
         // so the answer is stored rather than handed over here: the caller of
         // this method is a client, and the integration is a different process.
+        if terminal
+            .active_interaction(std::time::Instant::now())
+            .is_some_and(|request| request.kind == crate::api::schema::PaneInteractionKind::Notice)
+        {
+            return encode_error(
+                id,
+                "native_interaction_required",
+                "Open native terminal controls to answer this interaction",
+            );
+        }
         match terminal.answer_interaction(
             &params.request_id,
             params.answers,
@@ -2510,7 +2520,9 @@ fn normalize_interaction_request(
     request.request_id = normalize_diagnostic_identifier(&request.request_id, 200, "request_id")?;
     request.title = normalize_optional_diagnostic_text(request.title.take(), 120, "title")?;
     request.summary = normalize_optional_diagnostic_text(request.summary.take(), 2000, "summary")?;
-    if request.questions.is_empty() {
+    if request.questions.is_empty()
+        && request.kind != crate::api::schema::PaneInteractionKind::Notice
+    {
         return Err("interaction request must carry at least one question");
     }
     if request.questions.len() > 8 {
@@ -2521,7 +2533,7 @@ fn normalize_interaction_request(
         question.header =
             normalize_optional_diagnostic_text(question.header.take(), 40, "question header")?;
         question.question = normalize_diagnostic_text(&question.question, 2000, "question")?;
-        if question.options.is_empty() {
+        if question.options.is_empty() && !question.allow_custom {
             return Err("interaction question must carry at least one option");
         }
         if question.options.len() > 12 {

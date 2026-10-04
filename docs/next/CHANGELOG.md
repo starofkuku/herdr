@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## [0.8.4] - 2026-10-04
+
+### Added
+- Added browser controls to create, resume, and close agents, with working-directory suggestions and editable launch errors.
+- Added custom-command import/export, local file and directory mentions with `@`, and input history navigation.
+- Added a Codex app-server bridge for structured questions and approvals when launched through `herdr codex`.
+- Updated browser dialogs and controls with Radix UI and Tailwind CSS.
+
+### Fixed
+- Corrected transcript termination handling and preserved explicit completion, cancellation, and error events.
+- Scoped conversation status subscriptions to their pane and continued reading unfinished transcripts after runtime activity stops, so delayed completion records reach the browser.
+- Reported Codex bridge handshake failures and early CLI exits instead of discarding the diagnostic details.
+
 ## [0.8.3] - 2026-10-04
 
 ### Fixed

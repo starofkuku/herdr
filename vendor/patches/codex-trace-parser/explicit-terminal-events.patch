@@ -1,0 +1,160 @@
+--- a/src/chat.rs
++++ b/src/chat.rs
+@@ -45,6 +45,9 @@
+ pub enum ChatStop {
+     ToolUse,
+     Terminal,
++    Aborted,
++    Cancelled,
++    Error,
+ }
+
+ /// Map a provider stop reason onto [`ChatStop`]. Providers disagree on the
+@@ -56,6 +59,14 @@
+     Some(
+         if reason.eq_ignore_ascii_case("tool_use") || reason.eq_ignore_ascii_case("tooluse") {
+             ChatStop::ToolUse
++        } else if reason.eq_ignore_ascii_case("aborted") {
++            ChatStop::Aborted
++        } else if reason.eq_ignore_ascii_case("cancelled")
++            || reason.eq_ignore_ascii_case("canceled")
++        {
++            ChatStop::Cancelled
++        } else if reason.eq_ignore_ascii_case("error") {
++            ChatStop::Error
+         } else {
+             ChatStop::Terminal
+         },
+@@ -89,6 +100,7 @@
+         usage: Option<ChatUsage>,
+         /// Absent when the provider did not record a reason on this line.
+         stop: Option<ChatStop>,
++        error_message: Option<String>,
+     },
+     /// The result of a previously issued tool call. Belongs to the turn the
+     /// call was made in, never starts a new turn.
+@@ -268,7 +280,12 @@
+                     }
+                     _ => {}
+                 }
+-                if blocks.is_empty() {
++                let stop = if line.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true) {
++                    Some(ChatStop::Error)
++                } else {
++                    chat_stop(message.get("stop_reason").and_then(Value::as_str))
++                };
++                if blocks.is_empty() && stop.is_none() {
+                     return vec![ChatEvent::Ignored];
+                 }
+                 let usage = message.get("usage").and_then(|u| {
+@@ -291,7 +308,8 @@
+                     timestamp: opt_str_field(line, "timestamp"),
+                     model: opt_str_field(message, "model"),
+                     usage,
+-                    stop: chat_stop(message.get("stop_reason").and_then(Value::as_str)),
++                    stop,
++                    error_message: opt_str_field(message, "errorMessage"),
+                 }]
+             }
+             _ => vec![ChatEvent::Ignored],
+@@ -404,7 +422,8 @@
+                                 }
+                             }
+                         }
+-                        if blocks.is_empty() {
++                        let stop = chat_stop(message.get("stopReason").and_then(Value::as_str));
++                        if blocks.is_empty() && stop.is_none() {
+                             return vec![ChatEvent::Ignored];
+                         }
+                         let usage = message.get("usage").and_then(|u| {
+@@ -425,7 +444,8 @@
+                             timestamp,
+                             model: opt_str_field(message, "model"),
+                             usage,
+-                            stop: chat_stop(message.get("stopReason").and_then(Value::as_str)),
++                            stop,
++                            error_message: opt_str_field(message, "errorMessage"),
+                         }]
+                     }
+                     "toolResult" => {
+@@ -530,6 +550,7 @@
+     /// record one (an older or unknown provider) fall back to counting open tool
+     /// calls, so a missing signal cannot pin every turn as running.
+     saw_stop: bool,
++    terminal_stops: IndexMap<usize, ChatStop>,
+     order_counter: usize,
+     cumulative: ChatUsage,
+     last_timestamp: Option<u64>,
+@@ -549,6 +570,7 @@
+             pending: IndexMap::new(),
+             awaiting_response: false,
+             saw_stop: false,
++            terminal_stops: IndexMap::new(),
+             order_counter: 0,
+             cumulative: ChatUsage::default(),
+             last_timestamp: None,
+@@ -621,6 +643,7 @@
+                 model,
+                 usage,
+                 stop,
++                error_message,
+             } => {
+                 self.track_timestamp(&timestamp);
+                 if let Some(model) = &model {
+@@ -654,6 +677,19 @@
+                     // cannot resurrect an already-finished turn.
+                     if turn_index == self.current_turn_index().unwrap_or(usize::MAX) {
+                         self.awaiting_response = stop == ChatStop::ToolUse;
++                    }
++                }
++                if let Some(stop) = stop {
++                    if stop == ChatStop::ToolUse {
++                        self.terminal_stops.shift_remove(&turn_index);
++                    } else {
++                        self.terminal_stops.insert(turn_index, stop);
++                    }
++                    let turn = &mut self.turns[turn_index];
++                    if stop == ChatStop::Error {
++                        turn.error = error_message;
++                    } else if matches!(stop, ChatStop::Aborted | ChatStop::Cancelled) {
++                        turn.aborted_reason = error_message;
+                     }
+                 }
+                 for block in blocks {
+@@ -806,7 +842,15 @@
+                 has_pending
+             };
+             let unfinished = has_pending || (Some(index) == last_index && await_signal);
+-            turn.status = if unfinished {
++            turn.status = if let Some(stop) = self.terminal_stops.get(&index) {
++                match stop {
++                    ChatStop::Aborted => TurnStatus::Aborted,
++                    ChatStop::Cancelled => TurnStatus::Cancelled,
++                    ChatStop::Error => TurnStatus::Error,
++                    ChatStop::Terminal => TurnStatus::Complete,
++                    ChatStop::ToolUse => unreachable!("only terminal stops are stored"),
++                }
++            } else if unfinished {
+                 if Some(index) == last_index && !file_fresh {
+                     // The writer stopped mid-turn long ago; the run was cut off.
+                     TurnStatus::Aborted
+@@ -1589,7 +1633,7 @@
+         assert_eq!(chat_stop(Some("toolUse")), Some(ChatStop::ToolUse));
+         assert_eq!(chat_stop(Some("end_turn")), Some(ChatStop::Terminal));
+         assert_eq!(chat_stop(Some("stop")), Some(ChatStop::Terminal));
+-        assert_eq!(chat_stop(Some("error")), Some(ChatStop::Terminal));
++        assert_eq!(chat_stop(Some("error")), Some(ChatStop::Error));
+         // A missing reason is not a stop signal, so it must not read as terminal.
+         assert_eq!(chat_stop(None), None);
+     }
+--- a/src/activity.rs
++++ b/src/activity.rs
+@@ -248,7 +248,7 @@
+                     // The provider's stop reason decides: `tool_use` means more is
+                     // coming, anything terminal means this turn is done. Without
+                     // one, an assistant line still means the session is alive.
+-                    self.is_ongoing = stop != Some(ChatStop::Terminal);
++                    self.is_ongoing = stop.is_none() || stop == Some(ChatStop::ToolUse);
+                 }
+                 ChatEvent::ToolResult { .. } => {
+                     // Deliberately does not close the turn: returning a tool result

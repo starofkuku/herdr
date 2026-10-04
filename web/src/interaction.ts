@@ -29,7 +29,7 @@ export interface InteractionQuestion {
 export interface InteractionRequest {
   source: string;
   requestId: string;
-  kind: "question" | "approval";
+  kind: "question" | "approval" | "notice";
   title?: string;
   summary?: string;
   questions: InteractionQuestion[];
@@ -63,9 +63,8 @@ function parseQuestion(raw: unknown): InteractionQuestion | null {
   const options = Array.isArray(record.options)
     ? record.options.map(parseOption).filter((o): o is InteractionOption => o !== null)
     : [];
-  // A question with no usable options is not answerable through the UI, and
-  // showing it as a choice would offer nothing to choose.
-  if (options.length === 0) return null;
+  // Free-text questions are answerable without predefined options.
+  if (options.length === 0 && record.allow_custom !== true) return null;
   return {
     id,
     header: asString(record.header),
@@ -93,11 +92,11 @@ export function parseInteractionRequest(raw: unknown): InteractionRequest | null
   const questions = Array.isArray(record.questions)
     ? record.questions.map(parseQuestion).filter((q): q is InteractionQuestion => q !== null)
     : [];
-  if (questions.length === 0) return null;
+  if (questions.length === 0 && record.kind !== "notice") return null;
   return {
     source,
     requestId,
-    kind: record.kind === "approval" ? "approval" : "question",
+    kind: record.kind === "notice" ? "notice" : record.kind === "approval" ? "approval" : "question",
     title: asString(record.title),
     summary: asString(record.summary),
     questions,

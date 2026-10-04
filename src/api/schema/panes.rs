@@ -982,6 +982,8 @@ pub enum PaneInteractionKind {
     Question,
     /// Approve or refuse an action the agent wants to take.
     Approval,
+    /// An interaction requiring native controls; no web answer is accepted.
+    Notice,
 }
 
 /// A pending interaction request raised by a pane's agent integration.

@@ -253,7 +253,6 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 [[package]]
 name = "codex-trace-parser"
 version = "0.4.20"
-source = "git+https://github.com/xianchoujiduluo/codex-trace?rev=d15bba979bedf70553d9bced2510dbf26126e5c7#d15bba979bedf70553d9bced2510dbf26126e5c7"
 dependencies = [
  "chrono",
  "dirs",
@@ -784,7 +783,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "herdr"
-version = "0.8.3"
+version = "0.8.4"
 dependencies = [
  "base64",
  "bincode",

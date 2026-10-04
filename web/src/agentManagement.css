@@ -1,0 +1,80 @@
+.summary .agent-add { margin-left: auto; white-space: nowrap; }
+.agent-dialog-overlay { position: fixed; inset: 0; z-index: 1000; background: #0008; backdrop-filter: blur(5px); }
+.agent-management-dialog { position: fixed; z-index: 1001; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(580px, calc(100vw - 24px)); max-height: min(720px, calc(100dvh - 32px)); display: flex; flex-direction: column; overflow: hidden; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: 20px; background: var(--surface); color: var(--text); box-shadow: 0 24px 80px #0005; outline: none; font-size: 14px; }
+.agent-management-dialog > header { flex-shrink: 0; padding: 24px; border-bottom: 1px solid var(--border); }
+.agent-management-dialog h2 { margin: 0; font-size: 20px; line-height: 1.4; font-weight: 650; letter-spacing: -.025em; }
+.agent-management-dialog header p { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.agent-dialog-symbol { display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; flex-shrink: 0; border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent); border-radius: 13px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--accent); }
+.agent-dialog-body { padding: 24px; min-height: 0; flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; }
+.agent-management-dialog > form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.agent-management-dialog fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+.agent-management-dialog label, .agent-field-label { display: block; margin: 0; font-weight: 550; font-size: 13px; line-height: 1.5; }
+.agent-field { min-width: 0; }
+.agent-optional { font-size: 11px; color: var(--muted); font-weight: 400; margin-left: 4px; }
+.agent-management-dialog input, .agent-select-trigger { width: 100%; min-width: 0; margin-top: 7px; height: 42px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); color: var(--text); font: inherit; outline: none; box-shadow: 0 1px 2px #00004; }
+.agent-management-dialog input::placeholder { color: var(--muted); opacity: .7; }
+.agent-management-dialog input:focus, .agent-select-trigger:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.agent-management-dialog small { display: block; margin-top: 5px; color: var(--muted); font-weight: 400; font-size: 12px; line-height: 1.5; }
+.agent-management-dialog button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 38px; padding: 8px 14px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; transition: background .15s, border-color .15s; }
+.agent-management-dialog button:hover:not(:disabled) { background: var(--surface-2); border-color: color-mix(in srgb, var(--text) 25%, transparent); }
+.agent-management-dialog button:disabled, .agent-management-dialog input:disabled { opacity: .45; cursor: not-allowed; }
+.agent-management-dialog button:focus-visible, .agent-menu-trigger:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.agent-management-dialog .agent-icon-button { width: 32px; min-height: 32px; padding: 6px; border-color: transparent; background: transparent; color: var(--muted); }
+.agent-management-dialog footer { flex-shrink: 0; display: flex; justify-content: flex-end; gap: 10px; padding: 16px 24px; border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface-2) 60%, var(--surface)); }
+.agent-management-dialog .agent-primary-button { background: var(--accent); border-color: var(--accent); color: var(--on-accent, #fff); font-weight: 600; }
+.agent-management-dialog .agent-primary-button:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 88%, var(--text)); border-color: var(--accent); }
+.agent-management-dialog .agent-danger-button { background: var(--err); border-color: var(--err); color: white; }
+.agent-management-dialog .agent-danger-button:hover:not(:disabled) { background: color-mix(in srgb, var(--err) 85%, black); }
+.agent-management-dialog .agent-select-trigger { display: flex; justify-content: space-between; height: 42px; background: var(--surface-2); font-size: 14px; font-weight: 400; text-align: left; }
+.agent-select-trigger > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-select-trigger > span:last-child { display: flex; color: var(--muted); flex-shrink: 0; }
+.agent-select-content, .agent-menu-content { z-index: 1010; padding: 5px; border: 1px solid var(--popover-border); border-radius: 11px; background: var(--popover); color: var(--text); box-shadow: 0 10px 35px #0003; font-size: 14px; }
+.agent-select-content { min-width: var(--radix-select-trigger-width); max-width: calc(100vw - 24px); max-height: min(320px, var(--radix-select-content-available-height)); overflow: hidden; }
+.agent-select-item { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 38px; padding: 9px 10px; border-radius: 6px; outline: none; cursor: pointer; user-select: none; overflow-wrap: anywhere; }
+.agent-select-item[data-highlighted] { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.agent-select-item[data-state="checked"] { color: var(--accent); font-weight: 600; }
+.agent-select-item[data-disabled] { opacity: .4; cursor: not-allowed; }
+.agent-select-scroll { display: flex; justify-content: center; padding: 4px; }
+.agent-session-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+.agent-management-dialog .agent-session-mode button { justify-content: flex-start; padding: 12px 14px; text-align: left; gap: 10px; }
+.agent-session-mode small { margin-top: 2px; font-size: 11px; }
+.agent-management-dialog .agent-session-mode button[data-state="on"] { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.agent-management-note { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.agent-management-note svg { flex-shrink: 0; }
+.agent-path { overflow-wrap: anywhere; font-family: ui-monospace, monospace; font-size: 12px; }
+.agent-directory-input { display: flex; align-items: stretch; gap: 8px; margin-top: 7px; }
+.agent-directory-input input { margin: 0; flex: 1; font-family: ui-monospace, monospace; font-size: 13px; }
+.agent-directory-input button { flex-shrink: 0; }
+.agent-directory-browser, .agent-history-picker { padding: 12px; border: 1px solid var(--border); border-radius: 10px; margin-top: 12px; background: var(--surface-2); }
+.agent-management-dialog ul { margin: 8px 0 0; padding: 0; list-style: none; max-height: 210px; overflow: auto; }
+.agent-directory-browser li button, .agent-history-picker li button { width: 100%; justify-content: flex-start; text-align: left; border-color: transparent; background: transparent; }
+.agent-history-picker li button { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; overflow-wrap: anywhere; }
+.agent-history-picker button[aria-pressed="true"] { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.agent-management-dialog .error { padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--err) 8%, transparent); color: var(--err); overflow-wrap: anywhere; }
+.rows .agent-manage-row { display: flex; align-items: center; }
+.rows .agent-manage-row > button:first-child { flex: 1; min-width: 0; }
+.rows .agent-manage-row .agent-menu-trigger, .agent-menu-trigger { display: inline-flex; flex: 0 0 auto; width: 32px; height: 32px; align-items: center; justify-content: center; margin-right: 10px; padding: 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+.agent-menu-trigger:hover, .agent-menu-trigger[data-state="open"] { background: var(--surface-2); color: var(--text); }
+.agent-menu-content { min-width: 155px; }
+.agent-menu-item { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 6px; color: var(--err); outline: none; cursor: pointer; }
+.agent-menu-item[data-highlighted] { background: color-mix(in srgb, var(--err) 10%, transparent); }
+@media (max-width: 480px) {
+  .summary { flex-wrap: wrap; }
+  .agent-management-dialog { border-radius: 16px; max-height: min(720px, calc(100dvh - 20px)); }
+  .agent-management-dialog > header, .agent-dialog-body { padding: 18px; }
+  .agent-management-dialog footer { padding: 14px 18px; }
+  .agent-management-dialog input { font-size: 16px; }
+  .agent-management-dialog .agent-session-mode button { padding: 10px; gap: 6px; }
+  .agent-management-dialog h2 { font-size: 18px; }
+}
+@media (prefers-reduced-motion: reduce) { .agent-management-dialog button { transition: none; } }
+.agent-dialog-body > * + * { margin-top: 20px; }
+.agent-management-dialog input { font-weight: 400; }
+.agent-directory-suggestions { margin-top: 6px; padding: 5px; border: 1px solid var(--popover-border); border-radius: 10px; background: var(--popover); box-shadow: 0 6px 18px #0001; }
+.agent-management-dialog .agent-directory-suggestions ul { max-height: 180px; margin: 0; overscroll-behavior: contain; }
+.agent-directory-suggestions [role="option"] { display: flex; align-items: center; gap: 9px; padding: 9px 10px; min-height: 38px; border-radius: 6px; cursor: pointer; font-weight: 400; }
+.agent-directory-suggestions [role="option"] > span:first-of-type { overflow-wrap: anywhere; min-width: 0; }
+.agent-directory-suggestions [role="option"] > svg { flex-shrink: 0; color: var(--muted); }
+.agent-directory-suggestions [role="option"]:hover, .agent-directory-suggestions [aria-selected="true"] { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
+.agent-directory-slash { margin-left: auto; color: var(--muted); }
+.agent-directory-suggestions p { margin: 4px 5px; color: var(--muted); font-size: 11px; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }

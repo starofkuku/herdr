@@ -332,10 +332,7 @@ fn append_assistant(turn: &mut PaneSessionTurn, row: &MessageRow, parts: &[Value
     if completed.is_some() {
         turn.completed_at = completed;
     }
-    if let Some(error) = row.data.get("error").and_then(Value::as_str) {
-        turn.error = Some(error.to_string());
-        turn.status = "error".to_string();
-    }
+    append_assistant_error(turn, &row.data);
 
     for (index, part) in parts.iter().enumerate() {
         match part.get("type").and_then(Value::as_str) {
@@ -369,6 +366,33 @@ fn append_assistant(turn: &mut PaneSessionTurn, row: &MessageRow, parts: &[Value
             }
             _ => {}
         }
+    }
+}
+
+/// ZCode persists cancellation explicitly in the structured error, even when
+/// the assistant has no text or reasoning parts.
+fn append_assistant_error(turn: &mut PaneSessionTurn, data: &Value) {
+    let Some(error) = data.get("error").filter(|error| !error.is_null()) else {
+        return;
+    };
+    let details = error.get("data");
+    let message = details
+        .and_then(|details| details.get("message"))
+        .and_then(Value::as_str)
+        .or_else(|| error.as_str())
+        .map(str::to_string);
+    if details
+        .and_then(|details| details.get("turnResult"))
+        .and_then(Value::as_str)
+        == Some("cancelled")
+    {
+        turn.status = "cancelled".to_string();
+        turn.aborted_reason = message;
+        turn.error = None;
+    } else {
+        turn.status = "error".to_string();
+        turn.error = message;
+        turn.aborted_reason = None;
     }
 }
 

@@ -1,0 +1,30 @@
+.file-mention__heading,
+.file-mention__note {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.file-mention button {
+  align-items: center;
+}
+
+.file-mention button > svg,
+.file-mention button > img {
+  flex: none;
+}
+
+.file-mention__path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.file-mention .slash-menu__hint {
+  flex-wrap: wrap;
+  gap: 0.4rem 1rem;
+}

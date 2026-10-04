@@ -118,6 +118,26 @@ pub enum ResponseResult {
     AgentInfo {
         agent: AgentInfo,
     },
+    AgentLaunched {
+        pane_id: String,
+        workspace_id: String,
+        existing: bool,
+    },
+    AgentCatalog {
+        agents: Vec<super::agent_management::AgentCatalogEntry>,
+        home: String,
+    },
+    AgentSessions {
+        sessions: Vec<super::agent_management::AgentHistoryEntry>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        next_cursor: Option<usize>,
+    },
+    DirectoryList {
+        path: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        parent: Option<String>,
+        directories: Vec<super::agent_management::DirectoryEntry>,
+    },
     AgentStarted {
         agent: AgentInfo,
         argv: Vec<String>,

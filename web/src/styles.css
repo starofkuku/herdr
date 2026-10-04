@@ -4779,6 +4779,15 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
+  /*
+   * The chips row floats above the input card on the page background, so it
+   * takes the card's own measure — the same cap and centring as
+   * `.composer-row` — rather than the full container width. This is ZCode's
+   * arrangement: the attachments read as sitting on the card's top edge.
+   */
+  width: min(100%, calc(var(--reading-column) + 1.5rem));
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .pending-upload {
@@ -5262,6 +5271,8 @@ textarea {
  * the rest of the layout.
  */
 @media (max-width: 60rem) {
+  /* Hide the width-owning wrapper in both expanded and collapsed states. */
+  .file-sidebar,
   .file-tree,
   .file-preview {
     display: none;

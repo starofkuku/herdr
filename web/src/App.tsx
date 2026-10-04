@@ -303,6 +303,8 @@ export default function App() {
   const session = route.view === "agents" || route.view === "detail" ? route.session : "";
   return withActivity(
     <AgentList
+      key={`${runtime.profile.id}:${session}`}
+      client={runtime.client}
       backend={runtime.profile}
       session={session}
       agents={agents}

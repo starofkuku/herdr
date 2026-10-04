@@ -27,6 +27,16 @@ pub(super) fn command() -> Command {
                 .help("Print version and exit"),
         )
         .subcommand(completion_command())
+        .subcommand(
+            Command::new("codex")
+                .about("Run Codex with shared CLI and web interactions")
+                .arg(
+                    Arg::new("args")
+                        .num_args(0..)
+                        .trailing_var_arg(true)
+                        .allow_hyphen_values(true),
+                ),
+        )
         .subcommand(update_command())
         .subcommand(status_command())
         .subcommand(config_command())

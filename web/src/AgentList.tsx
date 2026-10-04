@@ -1,3 +1,8 @@
+import { useState } from "react";
+import { AgentLaunchDialog } from "./AgentLaunchDialog";
+import { AgentCloseButton } from "./AgentCloseButton";
+import type { GatewayClient } from "./gateway";
+import "./agentManagement.css";
 import { AgentIcon } from "./AgentIcon";
 import { BackendBadge } from "./BackendBadge";
 import { shortenPath, statusLabel, type AgentView } from "./api";
@@ -7,6 +12,7 @@ import { ThemeToggle } from "./ThemeToggle";
 
 /** Agent overview grouped by project, matching the reference layout. */
 export function AgentList({
+  client,
   backend,
   session,
   agents,
@@ -17,6 +23,7 @@ export function AgentList({
   onLeave,
   onRetry,
 }: {
+  client: GatewayClient;
   /** The gateway this session is on. */
   backend: { name: string; url: string };
   session: string;
@@ -28,6 +35,7 @@ export function AgentList({
   onLeave: () => void;
   onRetry: () => void;
 }) {
+  const [creating, setCreating] = useState(false);
   const groups = new Map<string, AgentView[]>();
   for (const agent of agents) {
     const list = groups.get(agent.project) ?? [];
@@ -71,7 +79,11 @@ export function AgentList({
             <span className="attention">{needsAttention} active</span>
           </>
         ) : null}
+        <button type="button" className="agent-add" disabled={connection !== "ready"}
+          onClick={() => setCreating(true)}>＋ 新增 Agent</button>
       </div>
+      {creating ? <AgentLaunchDialog client={client} agents={agents} connected={connection === "ready"}
+        onOpen={onOpen} onRefresh={onRefresh} onClose={() => setCreating(false)} /> : null}
 
       {detail ? <p className="error banner">{detail}</p> : null}
 
@@ -94,7 +106,7 @@ export function AgentList({
               </header>
               <ul className="rows">
                 {items.map((agent) => (
-                  <li key={agent.paneId}>
+                  <li key={agent.paneId} className="agent-manage-row">
                     <button type="button" onClick={() => onOpen(agent.paneId)}>
                       <span className={`dot ${agent.status}`} aria-hidden="true" />
                       <span className="row-main">
@@ -108,6 +120,7 @@ export function AgentList({
                       </span>
                       <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
                     </button>
+                    <AgentCloseButton agent={agent} client={client} connected={connection === "ready"} onRefresh={onRefresh} />
                   </li>
                 ))}
               </ul>

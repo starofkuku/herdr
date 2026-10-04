@@ -1,0 +1,27 @@
+.settings-panel .notification-panel__head {
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.settings-panel__actions,
+.command-transfer {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.settings-panel__actions {
+  margin-left: auto;
+}
+
+.command-transfer__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+}
+
+.command-transfer__feedback {
+  margin: 0 0 0.75rem;
+  overflow-wrap: anywhere;
+}
