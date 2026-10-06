@@ -76,6 +76,11 @@ impl std::fmt::Display for KeyError {
 }
 
 impl WebKey {
+    /// Used only on the local control socket; never log this payload.
+    pub(super) fn stop_request(&self) -> String {
+        serde_json::json!({"method": "web.stop", "key": self.secret}).to_string()
+    }
+
     /// Loads the key from the environment, then a key file, then the config
     /// file.
     ///

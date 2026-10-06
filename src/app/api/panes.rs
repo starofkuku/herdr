@@ -174,6 +174,24 @@ impl App {
         encode_success(id, ResponseResult::PaneInfo { pane })
     }
 
+    /// Answers the narrow read a status watcher repeats.
+    ///
+    /// Deliberately separate from [`Self::handle_pane_get`]: everything the full
+    /// read resolves and the watcher does not read — paths, diagnostics, tokens,
+    /// the interaction request, and the scroll metrics that lock the terminal
+    /// core — is work this path must not do, because it runs on every tick of
+    /// every subscription.
+    pub(super) fn handle_pane_presentation(&mut self, id: String, target: PaneTarget) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+        let Some(presentation) = self.pane_presentation(ws_idx, pane_id) else {
+            return pane_not_found(id, &target.pane_id);
+        };
+
+        encode_success(id, ResponseResult::PanePresentation { presentation })
+    }
+
     pub(super) fn handle_pane_focus(&mut self, id: String, target: PaneTarget) -> String {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
             return pane_not_found(id, &target.pane_id);
@@ -1441,6 +1459,51 @@ impl App {
         )
     }
 
+    /// The models a pane's agent can be switched to.
+    ///
+    /// Read from the agent's configuration rather than by running its CLI: the
+    /// question is about a file, and running a process to answer it would both
+    /// cost more and risk describing a different catalog than the running agent
+    /// would accept.
+    ///
+    /// A pane whose agent keeps no such catalog, or one herdr cannot read,
+    /// answers with an empty list and says why — that is an ordinary state for
+    /// most agents, not a failure to respond.
+    pub(super) fn handle_pane_models(
+        &mut self,
+        id: String,
+        params: crate::api::schema::PaneModelsParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+
+        let (mut models, detail) = match self.pane_models(ws_idx, pane_id) {
+            Ok(models) => (models, None),
+            Err(message) => (Vec::new(), Some(message)),
+        };
+
+        if let Some((provider, model)) = self.pane_current_model(ws_idx, pane_id) {
+            for entry in &mut models {
+                entry.current = entry.provider == provider && entry.id == model;
+            }
+        }
+
+        encode_success(
+            id,
+            ResponseResult::PaneModels {
+                models: crate::api::schema::PaneModelsResult {
+                    pane_id: public_pane_id,
+                    models,
+                    detail,
+                },
+            },
+        )
+    }
+
     /// The subagent runs started by the pane's agent.
     ///
     /// An agent with no transcript, or one that spawns no subagents, has none.
@@ -1508,6 +1571,35 @@ impl App {
 
     /// The pane's transcript path and agent label, when the agent reported a
     /// path-shaped session reference.
+    /// The models the pane's agent offers, from its own configuration.
+    ///
+    /// Only pi publishes a catalog herdr can read; every other agent answers
+    /// with the reason instead, which the caller reports as a note rather than
+    /// as an error.
+    fn pane_models(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Result<Vec<crate::api::schema::PaneModel>, String> {
+        let agent = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.pane_state(pane_id))
+            .and_then(|pane| self.state.terminals.get(&pane.attached_terminal_id))
+            .and_then(|terminal| terminal.effective_agent_label());
+        if agent != Some("pi") {
+            return Err("this agent does not publish a model catalog".to_string());
+        }
+        crate::app::agent_models::read().map_err(|err| err.to_string())
+    }
+
+    /// The model a pane is currently running, when its transcript records one.
+    fn pane_current_model(&self, ws_idx: usize, pane_id: PaneId) -> Option<(String, String)> {
+        let (path, _agent) = self.pane_transcript(ws_idx, pane_id)?;
+        crate::app::agent_models::current_from_session(std::path::Path::new(&path))
+    }
+
     fn pane_transcript(&self, ws_idx: usize, pane_id: PaneId) -> Option<(String, String)> {
         let pane = self.state.workspaces.get(ws_idx)?.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;

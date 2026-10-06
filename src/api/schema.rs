@@ -6,6 +6,7 @@ pub mod common;
 pub mod events;
 pub mod files;
 pub mod integrations;
+pub mod load;
 pub mod panes;
 pub mod plugins;
 pub mod response;
@@ -22,6 +23,7 @@ pub use common::*;
 pub use events::*;
 pub use files::*;
 pub use integrations::*;
+pub use load::*;
 pub use panes::*;
 pub use plugins::*;
 pub use response::*;
@@ -61,6 +63,8 @@ pub enum Method {
     ServerAgentManifests(EmptyParams),
     #[serde(rename = "server.reload_agent_manifests")]
     ServerReloadAgentManifests(EmptyParams),
+    #[serde(rename = "server.load")]
+    ServerLoad(EmptyParams),
     #[serde(rename = "config.notification.get")]
     ConfigNotificationGet(EmptyParams),
     #[serde(rename = "config.notification.set")]
@@ -191,6 +195,10 @@ pub enum Method {
     PaneCurrent(PaneCurrentParams),
     #[serde(rename = "pane.get")]
     PaneGet(PaneTarget),
+    /// A watch's own read of a pane: the fields that can change what an agent
+    /// status watcher reports, without the full pane state it would discard.
+    #[serde(rename = "pane.presentation")]
+    PanePresentation(PaneTarget),
     #[serde(rename = "pane.focus")]
     PaneFocus(PaneTarget),
     #[serde(rename = "pane.rename")]
@@ -209,6 +217,10 @@ pub enum Method {
     /// The agent's own todo list for a pane.
     #[serde(rename = "pane.todos")]
     PaneTodos(PaneTodosParams),
+    /// The models the pane's agent can be switched to. Read from the agent's own
+    /// configuration, not asked of a running process.
+    #[serde(rename = "pane.models")]
+    PaneModels(PaneModelsParams),
     /// The subagent runs the pane's agent started.
     #[serde(rename = "pane.subagents")]
     PaneSubagents(PaneSubagentsParams),

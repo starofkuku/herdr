@@ -969,10 +969,19 @@ export function ConversationView({
   working = false,
   onPreviewImage,
   status,
+  load,
 }: {
   client: DetailClient;
   /** The session's live state, floating over the conversation's top right. */
   status?: ReactNode;
+  /**
+   * The server's own cost, as a strip above the reading area.
+   *
+   * Rendered by the detail view rather than here: it describes the runtime the
+   * whole screen talks to, not this conversation, and it must keep its value
+   * while a reader pages through turns.
+   */
+  load?: ReactNode;
   /** Every run recorded for this pane, running or finished. */
   subagents?: SubagentRun[];
   /** Opens the subagent drawer, which holds each run's full detail. */
@@ -1319,6 +1328,7 @@ export function ConversationView({
   // would be no way to reach it other than by scrolling.
   return (
     <div className="conversation-wrap" onTouchStart={wakeNavigator}>
+      {load}
       {status}
       {/*
         Everything but the file tree lives here. A wrapper is needed rather than

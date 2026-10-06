@@ -552,6 +552,7 @@ impl HeadlessServer {
     /// - Renders virtually and streams frames to clients
     pub async fn run(&mut self) -> io::Result<()> {
         crate::logging::startup("server");
+        let _diagnostics = super::diagnostics::start();
 
         // Register SIGINT handler for graceful shutdown.
         let should_quit = self.should_quit.clone();
@@ -568,6 +569,7 @@ impl HeadlessServer {
 
         loop {
             crate::render_prof::event("loop.tick");
+            super::diagnostics::tick(self.app.api_rx.len(), self.server_event_rx.len());
             crate::render_prof::flush_if_due();
             self.app.reap_finished_custom_commands();
 
@@ -597,6 +599,7 @@ impl HeadlessServer {
 
             // 2. Drain a bounded internal-event batch. API handlers perform an
             // exhaustive forwarding-aware drain before reading pane/runtime state.
+            super::diagnostics::stage("internal_events");
             if self.drain_internal_events_with_forwarding() {
                 needs_render = true;
                 needs_full_render = true;
@@ -610,6 +613,7 @@ impl HeadlessServer {
             }
 
             // 3. Drain API requests.
+            super::diagnostics::stage("api_queue");
             if self.pane_graphics_runtime_active() {
                 let api_impact = self.drain_api_requests_with_render_impact();
                 record_render_impact("api_requests", api_impact);
@@ -635,9 +639,11 @@ impl HeadlessServer {
             self.app.sync_session_save_schedule();
 
             // 4. Accept new client connections.
+            super::diagnostics::stage("cli_accept");
             self.accept_client_connections()?;
 
             // 5. Drain server events from client threads.
+            super::diagnostics::stage("cli_events");
             if self.pane_graphics_runtime_active() {
                 let server_impact = self.drain_server_events_with_render_impact();
                 record_render_impact("server_events", server_impact);
@@ -664,6 +670,7 @@ impl HeadlessServer {
             }
 
             // 6. Handle scheduled tasks.
+            super::diagnostics::stage("scheduled_tasks");
             let now = Instant::now();
             if self.handle_scheduled_tasks_headless(now, needs_render) {
                 needs_render = true;
@@ -699,6 +706,7 @@ impl HeadlessServer {
             self.stream_host_keyboard_enhancement_flags();
 
             // 7. Render virtually and stream frames.
+            super::diagnostics::stage("render");
             if needs_render && self.app.can_render_now(now) {
                 crate::render_prof::event("render.attempt");
                 let render_request = self.app.render_dirty.take();
@@ -766,6 +774,7 @@ impl HeadlessServer {
             }
 
             // 8. Wait for next event.
+            super::diagnostics::stage("wait_deadline");
             let next_deadline = self
                 .app
                 .next_headless_loop_deadline_with_git_refresh(
@@ -782,6 +791,7 @@ impl HeadlessServer {
                 .fold(next_deadline, |deadline, pending| {
                     Some(deadline.map_or(pending, |current| current.min(pending)))
                 });
+            super::diagnostics::stage("wait");
             let event = {
                 tokio::select! {
                     maybe_api = self.app.api_rx.recv() => match maybe_api {
@@ -801,6 +811,7 @@ impl HeadlessServer {
                 }
             };
 
+            super::diagnostics::wake();
             match event {
                 LoopEvent::Timer => {}
                 LoopEvent::Internal(ev) => {
@@ -811,6 +822,7 @@ impl HeadlessServer {
                     }
                 }
                 LoopEvent::Api(msg) => {
+                    super::diagnostics::stage("api_event");
                     if self.pane_graphics_runtime_active() {
                         let impact = self.handle_api_request_with_render_impact(*msg);
                         record_render_impact("api_requests", impact);
@@ -832,6 +844,8 @@ impl HeadlessServer {
                     }
                 }
                 LoopEvent::ServerEvent(ev) => {
+                    super::diagnostics::stage("cli_event");
+                    super::diagnostics::client_event();
                     if self.pane_graphics_runtime_active() {
                         let impact = self.handle_server_event_with_render_impact(ev);
                         record_render_impact("server_events", impact);
@@ -1104,6 +1118,7 @@ impl HeadlessServer {
     }
 
     fn sync_foreground_client_state(&mut self) {
+        let _diagnostics = super::diagnostics::scope("foreground_sync");
         let Some(client_id) = self.foreground_client_id else {
             self.effective_size = (MIN_COLS, MIN_ROWS);
             self.app.state.outer_terminal_focus = None;
@@ -1655,6 +1670,7 @@ impl HeadlessServer {
     fn drain_server_events(&mut self) -> bool {
         let mut changed = false;
         while let Ok(ev) = self.server_event_rx.try_recv() {
+            super::diagnostics::client_event();
             changed |= self.handle_server_event(ev);
         }
         changed
@@ -1664,6 +1680,7 @@ impl HeadlessServer {
     fn drain_server_events_with_render_impact(&mut self) -> RenderImpact {
         let mut impact = RenderImpact::None;
         while let Ok(ev) = self.server_event_rx.try_recv() {
+            super::diagnostics::client_event();
             impact.merge(self.handle_server_event_with_render_impact(ev));
         }
         impact
@@ -2722,6 +2739,7 @@ impl HeadlessServer {
     }
 
     fn drain_all_internal_events_with_forwarding(&mut self) -> bool {
+        let _diagnostics = super::diagnostics::scope("internal_events.exhaustive");
         let mut changed = false;
         loop {
             let (had_event, batch_changed) =
@@ -3879,6 +3897,11 @@ impl HeadlessServer {
             &msg.request.method,
             api::schema::Method::PaneGraphicsStreamSet(_)
         ) {
+            let _request = super::diagnostics::request(
+                "pane.graphics.stream.set",
+                self.app.api_rx.len(),
+                self.server_event_rx.len(),
+            );
             return self.handle_pane_graphics_stream_frame(msg);
         }
         if self.handle_api_request_with_shutdown_check_inner(msg, false) {
@@ -3893,6 +3916,11 @@ impl HeadlessServer {
         msg: api::ApiRequestMessage,
         skip_default_workspace_for_request: bool,
     ) -> bool {
+        let _request = super::diagnostics::request(
+            api::api_method_name(&msg.request.method),
+            self.app.api_rx.len(),
+            self.server_event_rx.len(),
+        );
         if self.shutting_down {
             // During shutdown, respond with server_unavailable.
             let response = serde_json::to_string(&api::schema::ErrorResponse {
@@ -4065,6 +4093,7 @@ impl HeadlessServer {
                 .unwrap_or_else(|_| "{}".to_string())
             })
         } else {
+            let _diagnostics = super::diagnostics::scope("api.dispatch");
             self.app
                 .handle_api_request_after_internal_events_drained(msg.request)
         };
@@ -5302,6 +5331,9 @@ pub fn run_server() -> io::Result<()> {
     }
 
     let loaded_config = config::Config::load();
+    // The recurring records are opt-in: they are for investigating a server,
+    // not for operating one.
+    super::diagnostics::set_enabled(loaded_config.config.advanced.diagnostic_logging);
     let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
     let event_hub = api::EventHub::default();
 

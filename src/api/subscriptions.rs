@@ -70,7 +70,8 @@ struct PanePresentationSnapshot {
 }
 
 impl PanePresentationSnapshot {
-    fn from(pane: &crate::api::schema::PaneInfo) -> Self {
+    /// The same three fields, from the narrow read a watcher repeats.
+    fn from_presentation(pane: &crate::api::schema::PanePresentationResult) -> Self {
         Self {
             title: pane.title.clone(),
             display_agent: pane.display_agent.clone(),
@@ -257,9 +258,10 @@ impl ActiveSubscription {
                 agent_status,
             } => {
                 let last_sequence = event_hub.current_sequence();
-                let probe = pane_get(format!("{request_id}:sub:{index}:probe"), &pane_id, api_tx)?;
+                let probe =
+                    pane_presentation(format!("{request_id}:sub:{index}:probe"), &pane_id, api_tx)?;
                 let last_status = probe.agent_status;
-                let last_presentation = PanePresentationSnapshot::from(&probe);
+                let last_presentation = PanePresentationSnapshot::from_presentation(&probe);
                 let initial_event = agent_status
                     .is_some_and(|wanted| wanted == probe.agent_status)
                     .then_some(PaneAgentStatusChangedEvent {
@@ -452,7 +454,7 @@ impl ActiveAgentStatusChangedSubscription {
         }
 
         let before_snapshot_sequence = self.last_sequence;
-        let pane = pane_get(
+        let pane = pane_presentation(
             format!("{}:pane", self.request_prefix),
             &self.pane_id,
             api_tx,
@@ -472,10 +474,10 @@ impl ActiveAgentStatusChangedSubscription {
 
     fn event_from_snapshot(
         &mut self,
-        pane: crate::api::schema::PaneInfo,
+        pane: crate::api::schema::PanePresentationResult,
     ) -> Option<SubscriptionEventEnvelope> {
         let current_status = pane.agent_status;
-        let current_presentation = PanePresentationSnapshot::from(&pane);
+        let current_presentation = PanePresentationSnapshot::from_presentation(&pane);
         let previous_status = self.last_status.replace(current_status);
         let previous_presentation = self.last_presentation.replace(current_presentation.clone());
         let presentation_changed = previous_presentation
@@ -585,6 +587,54 @@ fn pane_read(
         error: ErrorBody {
             code: "internal_error".into(),
             message: "failed to decode pane read result".into(),
+        },
+    })
+}
+
+/// The narrow read a repeating agent-status watch makes.
+///
+/// Same shape of request as [`pane_get`] but answered from the pane's
+/// presentation alone, so a subscription's timer tick does not resolve the
+/// paths, diagnostics, interaction state, or terminal scroll metrics it would
+/// then throw away.
+fn pane_presentation(
+    request_id: String,
+    pane_id: &str,
+    api_tx: &ApiRequestSender,
+) -> Result<crate::api::schema::PanePresentationResult, ErrorResponse> {
+    let response = dispatch_to_app_with_timeout(
+        Request {
+            id: request_id.clone(),
+            method: Method::PanePresentation(crate::api::schema::PaneTarget {
+                pane_id: pane_id.to_string(),
+            }),
+        },
+        api_tx,
+        Some(APP_RESPONSE_TIMEOUT),
+    );
+    let value: serde_json::Value = serde_json::from_str(&response).map_err(|_| ErrorResponse {
+        id: request_id.clone(),
+        error: ErrorBody {
+            code: "internal_error".into(),
+            message: "failed to decode pane presentation response".into(),
+        },
+    })?;
+    if value.get("error").is_some() {
+        let response =
+            serde_json::from_value::<ErrorResponse>(value).map_err(|_| ErrorResponse {
+                id: request_id,
+                error: ErrorBody {
+                    code: "internal_error".into(),
+                    message: "failed to decode pane presentation error".into(),
+                },
+            })?;
+        return Err(response);
+    }
+    serde_json::from_value(value["result"]["presentation"].clone()).map_err(|_| ErrorResponse {
+        id: request_id,
+        error: ErrorBody {
+            code: "internal_error".into(),
+            message: "failed to decode pane presentation result".into(),
         },
     })
 }

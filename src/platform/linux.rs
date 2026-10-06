@@ -383,6 +383,30 @@ pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
     super::parse_agent_env_hint(&environ)
 }
 
+/// Shared services must not route hooks using a launching pane's environment.
+pub(crate) async fn connect_shared_codex(path: &str) -> std::io::Result<tokio::net::UnixStream> {
+    let socket = tokio::net::UnixStream::connect(path).await?;
+    let pid = socket
+        .peer_cred()?
+        .pid()
+        .and_then(|pid| u32::try_from(pid).ok())
+        .ok_or_else(|| std::io::Error::other("Codex socket did not identify its server process"))?;
+    let environ = std::fs::read(format!("/proc/{pid}/environ"))?;
+    if environ.split(|byte| *byte == 0).any(|entry| {
+        entry.starts_with(b"HERDR_PANE_ID=")
+            || entry.starts_with(b"HERDR_CODEX_BRIDGE=")
+            || entry.starts_with(b"CODEX_THREAD_ID=")
+    }) {
+        return Err(std::io::Error::other(
+            "The existing Codex daemon inherited pane-specific environment variables. \
+             Sharing it could send hooks to the wrong pane. Close active Codex sessions \
+             and restart the daemon from outside Herdr before retrying; Herdr will not \
+             stop the daemon or create another app-server automatically.",
+        ));
+    }
+    Ok(socket)
+}
+
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
     let Some(session_id) = process_session_id(child_pid) else {
         return Vec::new();

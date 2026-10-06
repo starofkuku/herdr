@@ -249,9 +249,13 @@ pub(crate) fn subscribe(
     should_stop: &AtomicBool,
     mut on_line: impl FnMut(&str) -> bool,
 ) -> io::Result<()> {
+    let mut diagnostics = crate::api::subscription_diagnostics::SubscriptionDiagnostics::gateway();
+    diagnostics.reason("connect_error");
     let mut stream = crate::ipc::connect_local_stream(socket)?;
     // Applied before the request is written so the very first read is bounded.
+    diagnostics.reason("configure_timeout_error");
     stream.set_recv_timeout(Some(SUBSCRIPTION_READ_TIMEOUT))?;
+    diagnostics.reason("request_write_error");
     stream.write_all(request_line.as_bytes())?;
     if !request_line.ends_with('\n') {
         stream.write_all(b"\n")?;
@@ -261,6 +265,7 @@ pub(crate) fn subscribe(
     let mut reader = io::BufReader::new(stream);
     loop {
         if should_stop.load(Ordering::Relaxed) {
+            diagnostics.reason("cancelled");
             debug!("subscription cancelled");
             return Ok(());
         }
@@ -268,6 +273,7 @@ pub(crate) fn subscribe(
         let mut line = String::new();
         match reader.read_line(&mut line) {
             Ok(0) => {
+                diagnostics.reason("server_eof");
                 // A clean EOF is the session server going away — a restart, a
                 // stop — not an orderly end of the subscription from this
                 // side. Returning it as an error is what makes the caller tell
@@ -285,9 +291,11 @@ pub(crate) fn subscribe(
                     continue;
                 }
                 if !on_line(&line) {
+                    diagnostics.reason("consumer_stopped");
                     debug!("subscription consumer stopped");
                     return Ok(());
                 }
+                diagnostics.forwarded();
             }
             // A wait with no data: expected, and the point of the timeout. The
             // stop flag is checked at the top of the loop.
@@ -303,7 +311,10 @@ pub(crate) fn subscribe(
             // already buffered: `read_line` keeps its partial line in `line` and
             // the next call appends to it, so continuing is safe.
             Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-            Err(err) => return Err(err),
+            Err(err) => {
+                diagnostics.reason("read_error");
+                return Err(err);
+            }
         }
     }
 }

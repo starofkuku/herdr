@@ -9,9 +9,10 @@ use super::integrations::{
 };
 use super::panes::{
     LayoutDescription, PaneAnswerInteractionResult, PaneEdgesResult, PaneFocusDirectionResult,
-    PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneMoveResult, PaneNeighborResult,
-    PaneProcessInfo, PaneReadResult, PaneResizeResult, PaneSessionResult, PaneStageUploadResult,
-    PaneSubagentsResult, PaneSwapResult, PaneTodosResult, PaneZoomResult,
+    PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneModelsResult, PaneMoveResult,
+    PaneNeighborResult, PanePresentationResult, PaneProcessInfo, PaneReadResult, PaneResizeResult,
+    PaneSessionResult, PaneStageUploadResult, PaneSubagentsResult, PaneSwapResult, PaneTodosResult,
+    PaneZoomResult,
 };
 use super::plugins::{
     InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
@@ -198,6 +199,10 @@ pub enum ResponseResult {
     PaneEdges {
         edges: PaneEdgesResult,
     },
+    /// The light answer a repeating agent-status watcher reads.
+    PanePresentation {
+        presentation: PanePresentationResult,
+    },
     PaneFocusDirection {
         focus: PaneFocusDirectionResult,
     },
@@ -213,6 +218,10 @@ pub enum ResponseResult {
     /// The agent's own todo list, which may be empty.
     PaneTodos {
         todos: PaneTodosResult,
+    },
+    /// The models the pane's agent offers, and which one it is running.
+    PaneModels {
+        models: PaneModelsResult,
     },
     /// The subagent runs started by the pane's agent, which may be empty.
     PaneSubagents {

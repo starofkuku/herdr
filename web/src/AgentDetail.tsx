@@ -33,6 +33,8 @@ import { FileSearchPalette } from "./FileSearchPalette";
 import { FileTreePanel } from "./FileTreePanel";
 import { SubagentDrawer } from "./SubagentBar";
 import { StatusPanel } from "./StatusPanel";
+import { ServerLoadBar } from "./ServerLoadBar";
+import { AgentModelPicker } from "./AgentModelPicker";
 import { SUBAGENT_POLL_MS, isRunning, loadSubagents, type SubagentRun } from "./subagents";
 import { TODO_POLL_MS, loadTodos, type TodoItem } from "./todos";
 import { ThemeToggle } from "./ThemeToggle";
@@ -494,6 +496,8 @@ export function AgentDetail({
    * only has to choose between a parsed conversation and the pane's own text.
    */
   const hasConversation = agent?.hasConversation ?? false;
+  const awaitingConversation = !hasConversation && !!agent?.sessionId
+    && (agent.agent === "claude" || agent.agent === "codex");
   // Read inside the subscription callback, which is created once per pane and
   // would otherwise capture a stale `blocked` value.
   const blockedRef = useRef(false);
@@ -1283,9 +1287,17 @@ export function AgentDetail({
               onOpenSubagents={() => setDrawerOpen(true)}
             />
           }
+          load={<ServerLoadBar client={client} />}
           subagents={subagents.runs}
           onOpenSubagents={() => setDrawerOpen(true)}
         />
+      ) : awaitingConversation ? (
+        <div className="conversation-wrap" role="status">
+          <div className="conversation">
+            <p className="pager">会话已识别，正在等待可读取的会话记录。</p>
+            <p className="pager">新会话尚无记录时，可以先发送消息；记录就绪后会自动显示在这里。</p>
+          </div>
+        </div>
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
           {loadingOlder ? <p className="pager">loading earlier output…</p> : null}
@@ -1372,6 +1384,12 @@ export function AgentDetail({
               text grows the field either way; this only moves the floor.
             */}
             <div className="composer-actions__end">
+              <AgentModelPicker
+                client={client}
+                paneId={paneId ?? ""}
+                agent={agent?.agent}
+                onSwitched={onChanged}
+              />
               <button
                 type="button"
                 className="expand"

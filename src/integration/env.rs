@@ -28,10 +28,17 @@ pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
 }
 
 pub(crate) fn pi_extension_dir() -> io::Result<PathBuf> {
-    Ok(
-        config_dir_from_env_or_home(PI_CODING_AGENT_DIR_ENV_VAR, &[".pi", "agent"])?
-            .join("extensions"),
-    )
+    Ok(pi_agent_dir()?.join("extensions"))
+}
+
+/// pi's own state directory, which holds its model catalog next to the
+/// extensions herdr installs into.
+///
+/// `PI_CODING_AGENT_DIR` relocates it, the same way it relocates the extension
+/// directory, so a catalog lookup respects that override rather than assuming
+/// `~/.pi/agent`.
+pub(crate) fn pi_agent_dir() -> io::Result<PathBuf> {
+    config_dir_from_env_or_home(PI_CODING_AGENT_DIR_ENV_VAR, &[".pi", "agent"])
 }
 
 pub(crate) fn grok_hooks_dir() -> io::Result<PathBuf> {

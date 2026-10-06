@@ -347,6 +347,7 @@ fn handle_request(
             request.id,
             super::agent_catalog::directories(&params),
         ),
+        Method::ServerLoad(_) => super::server_load::response(request.id),
         Method::Ping(_) => serde_json::to_string(&SuccessResponse {
             id: request.id,
             result: ResponseResult::Pong {
@@ -368,7 +369,7 @@ fn handle_request(
     }
 }
 
-fn api_method_name(method: &Method) -> &'static str {
+pub(crate) fn api_method_name(method: &Method) -> &'static str {
     match method {
         Method::Ping(_) => "ping",
         Method::ServerStop(_) => "server.stop",
@@ -376,6 +377,7 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::ServerReloadConfig(_) => "server.reload_config",
         Method::ServerAgentManifests(_) => "server.agent_manifests",
         Method::ServerReloadAgentManifests(_) => "server.reload_agent_manifests",
+        Method::ServerLoad(_) => "server.load",
         Method::ConfigNotificationGet(_) => "config.notification.get",
         Method::ConfigNotificationSet(_) => "config.notification.set",
         Method::NotificationShow(_) => "notification.show",
@@ -441,6 +443,7 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneList(_) => "pane.list",
         Method::PaneCurrent(_) => "pane.current",
         Method::PaneGet(_) => "pane.get",
+        Method::PanePresentation(_) => "pane.presentation",
         Method::PaneFocus(_) => "pane.focus",
         Method::PaneRename(_) => "pane.rename",
         Method::PaneSendText(_) => "pane.send_text",
@@ -449,6 +452,7 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneRead(_) => "pane.read",
         Method::PaneSession(_) => "pane.session",
         Method::PaneTodos(_) => "pane.todos",
+        Method::PaneModels(_) => "pane.models",
         Method::PaneSubagents(_) => "pane.subagents",
         Method::PaneGraphicsSet(_) => "pane.graphics.set",
         Method::PaneGraphicsClear(_) => "pane.graphics.clear",
@@ -784,13 +788,17 @@ fn stream_subscriptions(
     event_hub: &EventHub,
     running: &Arc<AtomicBool>,
 ) -> std::io::Result<()> {
+    let mut diagnostics =
+        crate::api::subscription_diagnostics::SubscriptionDiagnostics::server(&request_id);
     let mut subscriptions = Vec::with_capacity(params.subscriptions.len());
     for (index, subscription) in params.subscriptions.into_iter().enumerate() {
         let active =
             match ActiveSubscription::new(subscription, &request_id, index, api_tx, event_hub) {
                 Ok(active) => active,
                 Err(response) => {
+                    diagnostics.reason("initialization_rejected");
                     if let Err(err) = write_json_line(&mut stream, &response) {
+                        diagnostics.reason("initialization_response_write_error");
                         if is_connection_closed_error(&err) {
                             return Ok(());
                         }
@@ -802,6 +810,7 @@ fn stream_subscriptions(
         subscriptions.push(active);
     }
 
+    diagnostics.reason("ack_write_error");
     if let Err(err) = write_json_line(
         &mut stream,
         &SuccessResponse {
@@ -816,18 +825,26 @@ fn stream_subscriptions(
     }
 
     loop {
+        diagnostics.reason("peer_check_error");
         if should_stop_connection(&mut stream, running)? {
+            diagnostics.reason(if running.load(Ordering::Relaxed) {
+                "client_disconnected"
+            } else {
+                "server_shutdown"
+            });
             return Ok(());
         }
 
         for subscription in &mut subscriptions {
             if let Some(event) = subscription.poll(api_tx, event_hub) {
+                diagnostics.reason("event_write_error");
                 if let Err(err) = write_json_line(&mut stream, &event) {
                     if is_connection_closed_error(&err) {
                         return Ok(());
                     }
                     return Err(err);
                 }
+                diagnostics.forwarded();
             }
         }
         std::thread::sleep(CONNECTION_POLL_INTERVAL);
@@ -1041,6 +1058,28 @@ mod tests {
                             "unexpected_dispatch",
                             "events.wait should be handled by the api server".into(),
                         ))
+                        .unwrap(),
+                    // The status watcher reads the narrow shape, so the mock has
+                    // to answer it the way the server does.
+                    Method::PanePresentation(_) => msg
+                        .respond_to
+                        .send(
+                            serde_json::to_string(&SuccessResponse {
+                                id: msg.request.id,
+                                result: ResponseResult::PanePresentation {
+                                    presentation: crate::api::schema::PanePresentationResult {
+                                        pane_id: "pane_1".into(),
+                                        workspace_id: "ws_1".into(),
+                                        agent: None,
+                                        agent_status,
+                                        title: None,
+                                        display_agent: None,
+                                        state_labels: std::collections::HashMap::new(),
+                                    },
+                                },
+                            })
+                            .unwrap(),
+                        )
                         .unwrap(),
                     other => panic!("unexpected request: {other:?}"),
                 }
@@ -1281,15 +1320,23 @@ mod tests {
         let responder = std::thread::spawn(move || {
             let mut pane_get_count = 0;
             while let Some(msg) = api_rx.blocking_recv() {
-                let Method::PaneGet(_) = msg.request.method else {
+                let Method::PanePresentation(_) = msg.request.method else {
                     panic!("unexpected request: {:?}", msg.request.method);
                 };
                 pane_get_count += 1;
                 let response = if pane_get_count == 1 {
                     serde_json::to_string(&SuccessResponse {
                         id: msg.request.id,
-                        result: ResponseResult::PaneInfo {
-                            pane: pane_info("pane_1", crate::api::schema::AgentStatus::Unknown),
+                        result: ResponseResult::PanePresentation {
+                            presentation: crate::api::schema::PanePresentationResult {
+                                pane_id: "pane_1".into(),
+                                workspace_id: "ws_1".into(),
+                                agent: None,
+                                agent_status: crate::api::schema::AgentStatus::Unknown,
+                                title: None,
+                                display_agent: None,
+                                state_labels: std::collections::HashMap::new(),
+                            },
                         },
                     })
                     .unwrap()

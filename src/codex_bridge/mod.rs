@@ -2,11 +2,27 @@
 mod mapping;
 mod pane;
 mod session;
+#[cfg(target_os = "linux")]
+mod shared;
+#[cfg(target_os = "linux")]
+mod shared_resume;
 mod transport;
 
 use serde_json::json;
 use std::io;
 use std::process::{Child, Command, Stdio};
+
+/// Keep managed starts and restores on the same protocol connection path.
+pub(crate) fn launch_argv(args: &[String]) -> io::Result<Vec<String>> {
+    let executable = std::env::current_exe()?;
+    let mut argv = vec![
+        executable.to_string_lossy().into_owned(),
+        "codex".into(),
+        "--".into(),
+    ];
+    argv.extend_from_slice(args);
+    Ok(argv)
+}
 
 pub(super) struct OwnedChild(Child);
 impl Drop for OwnedChild {
@@ -131,13 +147,7 @@ async fn launch(
     let mut bytes = [0u8; 32];
     getrandom::fill(&mut bytes).map_err(io::Error::other)?;
     let token: String = bytes.iter().map(|byte| format!("{byte:02x}")).collect();
-    let mut server = spawn_server(server_args, &cwd)?;
-    let receive = transport::read(&mut server.0)?;
-    let stdin = server
-        .0
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::other("Missing app-server stdin"))?;
+    let upstream = connect(server_args, &cwd).await?;
     let cli = OwnedChild(
         Command::new("codex")
             .args([
@@ -157,12 +167,50 @@ async fn launch(
     transport::serve(
         listener,
         token,
-        receive,
-        stdin,
+        upstream.receive,
+        upstream.send,
         pane::Pane::start(pane_id),
         cli,
     )
     .await
+}
+
+struct Upstream {
+    receive: tokio::sync::mpsc::UnboundedReceiver<serde_json::Value>,
+    send: tokio::sync::mpsc::UnboundedSender<serde_json::Value>,
+    _server: Option<OwnedChild>,
+    #[cfg(target_os = "linux")]
+    _shared: Option<shared::Shared>,
+}
+
+async fn connect(server_args: Vec<String>, cwd: &std::path::Path) -> io::Result<Upstream> {
+    // Arbitrary CLI config overrides can change process-scoped services. Keep
+    // their existing isolated semantics instead of silently losing overrides.
+    #[cfg(target_os = "linux")]
+    if server_args.is_empty() {
+        let connection = shared::connect().await?;
+        return Ok(Upstream {
+            receive: connection.receive,
+            send: connection.send,
+            _server: None,
+            _shared: Some(connection.owner),
+        });
+    }
+    eprintln!("Codex bridge: using an isolated app-server for this platform or explicit server configuration.");
+    let mut server = spawn_server(server_args, cwd)?;
+    let receive = transport::read(&mut server.0)?;
+    let stdin = server
+        .0
+        .stdin
+        .take()
+        .ok_or_else(|| io::Error::other("Missing app-server stdin"))?;
+    Ok(Upstream {
+        receive,
+        send: transport::writer(stdin),
+        _server: Some(server),
+        #[cfg(target_os = "linux")]
+        _shared: None,
+    })
 }
 
 fn validate_option(arg: &str) -> io::Result<()> {

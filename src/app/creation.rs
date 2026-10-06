@@ -473,6 +473,34 @@ impl App {
         })
     }
 
+    /// Resolves only what a repeating agent-status watch reads.
+    ///
+    /// The sibling of [`Self::pane_info`] for the one caller that runs on a
+    /// timer. It skips every field that takes real work to produce — the two
+    /// working directories, the terminal title and its stripped form, metadata
+    /// tokens, the diagnostics and interaction snapshots, and the scroll metrics
+    /// that lock the terminal core — because a watcher discards all of them.
+    pub(super) fn pane_presentation(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<crate::api::schema::PanePresentationResult> {
+        let ws = self.state.workspaces.get(ws_idx)?;
+        let pane = ws.pane_state(pane_id)?;
+        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
+        ws.find_tab_index_for_pane(pane_id)?;
+        let presentation = terminal.effective_presentation();
+        Some(crate::api::schema::PanePresentationResult {
+            pane_id: self.public_pane_id(ws_idx, pane_id)?,
+            workspace_id: self.public_workspace_id(ws_idx),
+            agent: terminal.effective_agent_label().map(str::to_string),
+            agent_status: pane_agent_status(terminal.state, pane.seen),
+            title: presentation.title,
+            display_agent: presentation.display_agent,
+            state_labels: presentation.state_labels,
+        })
+    }
+
     pub(super) fn lookup_runtime(
         &self,
         ws_idx: usize,

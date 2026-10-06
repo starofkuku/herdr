@@ -5,13 +5,17 @@ pub(crate) mod agent_launch;
 mod agent_launch_support;
 pub mod client;
 mod event_hub;
+pub(crate) mod process_metrics;
 pub mod schema;
 mod server;
+pub(crate) mod server_load;
 mod status;
+pub(crate) mod subscription_diagnostics;
 mod subscriptions;
 mod wait;
 
 pub use event_hub::EventHub;
+pub(crate) use server::api_method_name;
 pub(crate) use server::cancel_inactive_pane_graphics_streams;
 pub use server::{start_server, start_server_with_capabilities, ServerHandle};
 pub use status::{read_runtime_status_at, RuntimeStatus};

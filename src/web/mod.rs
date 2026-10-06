@@ -11,6 +11,7 @@
 
 pub(crate) mod api;
 pub(crate) mod auth;
+pub(crate) mod control;
 pub(crate) mod http;
 pub(crate) mod protocol;
 pub(crate) mod update;
@@ -40,6 +41,13 @@ struct LiveSubscription {
     stop: Arc<AtomicBool>,
 }
 
+impl Drop for LiveSubscription {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        self.handle.abort();
+    }
+}
+
 /// Runtime settings for one gateway process.
 pub(crate) struct WebOptions {
     pub bind: String,
@@ -61,7 +69,7 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
         .enable_all()
         .build()?;
 
-    runtime.block_on(async move {
+    let result: std::io::Result<_> = runtime.block_on(async move {
         let addr: SocketAddr = format!("{}:{}", options.bind, options.port)
             .parse()
             .map_err(|err| {
@@ -78,6 +86,7 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
             )
         })?;
 
+        let (control, mut stop) = control::start(options.port, options.key.clone())?;
         let static_dir = options.static_dir.as_deref().map(expand_tilde);
         let uploads_dir = options.uploads_dir.clone();
 
@@ -107,7 +116,15 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
         });
 
         loop {
-            let (stream, peer) = match listener.accept().await {
+            let accepted = tokio::select! {
+                request = &mut stop => {
+                    let stream = request.map_err(|_| std::io::Error::other("web control listener stopped"))?;
+                    drop(listener);
+                    return Ok((control, stream));
+                }
+                accepted = listener.accept() => accepted,
+            };
+            let (stream, peer) = match accepted {
                 Ok(pair) => pair,
                 Err(err) => {
                     error!(err = %err, "web accept failed");
@@ -122,7 +139,13 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
                 }
             });
         }
-    })
+    });
+    // Blocking API reads may be waiting on an unresponsive session server.
+    // They must not keep the gateway process alive during explicit shutdown.
+    runtime.shutdown_background();
+    let (control, stream) = result?;
+    drop(control);
+    control::acknowledge(stream)
 }
 
 struct SharedState {

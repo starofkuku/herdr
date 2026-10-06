@@ -16,6 +16,17 @@ pub(crate) const WEB_DETACHED_ENV_VAR: &str = "HERDR_WEB_DETACHED";
 /// Entry point for `herdr web`. Returns `None` when this is not a web
 /// invocation so the caller can continue with other subcommands.
 pub(crate) fn run_web_command(args: &[String]) -> io::Result<Option<i32>> {
+    if args.first().is_some_and(|arg| arg == "stop") {
+        if args.len() != 1 {
+            eprintln!("usage: herdr web stop");
+            return Ok(Some(2));
+        }
+        let config = crate::config::Config::load().config;
+        let options = crate::web::options_from_config(&config)
+            .map_err(|err| io::Error::other(err.to_string()))?;
+        crate::web::control::stop(options.port, &options.key)?;
+        return Ok(Some(0));
+    }
     let mut detach = false;
     for arg in args {
         match arg.as_str() {
@@ -73,7 +84,7 @@ fn detach_into_background() -> io::Result<Option<i32>> {
     // the user only discovers in the browser.
     let pid = child.id();
     println!("herdr web started in the background (pid {pid})");
-    println!("Stop it with: kill {pid}");
+    println!("Stop it with: herdr web stop");
     Ok(Some(0))
 }
 
@@ -138,6 +149,8 @@ fn print_web_help() {
     println!("herdr web - serve the browser UI for Herdr sessions");
     println!();
     println!("usage: herdr web [--detach]");
+    println!("       herdr web stop");
+    println!("  stop          stop the configured gateway; keep sessions running");
     println!();
     println!("  --detach, -d   run in the background, detached from this terminal");
     println!("                 (a shell `&` is not enough: the gateway stays in the");

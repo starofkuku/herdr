@@ -923,6 +923,15 @@ pub struct AdvancedConfig {
     /// Maximum scrollback buffer size in bytes retained per pane terminal. Default: 10000000.
     #[serde(alias = "scrollback_lines")]
     pub scrollback_limit_bytes: usize,
+    /// Write the server's recurring progress and subscription lifecycle records.
+    /// Default: false.
+    ///
+    /// These are the records that make a stalled server explain itself: which
+    /// phase the main loop is in, how deep the API queue got, and why each
+    /// subscription ended. They are diagnostics rather than operation, and on a
+    /// busy session they are the largest single share of the server log, so they
+    /// stay off until something is being investigated.
+    pub diagnostic_logging: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1237,6 +1246,7 @@ impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
             scrollback_limit_bytes: DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            diagnostic_logging: false,
         }
     }
 }

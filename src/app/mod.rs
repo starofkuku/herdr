@@ -5,6 +5,7 @@
 //! - `input.rs` — key/mouse → action translation
 
 pub(crate) mod actions;
+pub(crate) mod agent_models;
 mod agent_resume;
 pub(crate) mod agent_view;
 mod agents;

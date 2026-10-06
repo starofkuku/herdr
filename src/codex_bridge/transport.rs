@@ -34,17 +34,27 @@ pub(super) fn read(child: &mut Child) -> io::Result<mpsc::UnboundedReceiver<Valu
     Ok(receive)
 }
 
-fn write(stdin: &mut ChildStdin, value: &Value) -> io::Result<()> {
-    serde_json::to_writer(&mut *stdin, value)?;
-    stdin.write_all(b"\n")?;
-    stdin.flush()
+pub(super) fn writer(mut stdin: ChildStdin) -> mpsc::UnboundedSender<Value> {
+    let (send, mut receive) = mpsc::unbounded_channel();
+    std::thread::spawn(move || {
+        while let Some(value) = receive.blocking_recv() {
+            let result = serde_json::to_writer(&mut stdin, &value)
+                .map_err(io::Error::other)
+                .and_then(|()| stdin.write_all(b"\n"))
+                .and_then(|()| stdin.flush());
+            if result.is_err() {
+                break;
+            }
+        }
+    });
+    send
 }
 
 pub(super) async fn serve(
     listener: TcpListener,
     token: String,
     mut receive: mpsc::UnboundedReceiver<Value>,
-    mut stdin: ChildStdin,
+    upstream: mpsc::UnboundedSender<Value>,
     mut pane: Pane,
     mut cli: super::OwnedChild,
 ) -> io::Result<i32> {
@@ -64,7 +74,7 @@ pub(super) async fn serve(
                 match message {
                     Some(Ok(Message::Text(text))) => {
                         let message: Value = serde_json::from_str(&text)?;
-                        if session.client(&message) { write(&mut stdin, &message)?; }
+                        if session.client(&message) { upstream.send(message).map_err(io::Error::other)?; }
                     }
                     Some(Ok(Message::Ping(data))) => socket.send(Message::Pong(data)).await.map_err(io::Error::other)?,
                     Some(Ok(Message::Close(_))) | None => {
@@ -79,7 +89,7 @@ pub(super) async fn serve(
                 }
             }
             Some((key, answers)) = pane.answers.recv() => {
-                if let Some(reply) = session.answer(&key, &answers) { write(&mut stdin, &reply)?; }
+                if let Some(reply) = session.answer(&key, &answers) { upstream.send(reply).map_err(io::Error::other)?; }
             }
         }
         session.refresh(&pane);

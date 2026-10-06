@@ -289,7 +289,10 @@ pub fn argv_with_working_directory(plan: &AgentResumePlan, cwd: &Path) -> Vec<St
 /// restarts in the previously saved agent work directory. Agent-specific
 /// flags from [`argv_with_working_directory`] are applied when available.
 pub fn resume_shell_command(plan: &AgentResumePlan, cwd: &Path) -> Option<String> {
-    let argv = argv_with_working_directory(plan, cwd);
+    let mut argv = argv_with_working_directory(plan, cwd);
+    if plan.agent == "codex" {
+        argv = crate::codex_bridge::launch_argv(argv.get(1..)?).ok()?;
+    }
     let command = join_shell_argv(&argv)?;
     match usable_resume_cwd(cwd) {
         Some(cwd) => Some(format!(
@@ -559,9 +562,10 @@ mod tests {
             &AgentSessionRef::id("codex-session").unwrap(),
         )
         .unwrap();
+        let herdr = shell_quote_arg(&std::env::current_exe().unwrap().to_string_lossy());
         assert_eq!(
             resume_shell_command(&codex, &cwd).unwrap(),
-            format!("cd {cwd_text} && codex resume -C {cwd_text} codex-session")
+            format!("cd {cwd_text} && {herdr} codex -- resume -C {cwd_text} codex-session")
         );
     }
 

@@ -3285,6 +3285,18 @@
           },
           "type": "object"
         },
+        "PaneModelsParams": {
+          "description": "Reads the models the pane's agent can be switched to.\n\nRead from the agent's own configuration rather than by running its CLI: a\nprocess would be started to answer a question about a file, and the answer\nhas to name the same catalog the running agent would accept.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "PaneMoveDestination": {
           "oneOf": [
             {
@@ -5512,6 +5524,22 @@
         {
           "properties": {
             "method": {
+              "const": "server.load",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "config.notification.get",
               "type": "string"
             },
@@ -6550,6 +6578,23 @@
           "type": "object"
         },
         {
+          "description": "A watch's own read of a pane: the fields that can change what an agent\nstatus watcher reports, without the full pane state it would discard.",
+          "properties": {
+            "method": {
+              "const": "pane.presentation",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneTarget"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "method": {
               "const": "pane.focus",
@@ -6671,6 +6716,23 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneTodosParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The models the pane's agent can be switched to. Read from the agent's own\nconfiguration, not asked of a running process.",
+          "properties": {
+            "method": {
+              "const": "pane.models",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneModelsParams"
             }
           },
           "required": [
@@ -9578,6 +9640,62 @@
           ],
           "type": "object"
         },
+        "PaneModel": {
+          "description": "One model an agent can run.",
+          "properties": {
+            "current": {
+              "description": "True for the model this pane is currently running.\n\nAlways sent: unlike an optional field, `false` here is a real answer\n(\"not the current one\") for every entry but one.",
+              "type": "boolean"
+            },
+            "id": {
+              "description": "The agent's own identifier for the model, as its config spells it.",
+              "type": "string"
+            },
+            "label": {
+              "description": "Human label, when the config carries one distinct from the id.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "provider": {
+              "description": "The provider that serves it, named as the agent names it.\n\nKept apart from `id` because a model id is only unique within its\nprovider: the same name appears under several here.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "provider",
+            "current"
+          ],
+          "type": "object"
+        },
+        "PaneModelsResult": {
+          "description": "The models an agent offers, or the reason its catalog could not be read.",
+          "properties": {
+            "detail": {
+              "description": "Why the list is empty, when it is. Absent on success.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "models": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/PaneModel"
+              },
+              "type": "array"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "models"
+          ],
+          "type": "object"
+        },
         "PaneMoveReason": {
           "enum": [
             "same_tab",
@@ -9694,6 +9812,50 @@
             "pane_id",
             "direction",
             "layout"
+          ],
+          "type": "object"
+        },
+        "PanePresentationResult": {
+          "description": "The fields an agent-status watch needs, and nothing else.\n\n`pane.get` answers with the pane's whole state — paths, diagnostics, tokens,\nthe interaction request, and scroll metrics read through the terminal core.\nA status subscription reads seven of those fields and repeats the call on a\ntimer, so the rest is cost paid on every tick for data that is discarded.\n\nThis is not a narrower `pane.get`; it is the one shape a repeating watcher\nneeds, kept separate so the full read stays available to callers that\ngenuinely want everything.",
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "agent_status": {
+              "$ref": "#/schemas/success_response/$defs/AgentStatus"
+            },
+            "display_agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "state_labels": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "workspace_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "workspace_id",
+            "agent_status"
           ],
           "type": "object"
         },
@@ -11953,6 +12115,23 @@
               "type": "object"
             },
             {
+              "description": "The light answer a repeating agent-status watcher reads.",
+              "properties": {
+                "presentation": {
+                  "$ref": "#/schemas/success_response/$defs/PanePresentationResult"
+                },
+                "type": {
+                  "const": "pane_presentation",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "presentation"
+              ],
+              "type": "object"
+            },
+            {
               "properties": {
                 "focus": {
                   "$ref": "#/schemas/success_response/$defs/PaneFocusDirectionResult"
@@ -12030,6 +12209,23 @@
               "required": [
                 "type",
                 "todos"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The models the pane's agent offers, and which one it is running.",
+              "properties": {
+                "models": {
+                  "$ref": "#/schemas/success_response/$defs/PaneModelsResult"
+                },
+                "type": {
+                  "const": "pane_models",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "models"
               ],
               "type": "object"
             },

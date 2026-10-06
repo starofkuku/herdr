@@ -49,6 +49,15 @@ herdr web
 
 Without a key it exits with a diagnostic instead of binding a port.
 
+Run `herdr web --detach` to start the gateway in the background. Stop either a
+foreground or detached gateway with `herdr web stop`. This closes browser
+connections without stopping session servers or their agents. The command uses
+a separate local control socket and requires the same configuration directory,
+web port, and key as the running gateway. Both commands must use a version that
+supports this control socket; older gateway processes must first be restarted
+with the updated binary. A service manager configured to restart the gateway
+may start it again; stop its service unit instead in that case.
+
 The key must be at least 16 characters. It is compared in constant time, and it is never written to logs.
 
 Because a key in `config.toml` is only as private as that file, Herdr refuses to start when the file is readable by other users and tells you to run `chmod 600`. Use `HERDR_WEB_KEY` for a one-off run instead.
@@ -427,9 +436,13 @@ To stop a session and its panes, use `herdr session stop <name>`.
 
 ## Codex structured interactions
 
-Start Codex inside a Herdr pane with `herdr codex -- [Codex arguments]`. Managed `agent start --kind codex` launches use the same bridge. If the installed Codex integration is older, update it first with `herdr integration install codex` using the new Herdr binary.
+Choose Codex through Herdr's agent creation or session restore controls. Managed starts and restores automatically use the same protocol bridge; no command prefix is needed in those controls. For manual shell launches, `herdr codex -- [Codex arguments]` remains available. If the installed Codex integration is older, update it first with `herdr integration install codex` using the new Herdr binary.
 
-The bridge owns one app-server and connects the native CLI to it. Approval and question cards remain pending until answered or cancelled; they do not switch to terminal text after three seconds. CLI and web answers share request IDs, and multiple pending requests are queued. Asynchronous questions use Codex's separate user-message reply protocol and expire when their turn ends.
+On Linux, ordinary launches share Codex's managed app-server through separate local socket connections. Closing one client closes its connection without stopping the daemon. Explicit server configuration overrides (`-c`, `--enable`, `--disable`) retain an isolated app-server so process-level configuration is not silently ignored. Other platforms retain the existing isolated transport.
+
+A shared daemon must start without pane-specific environment variables. Herdr verifies the socket peer before connecting and refuses an existing daemon that inherited another pane's identity. It does not automatically restart that daemon or switch to an isolated server. Stop active Codex clients before restarting such a daemon outside Herdr. Shared-mode restores also reject threads still loaded in the daemon: close their clients and allow idle unloading before restoring, because live attachment cannot reliably replace their tool environment.
+
+Approval and question cards remain pending until answered or cancelled; they do not switch to terminal text after three seconds. CLI and web answers share request IDs, and multiple pending requests are queued. Asynchronous questions use Codex's separate user-message reply protocol and expire when their turn ends.
 
 Unsupported interactions show an explanation with a manual terminal-controls button. Web disconnection disables submission and preserves the current draft. Existing independently launched Codex processes are not taken over: use the bridge for a new session or `herdr codex -- resume <session-id>` after stopping the original client. `--profile` and nested `--remote` options are currently rejected rather than silently changing configuration.
 

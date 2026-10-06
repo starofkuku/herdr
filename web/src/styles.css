@@ -770,6 +770,27 @@ textarea {
   }
 }
 
+/*
+ * On a phone the panel cannot be anchored to the identity element and still fit.
+ *
+ * `left: 0` places it under the trigger, and that trigger sits right of the
+ * header's start, so a panel wide enough to be useful runs past the viewport's
+ * right edge. The overflow is invisible while the panel is closed, but it still
+ * counts as scrollable width for the page underneath: the conversation becomes
+ * draggable sideways. Pinning it to the viewport instead and insetting both
+ * edges makes its width independent of where the trigger happens to be.
+ */
+@media (max-width: 40rem) {
+  .topbar-identity__panel {
+    position: fixed;
+    left: 0.5rem;
+    right: 0.5rem;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+}
+
 .identity-row {
   display: flex;
   align-items: center;
@@ -1208,9 +1229,141 @@ textarea {
   flex: 1;
   min-height: 0;
   display: flex;
+  /*
+   * A column so the load strip takes its own row above the reading area instead
+   * of floating over the text: it is a reading, not chrome, and text moving under
+   * a number nobody can read is worse than a little lost height.
+   */
+  flex-direction: column;
   align-items: stretch;
   /* Anchors the floating rail on a coarse pointer. */
   position: relative;
+}
+
+/*
+ * The server's cost, as one quiet row above the conversation.
+ *
+ * Coloured and sized like the rest of the chrome rather than the transcript: it
+ * is reference, not content, so it should be ignorable at a glance and legible
+ * when looked for.
+ */
+.server-load {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  padding: 0.3rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--chrome);
+  font-size: var(--text-ui-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  /* Never a scroll target of its own; the transcript below owns scrolling. */
+  flex-shrink: 0;
+}
+
+.server-load__label {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/*
+ * The label is the collapse control. It is a button rather than the whole row so
+ * that a tap on a figure still selects it, and it keeps the bar's own type and
+ * colour instead of looking like a button in a header.
+ */
+.server-load__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0.1rem 0.25rem;
+  border: 0;
+  border-radius: 0.3rem;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.server-load__toggle:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+/*
+ * Collapsed, the strip is only the control: the row shrinks to the icon and stops
+ * painting the separating border, so it reads as a tab rather than an empty bar.
+ */
+/*
+ * Collapsed, the control leaves the layout entirely: no row, no background, no
+ * border. It becomes a small mark at the reading area's top-right, over the room
+ * the status panel already reserves for itself, so it neither takes a line from
+ * the transcript nor sits on top of the jump rail that occupies the left gutter.
+ */
+.server-load--collapsed {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  z-index: 20;
+  width: auto;
+  padding: 0;
+  background: none;
+  border-bottom: 0;
+  /* A diagnostic mark, not something to read at a glance. */
+  opacity: 0.35;
+}
+
+.server-load--collapsed:hover,
+.server-load--collapsed:focus-within {
+  opacity: 1;
+}
+
+.server-load--collapsed .server-load__toggle {
+  /* Padded enough to be tappable while the drawn glyph stays small. */
+  padding: 0.2rem;
+  gap: 0;
+}
+
+.server-load--collapsed .server-load__toggle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.server-load__value {
+  color: var(--text);
+}
+
+/* The one figure that means the server is working right now. */
+.server-load__value--busy {
+  color: var(--running);
+  font-weight: 600;
+}
+
+.server-load__value--queue {
+  color: var(--warn);
+}
+
+.server-load__sep {
+  opacity: 0.45;
+}
+
+.server-load__phase {
+  /* No longer the row's last element; the trailing control takes the push. */
+  opacity: 0.6;
+}
+
+/*
+ * The collapse control is the row's last element and takes the remaining space,
+ * so it stays at the far right no matter how wide the figures grow.
+ */
+.server-load__toggle--trailing {
+  margin-left: auto;
+  padding-left: 0.4rem;
+}
+
+.server-load--failed .server-load__value {
+  color: var(--warn);
 }
 
 .conversation {
@@ -3812,6 +3965,8 @@ textarea {
   position: relative;
   flex: 1;
   min-width: 0;
+  /* Needed now that the wrap is a column: the row must shrink, not overflow. */
+  min-height: 0;
   display: flex;
   align-items: stretch;
 }
@@ -5922,4 +6077,287 @@ textarea {
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.5;
+}
+
+/* ---- model picker ---- */
+
+/*
+ * The model picker, following ZCode's composer control.
+ *
+ * Its metrics are ZCode's, read off its running UI rather than guessed: a 28px
+ * trigger with a faint fill, a 192px menu with 4px of padding and 8px corners,
+ * and 32px rows with 4px/8px padding and 6px corners. The point of copying them
+ * is that this control sits in the same corner of the same kind of composer, and
+ * a row that is 34px where the reference is 32 reads as the odd one out.
+ *
+ * The popover surface and its border are herdr's existing pair — the same tokens
+ * the slash menu uses — so the two menus that open over this composer match.
+ */
+.model-picker {
+  position: relative;
+  flex: none;
+}
+
+/* The trigger: plain text and a chevron on a faint fill, 28px tall like ZCode's. */
+.model-picker__trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 11rem;
+  height: 1.75rem;
+  padding: 0 0.375rem 0 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui-base);
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+.model-picker__trigger:hover,
+.model-picker__trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  opacity: 1;
+}
+
+.model-picker__current {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker__chevron {
+  flex: none;
+  margin-left: auto;
+  opacity: 0.5;
+}
+
+/*
+ * The menu opens upward, because the picker is already at the bottom of the
+ * window and a menu hung below it would open off-screen.
+ */
+.model-picker__menu {
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 20;
+  /*
+   * Sized to its content rather than to a fixed width.
+   *
+   * The reference menu is a flat 192px, which fits its short provider names
+   * (`本地`) and not these (`home-completions`): at that width the one place the
+   * provider is named would render it as `home-completio…`. Every other metric is
+   * the reference's; only the width follows what has to fit in it.
+   */
+  width: max-content;
+  min-width: 11rem;
+  max-width: min(20rem, calc(100vw - 1.5rem));
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--popover-border);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.45);
+  animation: model-picker-in 120ms ease-out;
+}
+
+@keyframes model-picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.model-picker__note {
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+/*
+ * The provider holding the running model is expanded in place: switching within
+ * it is the common case and should not cost a second tap. Its heading is ZCode's
+ * group label — quiet text with the badge that says why it is the open one.
+ */
+.model-picker__group-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--muted);
+  font-size: var(--text-ui-base);
+  font-weight: 600;
+}
+
+/*
+ * A provider is a long identifier here (`home-completions`) where the reference
+ * names its short ones (`本地`), and a heading that wraps to two lines is taller
+ * than the rows beneath it. It ellipsises instead; the badge keeps its width.
+ */
+.model-picker__group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-picker__badge {
+  flex: none;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+/* Every other provider is one tap from its own list. */
+.model-picker__providers:not(:first-child) {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--popover-border);
+}
+
+.model-picker__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 32px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui-base);
+  text-align: left;
+  cursor: pointer;
+}
+
+.model-picker__item:hover,
+.model-picker__item.is-open {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+/* The current choice is marked, not hidden: the menu is also how you learn what
+ * is running, so removing the row would remove the answer. */
+.model-picker__item.is-current {
+  font-weight: 600;
+}
+
+.model-picker__check {
+  flex: none;
+  margin-left: auto;
+  opacity: 0.8;
+}
+
+.model-picker__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The second level.
+ *
+ * Beside the first on a pointer (the menu is near the window's right edge, so it
+ * opens to the left). While a provider is open the menu stops scrolling so it
+ * cannot clip the flyout; its short list never needed the scrollbar anyway.
+ */
+.model-picker[data-open-provider] .model-picker__menu {
+  overflow: visible;
+}
+
+.model-picker__submenu {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 0.35rem);
+  width: max-content;
+  min-width: 11rem;
+  max-width: min(20rem, calc(100vw - 1.5rem));
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--popover-border);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.45);
+}
+
+/* A pointer opens the second level beside the first and has no way back to need;
+ * only a touch screen, where the two levels cannot sit side by side, shows it. */
+.model-picker__back {
+  display: none;
+}
+
+/*
+ * On a phone the menu is pinned to the viewport rather than to the trigger.
+ * Anchored to the trigger it ran off the left edge — the trigger sits near the
+ * right of a narrow bar and the menu is wider than what remained — which clipped
+ * rows' text.
+ *
+ * The two levels cannot sit side by side on a narrow screen either, so there the
+ * open provider's list replaces the first level, and the back row — hidden on
+ * every pointer — is what returns to it.
+ */
+@media (max-width: 40rem) {
+  .model-picker__menu {
+    position: fixed;
+    left: 0.5rem;
+    right: 0.5rem;
+    bottom: 4.5rem;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .model-picker[data-open-provider] .model-picker__list {
+    display: none;
+  }
+
+  .model-picker__submenu {
+    position: static;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    max-height: none;
+    overflow: visible;
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+
+  .model-picker__back {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 32px;
+    margin-bottom: 4px;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--text-ui-base);
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .model-picker__back:hover {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
 }

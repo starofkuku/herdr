@@ -1175,6 +1175,12 @@
           "type": "integer",
           "default": "10000000",
           "description": "Maximum scrollback buffer size in bytes retained per pane terminal. The legacy key name `scrollback_lines` is accepted as an alias."
+        },
+        {
+          "key": "advanced.diagnostic_logging",
+          "type": "boolean",
+          "default": "false",
+          "description": "Write the server's recurring progress and subscription lifecycle records to the server log. These explain a stalled server after the fact: which phase the main loop is in, how deep the API queue reached, and why each subscription ended. They are off by default because on a busy session they are the largest share of the log; turn them on while investigating a problem, and off again when done."
         }
       ]
     },

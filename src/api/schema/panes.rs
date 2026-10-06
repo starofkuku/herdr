@@ -647,6 +647,31 @@ pub struct PaneNeighborResult {
     pub layout: PaneLayoutSnapshot,
 }
 
+/// The fields an agent-status watch needs, and nothing else.
+///
+/// `pane.get` answers with the pane's whole state — paths, diagnostics, tokens,
+/// the interaction request, and scroll metrics read through the terminal core.
+/// A status subscription reads seven of those fields and repeats the call on a
+/// timer, so the rest is cost paid on every tick for data that is discarded.
+///
+/// This is not a narrower `pane.get`; it is the one shape a repeating watcher
+/// needs, kept separate so the full read stays available to callers that
+/// genuinely want everything.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PanePresentationResult {
+    pub pane_id: String,
+    pub workspace_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    pub agent_status: AgentStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub state_labels: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneEdgesResult {
     pub pane_id: String,
@@ -742,6 +767,46 @@ pub struct PaneTodosResult {
     pub pane_id: String,
     /// Empty when the agent keeps no todo list, which is the common case.
     pub todos: Vec<PaneTodo>,
+}
+
+/// Reads the models the pane's agent can be switched to.
+///
+/// Read from the agent's own configuration rather than by running its CLI: a
+/// process would be started to answer a question about a file, and the answer
+/// has to name the same catalog the running agent would accept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneModelsParams {
+    pub pane_id: String,
+}
+
+/// One model an agent can run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneModel {
+    /// The agent's own identifier for the model, as its config spells it.
+    pub id: String,
+    /// The provider that serves it, named as the agent names it.
+    ///
+    /// Kept apart from `id` because a model id is only unique within its
+    /// provider: the same name appears under several here.
+    pub provider: String,
+    /// Human label, when the config carries one distinct from the id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// True for the model this pane is currently running.
+    ///
+    /// Always sent: unlike an optional field, `false` here is a real answer
+    /// ("not the current one") for every entry but one.
+    pub current: bool,
+}
+
+/// The models an agent offers, or the reason its catalog could not be read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneModelsResult {
+    pub pane_id: String,
+    pub models: Vec<PaneModel>,
+    /// Why the list is empty, when it is. Absent on success.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 /// Reads the subagent runs the pane's agent started.

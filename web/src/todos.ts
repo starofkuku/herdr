@@ -43,7 +43,10 @@ export async function loadTodos(client: TodoClient, paneId: string): Promise<Tod
  * Keeps only entries that are usable as a task.
  *
  * The status is deliberately left unvalidated beyond being a string, because
- * the agent owns the vocabulary; the panel renders what it is given.
+ * the agent owns the vocabulary; the panel renders what it is given. The one
+ * exception is `deleted`, which the agent uses as a tombstone for a task it
+ * removed: it is not a task in any state, and keeping it would show removed
+ * work as though it were still on the list. Unknown statuses are still tasks.
  */
 export function parseTodos(value: unknown): TodoItem[] {
   if (!Array.isArray(value)) return [];
@@ -54,6 +57,7 @@ export function parseTodos(value: unknown): TodoItem[] {
     if (typeof item.id !== "number" || !Number.isFinite(item.id)) continue;
     if (typeof item.subject !== "string") continue;
     if (typeof item.status !== "string") continue;
+    if (item.status === "deleted") continue;
     todos.push({ id: item.id, subject: item.subject, status: item.status });
   }
   return todos;

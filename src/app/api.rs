@@ -1129,11 +1129,15 @@ impl App {
             Method::PaneList(params) => return self.handle_pane_list(request.id, params),
             Method::PaneCurrent(params) => return self.handle_pane_current(request.id, params),
             Method::PaneGet(target) => return self.handle_pane_get(request.id, target),
+            Method::PanePresentation(target) => {
+                return self.handle_pane_presentation(request.id, target)
+            }
             Method::PaneFocus(target) => return self.handle_pane_focus(request.id, target),
             Method::PaneRename(params) => return self.handle_pane_rename(request.id, params),
             Method::PaneRead(params) => return self.handle_pane_read(request.id, params),
             Method::PaneSession(params) => return self.handle_pane_session(request.id, params),
             Method::PaneTodos(params) => return self.handle_pane_todos(request.id, params),
+            Method::PaneModels(params) => return self.handle_pane_models(request.id, params),
             Method::PaneSubagents(params) => {
                 return self.handle_pane_subagents(request.id, params);
             }

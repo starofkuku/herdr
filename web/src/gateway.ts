@@ -131,6 +131,28 @@ export class GatewayClient {
   private requests = new RequestTracker();
   private eventHandlers = new Map<string, (payload: unknown) => void>();
   private sessionWaiters: { resolve: () => void; reject: (err: Error) => void }[] = [];
+  /**
+   * One gateway subscription per distinct set of kinds, with every caller that
+   * asked for it.
+   *
+   * Several components legitimately watch the same events — the session stream,
+   * the open conversation, and the refresh hook all want `pane.updated` — and a
+   * subscription costs the server a connection and a polling loop of its own.
+   * Sharing by kinds turns those into one subscription with local fan-out, which
+   * is what keeps a session with many panes from multiplying its own load by the
+   * number of views looking at it.
+   *
+   * Keyed by the serialized kinds, because that is the only part the server sees;
+   * callbacks are the caller's own business.
+   */
+  private shared = new Map<
+    string,
+    {
+      id: string;
+      subscribers: Set<(payload: unknown) => void>;
+      closedHandlers: Set<(reason: string) => void>;
+    }
+  >();
 
   constructor(handlers: GatewayHandlers) {
     this.handlers = handlers;
@@ -460,39 +482,72 @@ export class GatewayClient {
     onEvent: (payload: unknown) => void,
     onClosed?: (reason: string) => void,
   ): Subscription {
+    // The API expects an internally tagged object per subscription, so a bare
+    // name is expanded to `{ type: name }` here rather than at each call site.
+    const wire = kinds.map((kind) =>
+      typeof kind === "string" ? { type: kind } : kind,
+    );
+    const key = JSON.stringify(wire);
+
+    const existing = this.shared.get(key);
+    if (existing) {
+      // Already watching these kinds: join it instead of asking the server for a
+      // second stream of the same events. The count of callers is the only thing
+      // that changes, and the last one out is what closes the subscription.
+      existing.subscribers.add(onEvent);
+      if (onClosed) existing.closedHandlers.add(onClosed);
+      return {
+        close: () => {
+          existing.subscribers.delete(onEvent);
+          if (onClosed) existing.closedHandlers.delete(onClosed);
+          if (existing.subscribers.size === 0) this.closeShared(key, existing.id);
+        },
+      };
+    }
+
     const id = randomId("sub");
+    const entry = {
+      id,
+      subscribers: new Set([onEvent]),
+      closedHandlers: new Set(onClosed ? [onClosed] : []),
+    };
+    this.shared.set(key, entry);
     this.eventHandlers.set(id, (payload) => {
       const record = payload as { event?: { kind?: string }; result?: unknown } | null;
       // The first line is the subscribe acknowledgment, not an event.
       if (record && typeof record === "object" && "result" in record) {
         return;
       }
-      onEvent(payload);
+      // Copied before iterating: a handler may unsubscribe itself, which would
+      // otherwise mutate the set being walked.
+      for (const handler of [...entry.subscribers]) handler(payload);
     });
-    if (onClosed) {
-      this.eventHandlers.set(`${id}:closed`, () => onClosed("closed"));
-    }
+    this.eventHandlers.set(`${id}:closed`, () => {
+      for (const handler of [...entry.closedHandlers]) handler("closed");
+    });
     // Kept so the subscription can be re-sent on a reconnect, when the server
     // has no memory of it.
-    if (this.subscriptions) this.subscriptions.set(id, { kinds, onEvent });
-    this.send({
-      type: "subscribe",
-      id,
-      // The API expects an internally tagged object per subscription, so a bare
-      // name is expanded to `{ type: name }` here rather than at each call site.
-      subscriptions: kinds.map((kind) =>
-        typeof kind === "string" ? { type: kind } : kind,
-      ),
-    });
+    if (this.subscriptions) {
+      this.subscriptions.set(id, { kinds, onEvent: onEvent });
+    }
+    this.send({ type: "subscribe", id, subscriptions: wire });
 
     return {
       close: () => {
-        this.eventHandlers.delete(id);
-        this.eventHandlers.delete(`${id}:closed`);
-        this.subscriptions?.delete(id);
-        this.send({ type: "unsubscribe", id });
+        entry.subscribers.delete(onEvent);
+        if (onClosed) entry.closedHandlers.delete(onClosed);
+        if (entry.subscribers.size === 0) this.closeShared(key, id);
       },
     };
+  }
+
+  /** Drops a shared subscription once nothing is watching it. */
+  private closeShared(key: string, id: string): void {
+    this.shared.delete(key);
+    this.eventHandlers.delete(id);
+    this.eventHandlers.delete(`${id}:closed`);
+    this.subscriptions?.delete(id);
+    this.send({ type: "unsubscribe", id });
   }
 
   /**
