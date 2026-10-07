@@ -1,0 +1,436 @@
+---
+title: Web UI
+description: Serve Herdr to a browser with herdr web — sessions, authentication, the agent console, themes, and mobile use.
+---
+
+`herdr web` serves a browser interface to Herdr. It runs as its own process, separate from any session server, so it can list every session and let you pick one.
+
+This is for reaching your own machine over a private network such as WireGuard or an SSH tunnel. It is not a hosted service.
+
+## Create, resume, and close agents
+
+Use **新增 Agent** on the agent list to choose an installed agent, a server directory, and an existing or new project. Each launch creates an independent tab without changing existing CLI focus. Directory browsing also works before any pane exists. The working-directory input completes immediate child directories: type a name prefix, then click a suggestion or use arrow keys and Enter. Escape dismisses suggestions without closing the dialog. Directory listings are cached for 30 seconds and filtered locally while typing within the same directory.
+
+Resume history is searchable by agent and working directory for Codex, Claude, Pi, and ZCode. Other agent kinds can start fresh sessions. Already-open sessions lead to their existing panes. Discovery is briefly cached; a selected session is revalidated before launching.
+
+The row's `⋯` menu closes the pane and its process while preserving native history. Closing a project's final pane also closes that project group; protected worktree groups retain CLI confirmation. This differs from interrupting the current reply.
+
+Creation and resume require backend support for `agent.catalog`, `agent.sessions`, `directories.list`, and `agent.launch`. Repeated request IDs reuse the original result. When startup fails after pane creation, the dialog links to that pane instead of creating another.
+
+## Conversation history and termination
+
+Use **Load earlier messages** above the structured conversation to retrieve history even when the current page is too short to scroll. Cancellation and error states come from explicit agent records, including messages without text. The Pi/Claude transcript and ZCode cancellation/error fixes require an updated Herdr backend; updating only the web page does not change responses from an older backend.
+
+## Why a separate process
+
+Each Herdr session has its own server, and a session server only knows its own session. Only a process outside them can enumerate every session and offer a chooser. `herdr web` is that process: one listener, one port, all sessions.
+
+The gateway proxies the same JSON API the CLI uses. The browser never attaches as a terminal client, so opening the web UI does not affect the layout or size of your terminal panes.
+
+## Enable the gateway
+
+The gateway is disabled unless a key is configured. This is deliberate: an open gateway is remote shell access, so it never listens without authentication.
+
+Put the key in `config.toml` so it survives restarts:
+
+```bash
+key=$(head -c 32 /dev/urandom | base64)
+```
+
+```toml
+[web]
+key = "the key you generated"
+```
+
+```bash
+chmod 600 ~/.config/herdr/config.toml
+herdr web
+```
+
+Without a key it exits with a diagnostic instead of binding a port.
+
+The key must be at least 16 characters. It is compared in constant time, and it is never written to logs.
+
+Because a key in `config.toml` is only as private as that file, Herdr refuses to start when the file is readable by other users and tells you to run `chmod 600`. Use `HERDR_WEB_KEY` for a one-off run instead.
+
+## Configuration
+
+```toml
+[web]
+# Address to listen on. Default: 127.0.0.1
+bind = "127.0.0.1"
+# TCP port. Default: 8787
+port = 8787
+# Directory containing the built web UI. Optional.
+static_dir = "/home/you/herdr/web/dist"
+# Where uploaded files are stored and served from. Optional; defaults to an
+# uploads directory inside static_dir.
+uploads_dir = "/home/you/herdr/web/uploads"
+# Optional Origin allowlist. Empty disables the check.
+allowed_origins = []
+# URL `herdr update web` downloads the page from. Optional.
+update_url = "https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html"
+# Gateway key. Keep this file at chmod 600.
+key = "..."
+```
+
+Prefer binding a private interface over `0.0.0.0`, so the port is only reachable from the network you intend.
+
+Key sources, in order of precedence:
+
+- `HERDR_WEB_KEY`
+- `HERDR_WEB_KEY_FILE`, a file containing the key
+- `[web] key` in `config.toml`
+
+A file-based source must not be readable by other users, and Herdr enforces that for `config.toml` and for `HERDR_WEB_KEY_FILE`.
+
+## Serving the UI
+
+The gateway serves the UI from `static_dir` at request time; it is never embedded in the herdr binary, so you can update or replace it independently. When `static_dir` is unset, only the WebSocket endpoint is served.
+
+Build the bundled UI with:
+
+```bash
+cd web && bun install && bun run build
+```
+
+That produces a single self-contained `web/dist/index.html`. Point `static_dir` at the `dist` directory.
+
+Each release also publishes the same file as the `herdr-web-ui.html` asset, so you can use a released UI without building anything. The UI changes independently of the herdr binary, so there is also a rolling `web-ui` release that always holds the newest build:
+
+```bash
+mkdir -p ~/herdr-web
+curl -fsSL -o ~/herdr-web/index.html \
+  https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html
+```
+
+Point `static_dir` at that directory. Downloading a versioned release asset works the same way; the asset name is identical.
+
+Because the gateway serves the page itself, the page and the WebSocket share an origin, so no extra hosting or CORS setup is needed.
+
+### Updating the page
+
+Because the page is a file rather than part of the binary, it is updated on its own:
+
+```bash
+herdr update web            # download and install the newest page
+herdr update web --check    # report what is available, writing nothing
+```
+
+This requires `static_dir` (there has to be a directory to write into) and `update_url`:
+
+```toml
+[web]
+static_dir = "/home/you/herdr-web"
+update_url = "https://github.com/ogulcancelik/herdr/releases/download/web-ui/herdr-web-ui.html"
+```
+
+The download is written to a temporary file and then renamed over `index.html`, so a failed or interrupted download cannot leave the gateway serving a partial page. A file that does not look like a herdr web UI build — a proxy error page, a truncated transfer — is rejected rather than installed.
+
+Each build carries its version in a comment, which is what `--check` compares:
+
+```html
+<!-- herdr-web-ui version: 0.7.21 -->
+```
+
+When both the installed page and the downloaded one carry a version, an identical version means there is nothing to do. Reload the page in your browser after updating; the gateway serves the file from disk on each request, so no restart is needed.
+
+`herdr update` with no subcommand updates the binary, not the page. The two are released separately, so neither updates the other.
+
+### Publishing the page
+
+For a change that only touches the UI, publish the page on its own:
+
+```bash
+just web-publish
+```
+
+That builds `web/` and uploads the result to the rolling `web-ui` release, which is where `update_url` points. No herdr release is created and no platform binaries are rebuilt, because none of them changed.
+
+Because the marker is what decides whether an update installs, a UI-only publish stamps a distinct one by default — `<crate version>+web.<timestamp>` rather than the bare crate version. Without a distinct marker the download would match what is installed and `herdr update web` would report the page as already up to date. Pass a version to choose your own:
+
+```bash
+just web-publish 0.7.24
+```
+
+`just web-status` reports what is installed and what was built last.
+
+## Connecting
+
+The page opens on a list of gateways you have saved — one card each, showing the name you gave it, its address, and its state. **New** adds one: a name, the gateway's address, and its key. The name is required and is derived from the address until you type your own, so saving a gateway is one field of real typing.
+
+- Opening a session that is not running starts its server.
+- Session names use letters, numbers, `.`, `_`, and `-`.
+- Several clients can attach to one session and share its state.
+
+Saving several gateways is the point: each gets its own connection, its own session list, and its own remembered session, so a conversation on one is unaffected by what happens on another. The name you gave a gateway is shown on every screen behind it, because session names repeat across gateways and a page that did not say which one it was showing would be ambiguous.
+
+When you store a key, that gateway reconnects on load and returns to the session you left it in. Each gateway remembers its own session; leaving one with the back button clears only that memory.
+
+### Addresses and reloads
+
+The screen you are on is in the URL, so a reload lands where you were rather than back at the list:
+
+```
+#                              the saved gateways
+#/<gateway>                    that gateway's sessions
+#/<gateway>/<session>          that session's agents
+#/<gateway>/<session>/<pane>   one agent's conversation
+```
+
+The gateway is part of the address because it is part of the identity: two gateways can both have a session called `main`, and a link that named only the session could not say which. Links written before gateways were addressable — `#/<session>` — no longer resolve and land on the gateway list.
+
+Opening a conversation adds a history entry, so the browser's Back and Forward buttons move through the app. A link to a conversation can be shared or bookmarked, and opening one directly works as long as the connection is remembered. Without a remembered key there is nothing to reconnect with, so the gateway's form is opened first.
+
+The jump palette (`Ctrl`/`Cmd`+`K`) and the agent switcher both list every agent on every saved gateway, grouped by gateway, so reaching a pane does not require knowing which one it is on.
+
+### Losing the connection
+
+A phone browser suspends a backgrounded tab, which drops the WebSocket, so returning to the page would otherwise show a frozen view with no sign that nothing is arriving. The header carries a small state dot: green while connected, pulsing while it is retrying, and a tappable **reconnect** once the automatic attempts have given up. Reconnecting restores the session and its subscriptions, so a backgrounded tab picks up where it left off.
+
+## Screens
+
+The UI is a native page, not a terminal mirror. Nothing here renders ANSI; every screen is built from the JSON API.
+
+**Gateways.** The saved gateways, one card each: the name you gave it, its address, and what it is doing — how many sessions it has, and how many agents are active once you have opened a session on it. A card leads to that gateway's sessions. Each card can be edited or deleted, and a gateway whose key was not stored says so and opens its form rather than failing to connect.
+
+**Sessions.** Every session Herdr knows about, with whether it is running, plus a field to open an existing session or start a new one.
+
+**Agents.** The agents in the selected session, grouped by workspace and showing each one's current state. A running agent is tinted green — its name, its status dot, and the border of the panel it is in — so activity is visible while scanning the list instead of only in the small status pill. Tap an agent to open it.
+
+**Agent rail.** A handle pinned to an edge of every screen that opens into a list of every pane you have open, across every gateway, with each row naming the gateway it belongs to. Panes that are working or waiting come first, then the rest by which changed most recently; tap a row to jump to that pane. It is closed by default and opens over the page rather than pushing it, so opening it does not reflow the conversation. When an agent finishes, the rail opens itself and flashes that row, because a list that is usually closed cannot otherwise report a finish. Working panes are red and finished ones green, since the two states are shown side by side.
+
+Drag the handle to move the rail. Releasing it within 100px of an edge attaches it to that edge — a gradient band shows which edges would hold it — and anywhere else it stays where it was dropped. Horizontal and vertical attach independently, so it can sit along the top edge at any horizontal position, and the position is remembered across reloads. Clicking outside an open list closes it. On a wide window the agent switcher is hidden in favour of the rail; on a phone the rail is a thin handle whose list would cover the conversation, so the switcher remains.
+
+**Agent detail.** One agent, with its recent output, a message composer, and — when the agent is waiting for input — the key bar described below. Its header names the agent's working directory and carries the agent's own mark; the full path and the session id are one click away on that name, each with its own copy button.
+
+## Custom command backups
+
+Open **Settings → Custom commands** and use **Export** in the header to download the saved command names and their full text as a JSON file. **Import** merges a previously exported file into this browser's commands; existing commands win when names match, and the result shows how many entries were added or skipped. Imported commands appear in the slash menu immediately. Unsaved edits are not exported.
+
+Backups contain only custom commands, without gateway credentials or other settings. Files are limited to 5 MB and the merged list to 100 commands. An invalid file, an exceeded limit, or a storage failure leaves existing commands unchanged.
+
+## The files panel
+
+Type `@` at the start of a message or after a space to fuzzy-search the current pane's project files and directories. Choose with `↑`/`↓`, then `Enter`/`Tab` or a click to insert `@path`. Directories end in `/`; paths containing spaces are quoted. Selection replaces only the reference at the caret without sending the message. `Esc` dismisses the menu.
+
+Type a directory prefix such as `@src/` to list its immediate children, including empty directories. Search uses the file panel's scope and exclusions. Large projects may have an incomplete file index; the menu indicates this and directory prefixes let you continue browsing.
+
+A conversation opens beside the project's own file tree, so the checkout an agent is working in can be read without leaving the page. It is read-only: nothing here writes, renames, or deletes, and no file is opened for editing.
+
+Which directory the tree shows is the pane's working directory, so it follows the agent when it changes directory. Directories load when you open them rather than all at once, and build output, dependencies, and version-control internals are pruned — `node_modules`, `target`, `dist`, `.git` and the rest — so the tree shows the code rather than everything on disk.
+
+Git status is marked beside each file and aggregated up to the folder that contains it, so a change several levels down is still visible from the top. A file opens in a preview column beside the conversation, which takes half the width the way an editor split does; the preview renders Markdown as Markdown and everything else as highlighted code, and large or binary files say so instead of showing nothing.
+
+On a narrow window the tree collapses to a button, and the preview covers the conversation rather than splitting it. On a phone both are hidden.
+
+`Ctrl`/`Cmd`+`E` searches the project by file name from anywhere in the conversation, which is the browser's own find-in-page chord — the tree has to be reachable without hunting for it. `Ctrl`/`Cmd`+`F` is left alone, because searching the transcript you are reading is what that chord is for.
+
+## Switching agents
+
+`Shift`+`Tab` in a conversation opens a switcher over the page: hold the chord, the candidates turn past, release and the highlighted one opens. It works the way the Windows window switcher does, and for the same reason — a chord that opened something on every press would fill the history with screens you only passed through on the way.
+
+Releasing either half of the chord commits, and `Esc` cancels without going anywhere. If the window loses focus while the chord is held the switcher is abandoned rather than committed, because a lost focus does not say what you chose.
+
+The candidates are every agent you have open on every saved gateway, not just the ones in this session, ordered by who needs you: waiting first, then working, then the rest. So the first press reaches whoever is blocked, wherever they are. The card for the conversation you are in is marked **当前**, and the cards are titled by working directory — six panes of one agent are six cards called `pi`, and the directory is what tells them apart.
+
+Pointing at a card turns the ring to it, and clicking one opens it directly. The ring only turns to a card the pointer has actually moved onto, so a pointer resting on the panel does not spin the switcher by itself.
+
+With fewer than two agents open the chord keeps its ordinary meaning rather than being swallowed.
+
+## The agent console
+
+Output is plain text taken from the pane, so it uses normal browser scrolling, text selection, and copy on every platform.
+
+While an agent is working, new output appears as it is produced, and the view stays at the newest turn. Scrolling up to read back pauses that, so incoming output does not pull the view away from what you are reading; returning to the bottom resumes it. Scrolling to the top loads earlier output a page at a time, so a long conversation can be read back without loading it all at once. A `start of history` marker shows when there is nothing older to load.
+
+The composer sends a message to the agent on `Enter`. `Ctrl`/`Cmd`+`Enter` breaks the line instead, for a message that needs to span lines before it is sent.
+
+A sent message appears in the conversation straight away, with an **agent is responding** indicator under it. The agent's own transcript is the real record, so it only contains the message once the agent has written the turn; when it does, the placeholder is replaced by the recorded turn rather than shown twice.
+
+After you send a message, the send button becomes a **stop** button for as long as the agent is working. This is driven by the agent's reported state rather than by which browser sent the message, so opening an agent that is already running also offers the stop control. Stopping sends the same key the agent advertises for interruption (usually `esc`), so it behaves the same as pressing the key yourself.
+
+Local UI state, meaning which screen you are on and how far you have scrolled, is not shared with the terminal. Only the agent's own output and state are.
+
+## Sending files
+
+Three ways to send a file, all of which stage it beside the composer until you send:
+
+- **Paste** an image with `Ctrl+V` (or `Cmd+V`).
+- **Drop** files anywhere on the conversation.
+- Use the **attach button** inside the composer field to choose files. It floats on the field's right edge, leaving the row's own end to the send action.
+
+Pasting reads the `paste` event rather than the clipboard API. The clipboard API needs a secure context, which a plain-HTTP address on a private network is not, so it is refused there; the `paste` event is driven by your own keystroke and needs no permission.
+
+Images show as thumbnails and open full size when clicked. Any other file shows its name and size, and clicking it downloads it. A file-only send is allowed, and sending several files produces one message.
+
+The agent receives a **path**, not the file itself, because that is what an agent running on the host can read. Herdr shapes that path for the pane's agent: pi gets an `@path` mention while most other agents take a bare path.
+
+An image you paste into the terminal shows up in the conversation the same way. Herdr used to stage those in a temp directory that no route serves, so the browser rendered an unreachable path where the image belonged; when the web UI is configured a paste is written to the same served directory an upload goes to and is named the same way. It is kept when the client that pasted it disconnects, unlike a staged one, because the conversation keeps referring to it.
+
+Files are served from `/uploads/<id>.<ext>`. That route takes no key, because an `<img>` cannot send one; the id is 32 random bytes, so one upload cannot be found by guessing at another. Anyone who has the exact URL can read the file, so treat it as unlisted rather than private.
+
+Non-image files download instead of rendering. Types a browser would execute in this origin — `.html`, `.svg`, `.js`, and similar — are forced to download as well, since a page running there could read the gateway key. An `.svg` therefore downloads rather than previews.
+
+`[web] uploads_dir` chooses where the files live and defaults to an uploads directory inside `web.static_dir`. Uploads are refused when neither is set. Files are never removed automatically, so clear that directory yourself if you upload often.
+
+A single file is limited to 16 MiB.
+
+## Answering a prompt
+
+When the agent is blocked waiting for input, a **waiting for you** panel appears above the composer.
+
+There are two forms of this panel, depending on what the agent tells Herdr.
+
+### Options, when the agent publishes them
+
+Some agents use a structured interaction protocol and can report the question they are waiting on, along with the options they offered. For these, the panel shows the question, each option's label and description, and a **Send answer** button; a choice made here is the choice the agent offered, not a guess about its wording.
+
+Which agents do this:
+
+- **Codex** for command, file, and permission approvals, once its Herdr integration is installed.
+- **Claude Code** for tool approvals, the same way.
+- **Pi** for questionnaires, when the `@juicesharp/rpiv-ask-user-question` plugin is installed. Only a single-question dialog appears; a multi-question one, and typing a custom answer, stay in the terminal.
+
+A multi-question request is answered in one call, so an agent cannot act on half an answer.
+
+Because the agent's prompt is written to the embedded terminal, the structured panel and the terminal agree; the panel is simply easier to answer, especially on a phone. An agent that offers a structured panel is still fully answerable in the terminal, and the panel is the convenience rather than the only route.
+
+#### The approval window
+
+An approval is answered while the agent is paused before its own prompt, so there is a short window for the reader to answer before the agent gives up and asks in the terminal instead. Codex and Claude Code wait a few seconds by default; if nobody answers in time, the question is withdrawn and the agent shows its normal prompt, so a terminal user is never left waiting on a panel nobody is looking at. Set `HERDR_CODEX_PERMISSION_WAIT_MS` or `HERDR_CLAUDE_PERMISSION_WAIT_MS` in the agent's environment to change that wait.
+
+A Pi questionnaire is different: the dialog is on screen and waiting either way, so Herdr keeps offering it for much longer (`HERDR_PI_ASK_WAIT_MS`, 120 seconds by default). When that ends the panel is withdrawn and the dialog is left exactly as it was.
+
+### Keys, when the agent only reports state
+
+Agents that do not publish a structured request get a panel that shows the last part of the pane as text and offers the keys an agent prompt normally accepts: arrow keys, `Enter`, `Esc`, the number keys, and `y` / `n`.
+
+This panel deliberately does not parse the prompt. It cannot tell which option is which, so it does not try; you read the text and press the key, exactly as you would in the terminal.
+
+This matters for two reasons:
+
+- It cannot select the wrong option, because it never guesses what an option means.
+- It keeps working when an agent changes its wording, since nothing is matched against the text.
+
+The keys are sent to the pane as raw terminal input, so they behave the same as typing them into the terminal. `Esc` aborts rather than answers in most agents, so it is styled separately from the keys that resolve the prompt.
+
+## Reading the conversation
+
+Agents that publish their native session file — pi, Claude Code, and Codex, when their Herdr integration is installed — can be shown as a structured conversation instead of a terminal screen: one exchange per turn, with tool calls you can expand and the token count for the session.
+
+ZCode is shown the same way, but it is read differently: it keeps its sessions in a SQLite database rather than a file per session, and the only JSONL it writes is a model-I/O diagnostic log that is truncated as it rotates. So it is the one agent whose conversation Herdr reads itself rather than through the transcript parser. The database is opened read-only, and ZCode's own rule for what belongs in a transcript is applied, so hidden runtime traffic such as todo reminders does not surface as conversation.
+
+The transcript is parsed on the server from the agent's own session log, so it reflects what the agent recorded rather than what its TUI happens to be painting. Deep links into that conversation are available through the pane right-click menu; see [codex-trace links](/docs/configuration/#codex-trace-links).
+
+Each turn shows the agent's thinking, then the answer and any errors, with the tool calls collapsed behind a label you can expand. Thinking starts expanded because for some agents it is where a turn's substance lands and the plain text is only connective narration, which is also what a turn looks like when it is kept out of the way. It collapses on request.
+
+A working agent's transcript is polled while it runs. The server does not emit an event when a pane's output grows — only when a pane's title, metadata, or diagnostics change — so a view driven purely by events stops updating the moment the agent starts writing. Polling is what keeps the newest turn appearing as it is produced; it stops when the agent leaves the working state.
+
+### Jumping around a conversation
+
+A narrow rail beside the transcript holds one tick per message you sent, in order. The tick for the turn you are reading is highlighted, so the rail doubles as a position indicator as you scroll.
+
+Hovering a tick shows what that message said, and clicking it scrolls that turn to the top. The ticks stay a compact centred block rather than spreading over the full height, and a session with more messages than fit samples them evenly — the tick you are at is always kept.
+
+On a touch screen the rail floats over the transcript instead of taking a column of its own, so the text keeps the full width, and it fades to a faint hint when it is not being used. Dimmed it ignores touches, so the start of every line stays selectable; touching the transcript or scrolling brings it back to full strength. The labels are not rendered and the ticks grow to a comfortable tap size. There is no hover on a touch device, so a label revealed only by hovering could never appear; tapping the tick jumps instead.
+
+A finger can also press anywhere on the rail and slide up or down to scrub through the messages, previewing each one beside the rail, and jump to wherever it is released. A single tick is a small target on a phone, and a long conversation is sampled so one tick stands for several messages; sliding turns the whole rail into one control instead of asking for a precise tap.
+
+Agents that only report a session id, and plain shells, fall back to the rendered pane.
+
+## Agent todos and subagents
+
+Two things an agent keeps for itself are shown above the composer, and both are read back from what the agent recorded rather than tracked by Herdr.
+
+The **todo list** comes from pi's `rpiv-todo` extension, which writes the whole list into the transcript on every `todo` tool call with the newest record winning. A task stays visible only until the turn it was finished in ends, which is when that extension puts it away and disappears itself once nothing is left, so a finished list is shown as empty rather than as live work. The transcript parser that feeds the conversation view deliberately exposes a stable subset of its own types and does not carry that record through, so the server reads it from the raw session log instead — backwards, in a growing window, because a session reaches tens of megabytes and the newest record sits at the end. The panel is collapsed to a count until you open it, and an agent that keeps no list shows nothing at all rather than an empty panel.
+
+The **subagent runs** an agent has started come from the `pi-subagents` extension's own state in the temp directory. A bar above the composer shows how many are still running; opening it gives a card per run with the task it was given, what it is doing now, and the tool calls it has made. That extension prunes finished runs, so an empty answer is ordinary and is reported as such rather than as an error — a run that was there a moment ago can be gone without that meaning anything went wrong, and the drawer reflects whatever is currently known.
+
+A file named in a task description is shown as the **declared target**, not as evidence of what the run wrote. The extension records no file effects for a child that only runs commands, and a read-only subagent writes through its shell rather than a file tool, so the commands themselves are what the drawer shows. Treat the target as what the parent asked for, not as a list of what changed.
+
+## Notification settings
+
+The gear on the sessions screen opens the notification settings. Everything it
+saves is written to the same config file the CLI edits, so a change made in the
+browser shows up there and the other way around.
+
+It covers the screen-side settings — the toast delivery mode and its delay, the
+terminal bell, and sound — and the Feishu push described below. No other key is
+reachable from the page: settings like `web.static_dir` decide where files land,
+and a page that can write them is a page that can redirect what an agent
+produces.
+
+The signing secret is the one field that cannot be read back. The server reports
+only whether one is set, and the field starts empty. It is sent only when you
+type a new one, so saving another setting cannot clear a key that is already
+there.
+
+## Pushing to Feishu
+
+A Feishu custom-bot webhook sends agent notifications to a chat room, so they
+arrive when nobody is at the terminal. It is off by default and configured under
+`notification.feishu`: the webhook URL, an optional signing key, and its own
+delay.
+
+The delay is separate from `ui.toast.delay_seconds`. They are read in different
+places, and the interface's pacing should not decide how quickly a phone is told:
+a state that holds for the delay is the one that is pushed, so a brief flicker is
+not.
+
+The push fires on the same state changes the screen notification does — an agent
+that needs attention, or one that finished — and is independent of which toast
+delivery mode is selected.
+
+Two things about the endpoint are worth knowing when reading a failure. Feishu
+answers a rejected message with HTTP 200, so the status code says nothing: the
+server reads `code` in the body instead, and logs it with the message. And a
+wrong signing key and a clock more than an hour off produce the same code and the
+same wording, so the log names both.
+
+## Theme
+
+A theme switch sits at the top right of every screen. It toggles between the dark and light palettes, and the choice is remembered in the browser. With no stored choice, the UI follows the operating system's `prefers-color-scheme` setting.
+
+## Mobile use
+
+The layout is built for narrow screens: agent cards stack, the composer stays above the keyboard, and the prompt keys are sized for touch. The page is not a terminal, so there is no viewport sizing to negotiate and no mobile layout mode to trigger — it reflows like any other web page.
+
+Notifications are not delivered to the browser.
+
+## Remote access
+
+WireGuard and SSH tunnels are the intended paths. The transport is plain `ws://` because the tunnel already provides encryption.
+
+Bind to your private address:
+
+```toml
+[web]
+bind = "10.0.0.5"
+```
+
+Or keep the default loopback bind and forward the port over SSH:
+
+```bash
+ssh -L 8787:127.0.0.1:8787 you@server
+```
+
+The forwarded port is reachable at `ws://127.0.0.1:8787`. Do not expose the gateway directly to the public internet: the key is a single static secret guarding shell access, and it is not a substitute for a tunnel.
+
+If you host the page somewhere other than the gateway, set `allowed_origins` so other sites cannot connect to your gateway from a browser. Note that some browsers also restrict a public HTTPS page from reaching private network addresses.
+
+## Detaching
+
+Leave a session with the back button; the session and its panes keep running. Closing the browser tab detaches cleanly and does not stop the server.
+
+To stop a session and its panes, use `herdr session stop <name>`.
+
+## Codex structured interactions
+
+Start Codex inside a Herdr pane with `herdr codex -- [Codex arguments]`. Managed `agent start --kind codex` launches use the same bridge. If the installed Codex integration is older, update it first with `herdr integration install codex` using the new Herdr binary.
+
+The bridge owns one app-server and connects the native CLI to it. Approval and question cards remain pending until answered or cancelled; they do not switch to terminal text after three seconds. CLI and web answers share request IDs, and multiple pending requests are queued. Asynchronous questions use Codex's separate user-message reply protocol and expire when their turn ends.
+
+Unsupported interactions show an explanation with a manual terminal-controls button. Web disconnection disables submission and preserves the current draft. Existing independently launched Codex processes are not taken over: use the bridge for a new session or `herdr codex -- resume <session-id>` after stopping the original client. `--profile` and nested `--remote` options are currently rejected rather than silently changing configuration.
+
+This integration uses Codex's experimental remote CLI interface; validate the installed Codex version before rollout.
