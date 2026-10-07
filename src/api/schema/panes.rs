@@ -779,6 +779,40 @@ pub struct PaneModelsParams {
     pub pane_id: String,
 }
 
+/// Applies a model choice to a pane's agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneModelSetParams {
+    pub pane_id: String,
+    /// The chosen model's id, as `pane.models` reported it.
+    pub model: String,
+    /// The provider that reported it, when the agent's catalog is partitioned.
+    ///
+    /// pi's ids are only unique within a provider, so the pair identifies the
+    /// choice. Codex has no such axis and sends an empty provider.
+    #[serde(default)]
+    pub provider: String,
+    /// The reasoning effort to run the choice at, when the caller sets one.
+    ///
+    /// Optional on purpose: switching model alone keeps the effort wherever the
+    /// agent had it, which is a choice too. When sent it must be one of the
+    /// levels the chosen model reports, and it travels with the model because
+    /// both agents judge levels per model — pi re-derives its level on a model
+    /// switch and codex accepts only the levels a model lists — so setting the
+    /// two apart would invite one half to land on a level the other rejects.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
+/// Confirms the applied choice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneModelSetResult {
+    pub pane_id: String,
+    pub model: String,
+    /// The effort applied with it, when one was.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
 /// One model an agent can run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneModel {
@@ -797,6 +831,14 @@ pub struct PaneModel {
     /// Always sent: unlike an optional field, `false` here is a real answer
     /// ("not the current one") for every entry but one.
     pub current: bool,
+    /// The reasoning efforts this model accepts, in the agent's own order.
+    ///
+    /// Empty when the model does not reason: that is an answer — the effort
+    /// control is not offered for it — and not a failure to ask. Codex reports
+    /// its levels per model; pi derives the same list from the model's catalog
+    /// entry, so both arrive here the same way.
+    #[serde(default)]
+    pub efforts: Vec<String>,
 }
 
 /// The models an agent offers, or the reason its catalog could not be read.
@@ -807,6 +849,14 @@ pub struct PaneModelsResult {
     /// Why the list is empty, when it is. Absent on success.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    /// The reasoning effort the pane is running at, when it records one.
+    ///
+    /// The levels themselves are per model, in each entry's `efforts`; this is
+    /// which of them is in force. Absent when the agent does not reason or its
+    /// session never recorded a level — pi only writes one on a change, so a
+    /// session on its default reports nothing here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
 }
 
 /// Reads the subagent runs the pane's agent started.

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, ChevronDown, ChevronRight } from "lucide-react";
 import {
+  effortLabel,
   groupByProvider,
   loadAgentModels,
   modelKey,
@@ -15,42 +16,69 @@ interface ModelClient {
 }
 
 /**
+ * Which agents offer a model picker.
+ *
+ * Both keep a catalog herdr can read and accept a switch from herdr. An agent
+ * absent from this set is not offered the control at all rather than offered
+ * one that would be refused.
+ */
+const SWITCHABLE_AGENTS = new Set(["pi", "codex"]);
+
+/**
  * Picks the model a pane's agent runs.
  *
- * The list comes from the agent's own configuration, so it names the models that
- * agent would accept. Choosing one sends it as the agent's own command rather
- * than restarting the pane: the conversation keeps its context, and agents that
- * support switching do it in place.
+ * The list is the agent's own — pi's from its configuration, Codex's asked of its
+ * app-server — so what the menu offers is what the agent would accept. Choosing
+ * one sends the agent's own command rather than restarting the pane: the
+ * conversation keeps its context, and both agents switch in place.
  *
- * The menu has two levels: the provider is the first, its models the second.
- * The provider holding the running model is already expanded — the common switch
- * is between that provider's models, one tap away — while every other provider
- * opens its own list. On a pointer that can hover the second level opens beside
- * the first; on a touch screen it replaces it, with a way back.
+ * The menu has two levels where the agent partitions its catalog by provider (pi
+ * does; Codex does not): the provider is the first, its models the second. The
+ * provider holding the running model is already expanded — the common switch is
+ * between that provider's models, one tap away — while every other provider opens
+ * its own list. On a pointer that can hover the second level opens beside the
+ * first; on a touch screen it replaces it, with a way back. A catalog with no
+ * provider axis is a single flat list.
  */
 export function AgentModelPicker({
   client,
   paneId,
   agent,
+  hasConversation,
   onSwitched,
 }: {
   client: ModelClient;
   paneId: string;
-  /** Which agent the pane runs; only pi is offered the picker today. */
+  /** Which agent the pane runs; only pi and codex are offered the picker today. */
   agent: string | undefined;
+  /**
+   * Whether the pane's conversation is readable yet.
+   *
+   * Codex has no thread to retarget until it has been sent something, so its
+   * switch is offered only once there is one: the alternative — a command typed
+   * into a pane that cannot take it — is exactly what must not happen.
+   */
+  hasConversation: boolean;
   /** Called after a switch is sent, so the caller can refresh what it shows. */
   onSwitched?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [catalog, setCatalog] = useState<AgentModelCatalog | null>(null);
   const [openProvider, setOpenProvider] = useState<string | null>(null);
+  const [effortOpen, setEffortOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
-  // Only pi keeps a catalog herdr reads; the control is not offered for the rest
-  // rather than offered and then refused.
-  const supported = agent === "pi" && paneId !== "";
+  // Only agents with a catalog herdr can read are offered the control. Codex
+  // additionally needs a session to exist — there is no thread to retarget
+  // before its first message — while pi's switch is its own command in the pane,
+  // which is available the moment the pane is.
+  const supported =
+    agent !== undefined &&
+    SWITCHABLE_AGENTS.has(agent) &&
+    paneId !== "" &&
+    (agent !== "codex" || hasConversation);
 
   useEffect(() => {
     if (!supported) return;
@@ -69,19 +97,47 @@ export function AgentModelPicker({
     };
   }, [client, paneId, supported]);
 
-  // A menu that outlives the press that dismissed it reads as broken. Escape
-  // unwinds one level at a time: the open provider's list first, then the menu.
+  /*
+   * Opening the menu asks again. A Codex catalog is fetched on a background
+   * thread and cached, so the very first answer — before any fetch has finished
+   * — is a note rather than a list, and a menu that keeps showing that note
+   * until the page is reopened reads as broken. Asking on open is cheap: the
+   * answer is cached, and the fetch it starts is the one the menu is waiting for.
+   */
   useEffect(() => {
-    if (!open) return;
+    if (!open || !supported) return;
+    let cancelled = false;
+    void loadAgentModels(client, paneId)
+      .then((result) => {
+        if (!cancelled) {
+          setCatalog(result);
+          setError(null);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, client, paneId, supported]);
+
+  // A menu that outlives the press that dismissed it reads as broken. Escape
+  // unwinds one level at a time: the effort menu, then the open provider's
+  // list, then the model menu.
+  useEffect(() => {
+    if (!open && !effortOpen) return;
     const onPointerDown = (event: MouseEvent) => {
       if (!root.current?.contains(event.target as Node)) {
         setOpen(false);
         setOpenProvider(null);
+        setEffortOpen(false);
       }
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (openProvider) setOpenProvider(null);
+      if (effortOpen) setEffortOpen(false);
+      else if (openProvider) setOpenProvider(null);
       else setOpen(false);
     };
     document.addEventListener("mousedown", onPointerDown);
@@ -90,7 +146,7 @@ export function AgentModelPicker({
       document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
     };
-  }, [open, openProvider]);
+  }, [open, openProvider, effortOpen]);
 
   if (!supported) return null;
 
@@ -103,6 +159,10 @@ export function AgentModelPicker({
     group.models.some((model) => model.current),
   );
   const otherGroups = groups.filter((group) => group !== currentGroup);
+  // An agent that does not partition its catalog by provider (Codex) arrives as
+  // one nameless group. There is nothing to head or to open, so its models are
+  // listed directly rather than under a blank title and a blank submenu row.
+  const partitioned = !(groups.length === 1 && groups[0].provider === "");
   const submenuGroup = groups.find((group) => group.provider === openProvider);
   // Named the same way the menu names it, so the button and the ticked row never
   // disagree: within a provider whose models collide, that is the identifier.
@@ -116,17 +176,23 @@ export function AgentModelPicker({
     typeof window.matchMedia === "function" &&
     window.matchMedia("(hover: hover)").matches;
 
-  const choose = async (model: AgentModel) => {
-    if (busy || model.current) return;
+  const choose = async (model: AgentModel, effort?: string) => {
+    if (busy) return;
+    if (model.current && (effort === undefined || effort === catalog?.effort)) {
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      // The agent's own command, sent as text: it switches in place and keeps the
-      // conversation, which restarting the pane would not.
-      await client.call("pane.send_input", {
+      // The switch is asked of the agent, not typed into its pane: pi takes its
+      // own command, while Codex's picker opens a dialog that takes no argument,
+      // so herdr tells its app-server directly. Either way the conversation keeps
+      // its context, which restarting the pane would not.
+      await client.call("pane.model.set", {
         pane_id: paneId,
-        text: `/model ${model.provider}/${model.id}`,
-        keys: ["Enter"],
+        model: model.id,
+        provider: model.provider,
+        effort,
       });
       setCatalog((previous) =>
         previous
@@ -136,11 +202,13 @@ export function AgentModelPicker({
                 ...entry,
                 current: entry === model,
               })),
+              effort: effort ?? previous.effort,
             }
           : previous,
       );
       setOpen(false);
       setOpenProvider(null);
+      setEffortOpen(false);
       onSwitched?.();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
@@ -167,6 +235,12 @@ export function AgentModelPicker({
     </button>
   );
 
+  // The levels the running model accepts, and the one in force. Both come
+  // from the catalog as it stands; pi re-derives levels per model, codex gates
+  // them per model, so the menu follows the model the pane is on.
+  const effortLevels = current?.efforts ?? [];
+  const currentEffort = catalog?.effort;
+
   return (
     <div
       className="model-picker"
@@ -181,6 +255,7 @@ export function AgentModelPicker({
         title={current ? `当前模型 ${modelKey(current)}` : "选择模型"}
         onClick={() => {
           setOpenProvider(null);
+          setEffortOpen(false);
           setOpen((value) => !value);
         }}
       >
@@ -189,6 +264,51 @@ export function AgentModelPicker({
         ) : null}
         <ChevronDown size={13} aria-hidden="true" className="model-picker__chevron" />
       </button>
+
+      {effortLevels.length > 0 ? (
+        <button
+          type="button"
+          className="model-picker__trigger"
+          aria-label="选择思考强度"
+          aria-expanded={effortOpen}
+          title={
+            currentEffort
+              ? `当前思考强度 ${currentEffort}`
+              : "选择思考强度（跟随所选模型）"
+          }
+          onClick={() => {
+            setOpen(false);
+            setOpenProvider(null);
+            setEffortOpen((value) => !value);
+          }}
+        >
+          <span className="model-picker__current">
+            {effortLabel(currentEffort)}
+          </span>
+          <ChevronDown size={13} aria-hidden="true" className="model-picker__chevron" />
+        </button>
+      ) : null}
+
+      {effortOpen ? (
+        <div className="model-picker__menu model-picker__menu--effort" role="menu" aria-label="选择思考强度">
+          {effortLevels.map((level) => (
+            <button
+              type="button"
+              key={level}
+              role="menuitemradio"
+              aria-checked={level === currentEffort}
+              className={`model-picker__item${level === currentEffort ? " is-current" : ""}`}
+              disabled={busy}
+              onClick={() => current && void choose(current, level)}
+            >
+              <span className="model-picker__name">{effortLabel(level)}</span>
+              {level === currentEffort ? (
+                <Check size={15} aria-hidden="true" className="model-picker__check" />
+              ) : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {open ? (
         <div className="model-picker__menu" role="menu" aria-label="选择模型">
@@ -199,17 +319,23 @@ export function AgentModelPicker({
               <p className="model-picker__note">{catalog.detail ?? "没有可用的模型"}</p>
             ) : null}
 
-            {currentGroup ? (
+            {!partitioned ? (
+              <div className="model-picker__group" role="group">
+                {models.map((model) => modelRow(model, models))}
+              </div>
+            ) : null}
+
+            {partitioned && currentGroup ? (
               <div className="model-picker__group" role="group">
                 <p className="model-picker__group-title">
-                <span className="model-picker__group-name">{currentGroup.provider}</span>
-                <span className="model-picker__badge">当前</span>
-              </p>
+                  <span className="model-picker__group-name">{currentGroup.provider}</span>
+                  <span className="model-picker__badge">当前</span>
+                </p>
                 {currentGroup.models.map((model) => modelRow(model, currentGroup.models))}
               </div>
             ) : null}
 
-            {otherGroups.length > 0 ? (
+            {partitioned && otherGroups.length > 0 ? (
               <div className="model-picker__providers" role="group">
                 {otherGroups.map((group) => (
                   <button

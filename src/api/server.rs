@@ -453,6 +453,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::PaneSession(_) => "pane.session",
         Method::PaneTodos(_) => "pane.todos",
         Method::PaneModels(_) => "pane.models",
+        Method::PaneModelSet(_) => "pane.model.set",
         Method::PaneSubagents(_) => "pane.subagents",
         Method::PaneGraphicsSet(_) => "pane.graphics.set",
         Method::PaneGraphicsClear(_) => "pane.graphics.clear",

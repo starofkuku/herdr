@@ -6096,6 +6096,9 @@ textarea {
 .model-picker {
   position: relative;
   flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 /* The trigger: plain text and a chevron on a faint fill, 28px tall like ZCode's. */

@@ -221,6 +221,9 @@ pub enum Method {
     /// configuration, not asked of a running process.
     #[serde(rename = "pane.models")]
     PaneModels(PaneModelsParams),
+    /// Applies a model choice to a pane's agent.
+    #[serde(rename = "pane.model.set")]
+    PaneModelSet(PaneModelSetParams),
     /// The subagent runs the pane's agent started.
     #[serde(rename = "pane.subagents")]
     PaneSubagents(PaneSubagentsParams),

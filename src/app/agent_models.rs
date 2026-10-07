@@ -62,12 +62,46 @@ pub(crate) fn parse(raw: &str) -> Result<Vec<PaneModel>, String> {
                 provider: provider.clone(),
                 label,
                 current: false,
+                efforts: pi_efforts(model),
             });
         }
     }
 
     models.sort_by(|a, b| a.provider.cmp(&b.provider).then_with(|| a.id.cmp(&b.id)));
     Ok(models)
+}
+
+/// The efforts a pi model accepts, derived the way pi itself derives them.
+///
+/// pi's own rule, from its bundled command handling: a model that does not
+/// reason takes nothing but `off`, one that does offers the standard ladder
+/// with the top two rungs (`xhigh`, `max`) present only when the model maps
+/// them — `thinkingLevelMap` — or maps nothing at all. Reproducing that here
+/// keeps the menu from offering a level pi would clamp away.
+fn pi_efforts(model: &serde_json::Value) -> Vec<String> {
+    /// pi's ladder, bottom to top, as its own constant spells it.
+    const LADDER: [&str; 7] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+    if model.get("reasoning").and_then(serde_json::Value::as_bool) != Some(true) {
+        return vec!["off".to_string()];
+    }
+    let map = model.get("thinkingLevelMap");
+    LADDER
+        .iter()
+        .filter(|level| {
+            let mapped = map.and_then(|map| map.get(**level));
+            // pi's own rule, and the one its error message states: an explicit
+            // null mapping removes a level, and the top two rungs exist only
+            // where a model maps them. A model with no map at all therefore
+            // offers the five lower levels — offering it max would be a choice
+            // pi rejects, which is exactly what happened.
+            if **level == "xhigh" || **level == "max" {
+                mapped.is_some_and(|value| !value.is_null())
+            } else {
+                !mapped.is_some_and(|value| value.is_null())
+            }
+        })
+        .map(|level| level.to_string())
+        .collect()
 }
 
 /// The model a pane is currently running, as `(provider, model id)`.
@@ -113,6 +147,48 @@ pub(crate) fn current_from_session(path: &Path) -> Option<(String, String)> {
         if let (Some(provider), Some(model)) = (provider, model) {
             // Not an early return: the last change in the file is the current one.
             found = Some((provider.to_string(), model.to_string()));
+        }
+    }
+
+    found
+}
+
+/// The thinking level a pane is currently running, when its session records one.
+///
+/// pi writes a `thinking_level_change` entry for every change, exactly as it
+/// writes `model_change` for a model, so the same forward scan answers this too.
+/// A session that never changed its level may have no entry at all — the level
+/// then lives in pi's settings, not in this session — and the honest answer is
+/// none rather than a guess.
+pub(crate) fn current_effort_from_session(path: &Path) -> Option<String> {
+    let file = File::open(path).ok()?;
+    let mut reader = io::BufReader::with_capacity(64 * 1024, file);
+    let mut line = Vec::new();
+    let mut found = None;
+
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line).ok()? == 0 {
+            break;
+        }
+        let Ok(text) = std::str::from_utf8(&line) else {
+            continue;
+        };
+        if !text.contains("thinking_level_change") {
+            continue;
+        }
+        let Ok(entry) = serde_json::from_str::<serde_json::Value>(text) else {
+            continue;
+        };
+        if entry.get("type").and_then(serde_json::Value::as_str) != Some("thinking_level_change") {
+            continue;
+        }
+        if let Some(level) = entry
+            .get("thinkingLevel")
+            .and_then(serde_json::Value::as_str)
+            .filter(|level| !level.is_empty())
+        {
+            found = Some(level.to_string());
         }
     }
 

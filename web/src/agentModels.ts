@@ -20,6 +20,13 @@ export interface AgentModel {
   label?: string;
   /** Whether this is the model the pane is running now. */
   current: boolean;
+  /**
+   * The reasoning efforts this model accepts, in the agent's own order.
+   *
+   * Empty when the model does not reason — the effort control is simply not
+   * offered for it, which is an answer rather than a failure.
+   */
+  efforts: string[];
 }
 
 /** The slice of the gateway client this module needs. */
@@ -32,6 +39,8 @@ export interface AgentModelCatalog {
   models: AgentModel[];
   /** Why the list is empty, when the agent publishes no catalog herdr can read. */
   detail?: string;
+  /** The reasoning effort in force, when the pane's record names one. */
+  effort?: string;
 }
 
 /**
@@ -45,22 +54,24 @@ export async function loadAgentModels(
   client: ModelClient,
   paneId: string,
 ): Promise<AgentModelCatalog> {
-  const response = await client.call<{ models?: { models?: unknown; detail?: unknown } }>(
-    "pane.models",
-    { pane_id: paneId },
-  );
+  const response = await client.call<{
+    models?: { models?: unknown; detail?: unknown; effort?: unknown };
+  }>("pane.models", { pane_id: paneId });
   const payload = response?.models;
   return {
     models: parseModels(payload?.models),
     detail: typeof payload?.detail === "string" ? payload.detail : undefined,
+    effort: typeof payload?.effort === "string" ? payload.effort : undefined,
   };
 }
 
 /**
  * Keeps only entries usable as a choice.
  *
- * Both `id` and `provider` are required because a choice is identified by the
- * pair; an entry missing either could not be applied.
+ * An `id` is what a choice is applied by, so a row without one is unusable. A
+ * provider is not required: pi partitions its catalog by provider and Codex's has
+ * no such axis, so the field is empty for Codex and its rows still have to be
+ * offered.
  */
 export function parseModels(value: unknown): AgentModel[] {
   if (!Array.isArray(value)) return [];
@@ -69,12 +80,14 @@ export function parseModels(value: unknown): AgentModel[] {
     if (!entry || typeof entry !== "object") continue;
     const raw = entry as Record<string, unknown>;
     if (typeof raw.id !== "string" || !raw.id) continue;
-    if (typeof raw.provider !== "string" || !raw.provider) continue;
     models.push({
       id: raw.id,
-      provider: raw.provider,
+      provider: typeof raw.provider === "string" ? raw.provider : "",
       label: typeof raw.label === "string" && raw.label ? raw.label : undefined,
       current: raw.current === true,
+      efforts: Array.isArray(raw.efforts)
+        ? raw.efforts.filter((e): e is string => typeof e === "string" && !!e)
+        : [],
     });
   }
   return models;
@@ -131,4 +144,29 @@ export function modelLabel(model: AgentModel, siblings: AgentModel[]): string {
 /** The value that identifies one choice in a list. */
 export function modelKey(model: AgentModel): string {
   return `${model.provider}/${model.id}`;
+}
+
+/**
+ * How an effort level is named in the menu.
+ *
+ * Both agents spell their levels in English ids; the reader scanning the
+ * composer reads Chinese, and ZCode — the reference for this control — names
+ * them in Chinese too (低/中/高/最高). An id with no settled translation is
+ * shown as-is: a wrong guess would be worse than the English word.
+ */
+export function effortLabel(effort: string | undefined): string {
+  if (!effort) return "思考强度";
+  const labels: Record<string, string> = {
+    off: "关闭",
+    none: "关闭",
+    minimal: "极低",
+    low: "低",
+    medium: "中",
+    high: "高",
+    xhigh: "超高",
+    max: "最高",
+    ultra: "极高",
+    persistent: "持续",
+  };
+  return labels[effort] ?? effort;
 }

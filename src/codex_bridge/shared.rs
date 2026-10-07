@@ -22,7 +22,7 @@ pub(super) struct Connection {
     pub send: mpsc::UnboundedSender<Value>,
 }
 
-async fn daemon_socket() -> io::Result<String> {
+pub(super) async fn daemon_socket() -> io::Result<String> {
     let mut command = Command::new("codex");
     command.args(["app-server", "daemon", "start"]);
     // A daemon can outlive every pane. Never give its hooks pane-local identity.

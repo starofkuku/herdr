@@ -6,6 +6,7 @@
 
 pub(crate) mod actions;
 pub(crate) mod agent_models;
+pub(crate) mod agent_models_codex;
 mod agent_resume;
 pub(crate) mod agent_view;
 mod agents;

@@ -463,7 +463,7 @@ impl App {
             agent_status: pane_agent_status(terminal.state, pane.seen),
             state_labels: presentation.state_labels,
             tokens: terminal.metadata_tokens.values(),
-            agent_session: terminal_agent_session_info(terminal),
+            agent_session: self.pane_agent_session_or_discovered(ws_idx, pane_id, terminal),
             diagnostics: terminal.active_diagnostics(std::time::Instant::now()),
             interaction_request: terminal
                 .active_interaction(std::time::Instant::now())

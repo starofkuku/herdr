@@ -3285,6 +3285,35 @@
           },
           "type": "object"
         },
+        "PaneModelSetParams": {
+          "description": "Applies a model choice to a pane's agent.",
+          "properties": {
+            "effort": {
+              "description": "The reasoning effort to run the choice at, when the caller sets one.\n\nOptional on purpose: switching model alone keeps the effort wherever the\nagent had it, which is a choice too. When sent it must be one of the\nlevels the chosen model reports, and it travels with the model because\nboth agents judge levels per model — pi re-derives its level on a model\nswitch and codex accepts only the levels a model lists — so setting the\ntwo apart would invite one half to land on a level the other rejects.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model": {
+              "description": "The chosen model's id, as `pane.models` reported it.",
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "provider": {
+              "default": "",
+              "description": "The provider that reported it, when the agent's catalog is partitioned.\n\npi's ids are only unique within a provider, so the pair identifies the\nchoice. Codex has no such axis and sends an empty provider.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "model"
+          ],
+          "type": "object"
+        },
         "PaneModelsParams": {
           "description": "Reads the models the pane's agent can be switched to.\n\nRead from the agent's own configuration rather than by running its CLI: a\nprocess would be started to answer a question about a file, and the answer\nhas to name the same catalog the running agent would accept.",
           "properties": {
@@ -6742,6 +6771,23 @@
           "type": "object"
         },
         {
+          "description": "Applies a model choice to a pane's agent.",
+          "properties": {
+            "method": {
+              "const": "pane.model.set",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneModelSetParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The subagent runs the pane's agent started.",
           "properties": {
             "method": {
@@ -9647,6 +9693,14 @@
               "description": "True for the model this pane is currently running.\n\nAlways sent: unlike an optional field, `false` here is a real answer\n(\"not the current one\") for every entry but one.",
               "type": "boolean"
             },
+            "efforts": {
+              "default": [],
+              "description": "The reasoning efforts this model accepts, in the agent's own order.\n\nEmpty when the model does not reason: that is an answer — the effort\ncontrol is not offered for it — and not a failure to ask. Codex reports\nits levels per model; pi derives the same list from the model's catalog\nentry, so both arrive here the same way.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "id": {
               "description": "The agent's own identifier for the model, as its config spells it.",
               "type": "string"
@@ -9670,11 +9724,41 @@
           ],
           "type": "object"
         },
+        "PaneModelSetResult": {
+          "description": "Confirms the applied choice.",
+          "properties": {
+            "effort": {
+              "description": "The effort applied with it, when one was.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "model": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "model"
+          ],
+          "type": "object"
+        },
         "PaneModelsResult": {
           "description": "The models an agent offers, or the reason its catalog could not be read.",
           "properties": {
             "detail": {
               "description": "Why the list is empty, when it is. Absent on success.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "effort": {
+              "description": "The reasoning effort the pane is running at, when it records one.\n\nThe levels themselves are per model, in each entry's `efforts`; this is\nwhich of them is in force. Absent when the agent does not reason or its\nsession never recorded a level — pi only writes one on a change, so a\nsession on its default reports nothing here.",
               "type": [
                 "string",
                 "null"
@@ -12226,6 +12310,23 @@
               "required": [
                 "type",
                 "models"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The choice that was applied.",
+              "properties": {
+                "model": {
+                  "$ref": "#/schemas/success_response/$defs/PaneModelSetResult"
+                },
+                "type": {
+                  "const": "pane_model_set",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "model"
               ],
               "type": "object"
             },

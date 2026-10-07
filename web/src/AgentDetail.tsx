@@ -1388,6 +1388,7 @@ export function AgentDetail({
                 client={client}
                 paneId={paneId ?? ""}
                 agent={agent?.agent}
+                hasConversation={agent?.hasConversation ?? false}
                 onSwitched={onChanged}
               />
               <button

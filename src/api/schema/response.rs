@@ -9,10 +9,10 @@ use super::integrations::{
 };
 use super::panes::{
     LayoutDescription, PaneAnswerInteractionResult, PaneEdgesResult, PaneFocusDirectionResult,
-    PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneModelsResult, PaneMoveResult,
-    PaneNeighborResult, PanePresentationResult, PaneProcessInfo, PaneReadResult, PaneResizeResult,
-    PaneSessionResult, PaneStageUploadResult, PaneSubagentsResult, PaneSwapResult, PaneTodosResult,
-    PaneZoomResult,
+    PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneModelSetResult, PaneModelsResult,
+    PaneMoveResult, PaneNeighborResult, PanePresentationResult, PaneProcessInfo, PaneReadResult,
+    PaneResizeResult, PaneSessionResult, PaneStageUploadResult, PaneSubagentsResult,
+    PaneSwapResult, PaneTodosResult, PaneZoomResult,
 };
 use super::plugins::{
     InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
@@ -222,6 +222,10 @@ pub enum ResponseResult {
     /// The models the pane's agent offers, and which one it is running.
     PaneModels {
         models: PaneModelsResult,
+    },
+    /// The choice that was applied.
+    PaneModelSet {
+        model: PaneModelSetResult,
     },
     /// The subagent runs started by the pane's agent, which may be empty.
     PaneSubagents {

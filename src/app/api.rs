@@ -1138,6 +1138,7 @@ impl App {
             Method::PaneSession(params) => return self.handle_pane_session(request.id, params),
             Method::PaneTodos(params) => return self.handle_pane_todos(request.id, params),
             Method::PaneModels(params) => return self.handle_pane_models(request.id, params),
+            Method::PaneModelSet(params) => return self.handle_pane_model_set(request.id, params),
             Method::PaneSubagents(params) => {
                 return self.handle_pane_subagents(request.id, params);
             }

@@ -213,6 +213,108 @@ async fn connect(server_args: Vec<String>, cwd: &std::path::Path) -> io::Result<
     })
 }
 
+/// Asks the managed app-server one question and returns its result.
+///
+/// The model picker needs Codex's live model list, which only the app-server can
+/// answer, and it needs it from the same daemon the panes connect to: a cached
+/// catalog file is the wrong answer, and on this machine provably so — the file
+/// lists fourteen models and does not contain the one the account is running.
+///
+/// The daemon is started, and its peer verified, in the same place the bridge
+/// does it, so a daemon carrying another pane's identity is refused here as well
+/// rather than quietly answered.
+///
+/// Only Linux shares a daemon. Elsewhere each pane owns an isolated app-server
+/// that the bridge holds open, and herdr has no socket of its own to ask, so the
+/// refusal below is the honest answer rather than a missing implementation.
+#[cfg(target_os = "linux")]
+pub(crate) async fn query(
+    method: &str,
+    params: serde_json::Value,
+) -> io::Result<serde_json::Value> {
+    // Bounded as a whole: the daemon is another process, and a model list that
+    // never arrives must fail the request rather than hold a pane's caller open.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(20),
+        query_inner(method, params),
+    )
+    .await
+    .map_err(|_| io::Error::other("the Codex app-server did not answer in time"))?
+}
+
+#[cfg(target_os = "linux")]
+async fn query_inner(method: &str, params: serde_json::Value) -> io::Result<serde_json::Value> {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let path = shared::daemon_socket().await?;
+    let stream = crate::platform::connect_shared_codex(&path).await?;
+    let (mut socket, _) = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        tokio_tungstenite::client_async("ws://localhost/rpc", stream),
+    )
+    .await
+    .map_err(|_| io::Error::other("Codex daemon handshake timed out"))?
+    .map_err(io::Error::other)?;
+
+    let request = |id: u64, method: &str, params: serde_json::Value| {
+        json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params}).to_string()
+    };
+    // Experimental methods are what the caller asked for: `thread/settings/update`
+    // refuses a connection that did not declare the capability, and declaring it
+    // here keeps one connection able to both read the list and apply a choice.
+    let initialize = json!({
+        "clientInfo": {
+            "name": "herdr",
+            "title": "Herdr",
+            "version": env!("CARGO_PKG_VERSION"),
+        },
+        "capabilities": {"experimentalApi": true},
+    });
+    socket
+        .send(Message::Text(request(1, "initialize", initialize).into()))
+        .await
+        .map_err(io::Error::other)?;
+    socket
+        .send(Message::Text(request(2, method, params).into()))
+        .await
+        .map_err(io::Error::other)?;
+
+    while let Some(message) = socket.next().await {
+        let Message::Text(text) = message.map_err(io::Error::other)? else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+        // The daemon interleaves notifications meant for other clients, and those
+        // carry a method but no id; only the reply to this request ends the wait.
+        if value.get("id").and_then(serde_json::Value::as_u64) != Some(2) {
+            continue;
+        }
+        if let Some(error) = value.get("error") {
+            return Err(io::Error::other(error.to_string()));
+        }
+        return Ok(value
+            .get("result")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null));
+    }
+    Err(io::Error::other(
+        "the Codex app-server closed the connection",
+    ))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) async fn query(
+    _method: &str,
+    _params: serde_json::Value,
+) -> io::Result<serde_json::Value> {
+    Err(io::Error::other(
+        "Codex runs its app-server per pane on this platform; the model list can only be read where the daemon is shared",
+    ))
+}
+
 fn validate_option(arg: &str) -> io::Result<()> {
     if (arg.starts_with("-p") && !arg.starts_with("--"))
         || [

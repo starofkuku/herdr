@@ -39,6 +39,31 @@ use super::{
 const DEFAULT_DETECTION_ROWS: usize = 24;
 const KITTY_GRAPHICS_REDRAW_SETTLE: Duration = Duration::from_millis(20);
 const CURSOR_POSITION_SETTLE_ENABLED: bool = cfg!(windows);
+/// The escape sequence that enables one of the mouse tracking modes, as an
+/// agent would send it.
+///
+/// Written into the terminal rather than set through the mode API, so the
+/// parser updates the mouse tracking flags alongside the mode table — the two
+/// must agree, and only the escape path keeps them so.
+const fn mode_enable_sequence(mode: u16) -> &'static [u8] {
+    match mode {
+        MODE_MOUSE_X10 => b"\x1b[?9h",
+        MODE_MOUSE_PRESS_RELEASE => b"\x1b[?1000h",
+        MODE_MOUSE_BUTTON_MOTION => b"\x1b[?1002h",
+        _ => b"\x1b[?1003h",
+    }
+}
+
+/// The escape sequence that disables one, paired with [`mode_enable_sequence`].
+const fn mode_disable_sequence(mode: u16) -> &'static [u8] {
+    match mode {
+        MODE_MOUSE_X10 => b"\x1b[?9l",
+        MODE_MOUSE_PRESS_RELEASE => b"\x1b[?1000l",
+        MODE_MOUSE_BUTTON_MOTION => b"\x1b[?1002l",
+        _ => b"\x1b[?1003l",
+    }
+}
+
 const MODE_MOUSE_X10: u16 = 9;
 const MODE_MOUSE_PRESS_RELEASE: u16 = 1000;
 const MODE_MOUSE_BUTTON_MOTION: u16 = 1002;
@@ -1395,14 +1420,14 @@ impl GhosttyPaneTerminal {
             input_state.color_scheme_reporting,
         );
 
-        for mode in [
-            MODE_MOUSE_X10,
-            MODE_MOUSE_PRESS_RELEASE,
-            MODE_MOUSE_BUTTON_MOTION,
-            MODE_MOUSE_ANY_MOTION,
-        ] {
-            let _ = core.terminal.mode_set(mode, false);
-        }
+        // Seeded as escape sequences rather than `mode_set` calls on purpose.
+        //
+        // `mode_set` writes the mode table only; the mouse encoder reads its
+        // tracking mode from the terminal's mouse flags, which the escape
+        // parser keeps in step and the C setter does not. Seeding through the
+        // table left a handoff pane reporting mouse mode to herdr (the routing
+        // check reads the table) while encoding nothing for it (the encoder
+        // read the flags), which swallowed every wheel event after a handoff.
         let mouse_mode = match input_state.mouse_protocol_mode {
             crate::input::MouseProtocolMode::None => None,
             crate::input::MouseProtocolMode::Press => Some(MODE_MOUSE_X10),
@@ -1410,25 +1435,32 @@ impl GhosttyPaneTerminal {
             crate::input::MouseProtocolMode::ButtonMotion => Some(MODE_MOUSE_BUTTON_MOTION),
             crate::input::MouseProtocolMode::AnyMotion => Some(MODE_MOUSE_ANY_MOTION),
         };
+        for mode in [
+            MODE_MOUSE_X10,
+            MODE_MOUSE_PRESS_RELEASE,
+            MODE_MOUSE_BUTTON_MOTION,
+            MODE_MOUSE_ANY_MOTION,
+        ] {
+            if Some(mode) != mouse_mode {
+                core.terminal.write(mode_disable_sequence(mode));
+            }
+        }
         if let Some(mode) = mouse_mode {
-            let _ = core.terminal.mode_set(mode, true);
+            core.terminal.write(mode_enable_sequence(mode));
         }
 
-        let _ = core
-            .terminal
-            .mode_set(crate::ghostty::MODE_MOUSE_UTF8, false);
-        let _ = core
-            .terminal
-            .mode_set(crate::ghostty::MODE_MOUSE_SGR, false);
+        // Format modes go through the escape path for the same reason as the
+        // tracking modes above: the encoder reads its format from the terminal's
+        // mouse flags, which the mode API does not touch.
+        core.terminal.write(b"\x1b[?1005l");
+        core.terminal.write(b"\x1b[?1006l");
         match input_state.mouse_protocol_encoding {
             crate::input::MouseProtocolEncoding::Default => {}
             crate::input::MouseProtocolEncoding::Utf8 => {
-                let _ = core
-                    .terminal
-                    .mode_set(crate::ghostty::MODE_MOUSE_UTF8, true);
+                core.terminal.write(b"\x1b[?1005h");
             }
             crate::input::MouseProtocolEncoding::Sgr => {
-                let _ = core.terminal.mode_set(crate::ghostty::MODE_MOUSE_SGR, true);
+                core.terminal.write(b"\x1b[?1006h");
             }
         }
 

@@ -1499,9 +1499,155 @@ impl App {
                     pane_id: public_pane_id,
                     models,
                     detail,
+                    effort: self.pane_current_effort(ws_idx, pane_id),
                 },
             },
         )
+    }
+
+    /// Applies a model choice.
+    ///
+    /// Both supported agents switch in place, but by different roads: pi reads
+    /// its own command from the pane's input, while Codex's picker opens a dialog
+    /// that takes no argument, so its choice has to be told to its app-server
+    /// directly. Anything else answers with the reason rather than pretending.
+    ///
+    /// Codex's road can block on a socket, so it runs on a thread of its own with
+    /// a short ceiling: the request path is the server's main loop, and while the
+    /// daemon is local and answers in milliseconds when it is well, one that has
+    /// wedged must not be allowed to stop the server for longer than it takes to
+    /// give up on it.
+    pub(super) fn handle_pane_model_set(
+        &mut self,
+        id: String,
+        params: crate::api::schema::PaneModelSetParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+
+        let agent = self.pane_agent_label(ws_idx, pane_id);
+        let transcript = self.pane_transcript(ws_idx, pane_id);
+        match agent.as_deref() {
+            Some("pi") => {
+                // pi reads each change as its own command typed into the pane,
+                // and the two must be submitted separately: pi's handling of the
+                // model command is async, so characters that arrive while it
+                // runs land in whatever pi opened meanwhile — its model selector
+                // has swallowed a following thinking command in practice. Two
+                // requests, each with its own Enter, give pi the order a person
+                // typing both would.
+                //
+                // When the chosen model is the one already running, the model
+                // command is skipped entirely: an effort-only change asks for
+                // `/thinking` alone, which also keeps the session record free of
+                // a redundant model_change.
+                let already_current =
+                    self.pane_current_model(ws_idx, pane_id)
+                        .is_some_and(|(provider, model)| {
+                            provider == params.provider && model == params.model
+                        });
+                let mut script: Vec<String> = Vec::new();
+                if !already_current {
+                    script.push(if params.provider.is_empty() {
+                        format!("/model {}", params.model)
+                    } else {
+                        format!("/model {}/{}", params.provider, params.model)
+                    });
+                }
+                if let Some(effort) = params.effort.as_deref() {
+                    script.push(format!("/thinking {effort}"));
+                }
+                if script.is_empty() {
+                    return encode_success(
+                        id,
+                        ResponseResult::PaneModelSet {
+                            model: crate::api::schema::PaneModelSetResult {
+                                pane_id: public_pane_id,
+                                model: params.model,
+                                effort: params.effort,
+                            },
+                        },
+                    );
+                }
+                let mut last = String::new();
+                for command in script {
+                    let request = crate::api::schema::Request {
+                        id: id.clone(),
+                        method: crate::api::schema::Method::PaneSendInput(
+                            crate::api::schema::PaneSendInputParams {
+                                pane_id: params.pane_id.clone(),
+                                text: command,
+                                keys: vec!["Enter".to_string()],
+                            },
+                        ),
+                    };
+                    // The pane's own command: it carries the pane identity, which
+                    // this handler should not have to duplicate to send it.
+                    last = self.handle_api_request_after_internal_events_drained(request);
+                }
+                last
+            }
+
+            Some("codex") => {
+                let Some((path, _agent)) = transcript else {
+                    return encode_error(
+                        id,
+                        "no_transcript",
+                        "this Codex pane has no session yet; send it a message first",
+                    );
+                };
+                let Some(thread) =
+                    crate::app::agent_models_codex::thread_id(std::path::Path::new(&path))
+                else {
+                    return encode_error(
+                        id,
+                        "no_transcript",
+                        "this Codex session records no thread id",
+                    );
+                };
+                let model = params.model.clone();
+                let effort = params.effort.clone();
+                // On a thread of its own, because the exchange can block on a
+                // socket and this handler is the server's main loop. The switch
+                // itself is timeboxed inside, so a daemon that never answers
+                // cannot hold every pane open with it.
+                let applied = std::thread::scope(|scope| {
+                    scope
+                        .spawn(move || {
+                            crate::app::agent_models_codex::switch_model(
+                                &thread,
+                                &model,
+                                effort.as_deref(),
+                            )
+                        })
+                        .join()
+                        .map_err(|_| "the model switch worker panicked".to_string())
+                        .and_then(|result| result.map_err(|error| error.to_string()))
+                });
+                match applied {
+                    Ok(()) => encode_success(
+                        id,
+                        ResponseResult::PaneModelSet {
+                            model: crate::api::schema::PaneModelSetResult {
+                                pane_id: public_pane_id,
+                                model: params.model,
+                                effort: params.effort,
+                            },
+                        },
+                    ),
+                    Err(message) => encode_error(id, "model_switch_failed", &message),
+                }
+            }
+            _ => encode_error(
+                id,
+                "not_switchable",
+                "this agent does not accept a model switch from herdr",
+            ),
+        }
     }
 
     /// The subagent runs started by the pane's agent.
@@ -1571,43 +1717,124 @@ impl App {
 
     /// The pane's transcript path and agent label, when the agent reported a
     /// path-shaped session reference.
-    /// The models the pane's agent offers, from its own configuration.
+    /// The models the pane's agent offers.
     ///
-    /// Only pi publishes a catalog herdr can read; every other agent answers
-    /// with the reason instead, which the caller reports as a note rather than
-    /// as an error.
+    /// pi's catalog is a file herdr reads; Codex's lives behind its app-server and
+    /// has to be asked for. Either way the list is the agent's own, so what the
+    /// menu offers is what the agent would accept. An agent that publishes neither
+    /// answers with the reason, which the caller reports as a note.
     fn pane_models(
         &self,
         ws_idx: usize,
         pane_id: PaneId,
     ) -> Result<Vec<crate::api::schema::PaneModel>, String> {
-        let agent = self
-            .state
+        match self.pane_agent_label(ws_idx, pane_id).as_deref() {
+            Some("pi") => crate::app::agent_models::read().map_err(|err| err.to_string()),
+            Some("codex") => crate::app::agent_models_codex::read().map_err(|err| err.to_string()),
+            _ => Err("this agent does not publish a model catalog".to_string()),
+        }
+    }
+
+    /// The model a pane is currently running, when its transcript records one.
+    ///
+    /// Returned as `(provider, model)`. Codex's list is not partitioned by
+    /// provider, so its provider component is empty and the match falls to the id.
+    fn pane_current_model(&self, ws_idx: usize, pane_id: PaneId) -> Option<(String, String)> {
+        self.pane_current_model_and_effort(ws_idx, pane_id)
+            .map(|(provider, model, _)| (provider, model))
+    }
+
+    /// The model and effort a pane is running, when its transcript records them.
+    ///
+    /// One read answers both, because both live in the same records — pi's
+    /// `model_change` and `thinking_level_change` sit in one file, codex's
+    /// `turn_context` carries model and effort in one entry.
+    fn pane_current_model_and_effort(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Option<(String, String, Option<String>)> {
+        let agent = self.pane_agent_label(ws_idx, pane_id)?;
+        let (path, _agent) = self.pane_transcript(ws_idx, pane_id)?;
+        match agent.as_str() {
+            "codex" => {
+                crate::app::agent_models_codex::current_from_transcript(std::path::Path::new(&path))
+                    .map(|(model, effort)| (String::new(), model, effort))
+            }
+            _ => {
+                let (provider, model) =
+                    crate::app::agent_models::current_from_session(std::path::Path::new(&path))?;
+                let effort = crate::app::agent_models::current_effort_from_session(
+                    std::path::Path::new(&path),
+                );
+                Some((provider, model, effort))
+            }
+        }
+    }
+
+    /// The effort the pane is running at, as its own record spells it.
+    fn pane_current_effort(&self, ws_idx: usize, pane_id: PaneId) -> Option<String> {
+        self.pane_current_model_and_effort(ws_idx, pane_id)
+            .and_then(|(_, _, effort)| effort)
+    }
+
+    /// The agent a pane is running, as herdr detects it.
+    fn pane_agent_label(&self, ws_idx: usize, pane_id: PaneId) -> Option<String> {
+        self.state
             .workspaces
             .get(ws_idx)
             .and_then(|ws| ws.pane_state(pane_id))
             .and_then(|pane| self.state.terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.effective_agent_label());
-        if agent != Some("pi") {
-            return Err("this agent does not publish a model catalog".to_string());
-        }
-        crate::app::agent_models::read().map_err(|err| err.to_string())
-    }
-
-    /// The model a pane is currently running, when its transcript records one.
-    fn pane_current_model(&self, ws_idx: usize, pane_id: PaneId) -> Option<(String, String)> {
-        let (path, _agent) = self.pane_transcript(ws_idx, pane_id)?;
-        crate::app::agent_models::current_from_session(std::path::Path::new(&path))
+            .and_then(|terminal| terminal.effective_agent_label())
+            .map(str::to_string)
     }
 
     fn pane_transcript(&self, ws_idx: usize, pane_id: PaneId) -> Option<(String, String)> {
         let pane = self.state.workspaces.get(ws_idx)?.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
-        let info = crate::app::creation::terminal_agent_session_info(terminal)?;
+        let info = self.pane_agent_session_or_discovered(ws_idx, pane_id, terminal)?;
         if info.kind != crate::agent_resume::AgentSessionRefKind::Path {
             return None;
         }
         Some((info.value, info.agent))
+    }
+
+    /// The pane's session, with Codex's rollout found for it when it reported none.
+    ///
+    /// A Codex pane that resumed a thread reports no session until its first new
+    /// turn — its `SessionStart` hook is what carries the report — so a pane run
+    /// as `codex resume --last` would otherwise have no conversation and no model
+    /// picker until something is sent to it. The rollout the resumed thread is
+    /// writing is findable without Codex's help, and finding it here is read-side
+    /// only: a real report stays the authority and replaces this the moment it
+    /// arrives.
+    pub(crate) fn pane_agent_session_or_discovered(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+        terminal: &crate::terminal::TerminalState,
+    ) -> Option<crate::api::schema::AgentSessionInfo> {
+        if let Some(info) = crate::app::creation::terminal_agent_session_info(terminal) {
+            return Some(info);
+        }
+        if terminal.effective_agent_label() != Some("codex") {
+            return None;
+        }
+        let (runtime, _) = self.lookup_runtime(ws_idx, pane_id)?;
+        let shell_pid = runtime.child_pid()?;
+        let job = crate::detect::foreground_job(shell_pid)?;
+        let codex = job
+            .processes
+            .iter()
+            .find(|process| process.argv.as_deref().is_some_and(is_codex_process))?;
+        let cwd = crate::platform::process_cwd(codex.pid);
+        let path = crate::app::agent_models_codex::discover_transcript(cwd.as_deref())?;
+        Some(crate::api::schema::AgentSessionInfo {
+            source: "herdr:codex".to_string(),
+            agent: "codex".to_string(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: path.display().to_string(),
+        })
     }
 
     /// Where a pane's conversation has to be read from.
@@ -1617,7 +1844,7 @@ impl App {
     fn pane_conversation(&self, ws_idx: usize, pane_id: PaneId) -> Option<PaneConversation> {
         let pane = self.state.workspaces.get(ws_idx)?.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
-        let info = crate::app::creation::terminal_agent_session_info(terminal)?;
+        let info = self.pane_agent_session_or_discovered(ws_idx, pane_id, terminal)?;
         match info.kind {
             crate::agent_resume::AgentSessionRefKind::Path => Some(PaneConversation::File {
                 path: info.value,
@@ -3137,6 +3364,19 @@ fn split_path_id(idx: usize, path: &[bool]) -> String {
         .collect::<Vec<_>>()
         .join("");
     format!("split_{idx}_{path}")
+}
+
+/// Whether a foreground process is Codex itself, by its own argv.
+///
+/// The wrapper script and the binary both carry `codex` as their executable and
+/// `resume`/`app-server` in their arguments, which is what distinguishes the
+/// agent from the shell around it.
+fn is_codex_process(argv: &[String]) -> bool {
+    let Some(executable) = argv.first() else {
+        return false;
+    };
+    let basename = executable.rsplit('/').next().unwrap_or(executable);
+    basename.contains("codex")
 }
 
 fn invalid_agent(id: String) -> String {
