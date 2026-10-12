@@ -10,6 +10,7 @@ mod pane_graphics;
 mod panes;
 pub(crate) mod plugins;
 mod responses;
+mod schedules;
 mod session;
 mod skills;
 mod tabs;
@@ -1056,6 +1057,7 @@ impl App {
             Method::FilesList(params) => return self.handle_files_list(request.id, params),
             Method::FilesRead(params) => return self.handle_files_read(request.id, params),
             Method::FilesSearch(params) => return self.handle_files_search(request.id, params),
+            Method::FilesPublish(params) => return self.handle_files_publish(request.id, params),
             Method::SkillsList(params) => return self.handle_skills_list(request.id, params),
             Method::SkillsRead(params) => return self.handle_skills_read(request.id, params),
             Method::GitStatus(params) => return self.handle_git_status(request.id, params),
@@ -1136,6 +1138,9 @@ impl App {
             Method::PaneRename(params) => return self.handle_pane_rename(request.id, params),
             Method::PaneRead(params) => return self.handle_pane_read(request.id, params),
             Method::PaneSession(params) => return self.handle_pane_session(request.id, params),
+            Method::PaneSessionDownload(params) => {
+                return self.handle_pane_session_download(request.id, params)
+            }
             Method::PaneTodos(params) => return self.handle_pane_todos(request.id, params),
             Method::PaneModels(params) => return self.handle_pane_models(request.id, params),
             Method::PaneModelSet(params) => return self.handle_pane_model_set(request.id, params),
@@ -1204,6 +1209,13 @@ impl App {
                 return self.handle_pane_release_agent(request.id, params);
             }
             Method::PaneSendText(params) => return self.handle_pane_send_text(request.id, params),
+            Method::ScheduleCreate(params) => {
+                return self.handle_schedule_create(request.id, params)
+            }
+            Method::ScheduleList(_) => return self.handle_schedule_list(request.id),
+            Method::ScheduleCancel(params) => {
+                return self.handle_schedule_cancel(request.id, params)
+            }
             Method::PaneSendInput(params) => {
                 return self.handle_pane_send_input(request.id, params)
             }

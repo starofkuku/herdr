@@ -336,15 +336,6 @@ textarea {
   font-weight: 600;
 }
 
-/* In the activity rail a row carries its backend as a quiet prefix. */
-.session-activity__backend {
-  padding: 0 0.3rem;
-  border-radius: 4px;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: var(--text-ui-xs, 0.7rem);
-}
-
 /* The form's two actions sit together at its end. */
 .form-actions {
   display: flex;
@@ -1262,16 +1253,29 @@ textarea {
   flex-shrink: 0;
 }
 
+.server-load--expanded {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.server-load--expanded:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 .server-load__label {
   font-weight: 600;
   color: var(--muted);
 }
 
-/*
- * The label is the collapse control. It is a button rather than the whole row so
- * that a tap on a figure still selects it, and it keeps the bar's own type and
- * colour instead of looking like a button in a header.
- */
+/* Keep the label and arrow spacing identical; the expanded row owns the click,
+ * while the collapsed icon remains its own button. */
 .server-load__toggle {
   display: inline-flex;
   align-items: center;
@@ -2340,6 +2344,60 @@ textarea {
   color: var(--running);
 }
 
+/*
+ * The quote control, offered over a passage the reader has just selected.
+ *
+ * Fixed rather than absolute, because it belongs to the viewport: the passage it
+ * is anchored to sits inside a scroll container, and an absolutely positioned
+ * menu would be clipped by it. No ancestor of the conversation transforms, which
+ * is what would otherwise make `fixed` mean "relative to that element".
+ *
+ * Above the turn rail (30, 40) so it cannot be covered at the right edge, and
+ * below the overlays (60, 70) so a dialog still owns the screen.
+ */
+.selection-quote-menu {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--popover);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
+  color: var(--text);
+  font-size: var(--text-ui-sm);
+}
+
+.selection-quote-menu__action {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 0.4rem 0.7rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.selection-quote-menu__action:hover {
+  background: var(--surface-2);
+}
+
+/*
+ * A passage too long to quote says so instead of quoting part of it: a silent
+ * truncation would put half a sentence in the prompt and leave the reader to
+ * notice that the agent answered about the wrong thing.
+ */
+.selection-quote-menu__note {
+  margin: 0;
+  padding: 0.4rem 0.7rem;
+  color: var(--danger);
+}
+
 /* In the message head the copy follows the metadata, pinned to the row's end. */
 .bubble-head .copy-btn {
   margin-left: auto;
@@ -2911,11 +2969,48 @@ textarea {
   height: 1rem;
 }
 
+/* One highlight for both input methods, so Enter goes where the pointer is. */
+.palette__row.active {
+  background: var(--surface-2);
+}
+
+/*
+ * A row of the list: the part that opens the pane, the control that opens it in
+ * another tab, and the status.
+ *
+ * The row carries the highlight rather than the item, because the row is what the
+ * reader is pointing at — and the item has to stop short of the status so that a
+ * control can sit between them without a button inside a button.
+ */
+.palette__row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 8px;
+}
+
+/* The second way to open a row; see the rail's copy for why it is quiet. */
+.palette__open {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.palette__open:hover {
+  color: var(--text);
+}
+
 .palette__item {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  width: 100%;
+  /* Fills the row up to the status, which is no longer inside it. */
+  flex: 1;
+  min-width: 0;
   padding: 0.45rem 0.55rem;
   border: 0;
   border-radius: 8px;
@@ -2925,11 +3020,6 @@ textarea {
   font-size: 0.85rem;
   text-align: left;
   cursor: pointer;
-}
-
-/* One highlight for both input methods, so Enter goes where the pointer is. */
-.palette__item.active {
-  background: var(--surface-2);
 }
 
 /*
@@ -3013,7 +3103,10 @@ textarea {
 .session-activity__panel {
   position: absolute;
   top: 0;
-  width: min(17rem, 80vw);
+  /* 19.5rem rather than 17: the longest project name here is
+     `workbuddy2api-panel`, and a row that clips it has lost the one word it
+     exists to show. */
+  width: min(19.5rem, 80vw);
   max-height: 60vh;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -3169,6 +3262,27 @@ textarea {
   color: var(--muted);
 }
 
+/*
+ * The backend a block of rows belongs to.
+ *
+ * A heading instead of the badge that used to sit on every row: the rows of one
+ * server are read together, so repeating its name on each of them crowded out the
+ * directory — the only thing that actually tells two panes apart — while drawing
+ * no boundary between one server's panes and the next one's. It sticks to the top
+ * because the list scrolls, and a block that lost its label on the way up would
+ * be the same pile again.
+ */
+.session-activity__group {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.4rem 0.45rem 0.2rem;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  font-weight: 600;
+}
+
 .session-activity__list {
   max-height: 60vh;
   overflow-y: auto;
@@ -3177,11 +3291,51 @@ textarea {
   list-style: none;
 }
 
+/*
+ * A row of the rail: the part that opens the pane, the control that opens it in
+ * another tab, and the status.
+ *
+ * The row lights up under the pointer rather than the item, for the same reason
+ * the palette's does: the row is what the reader is pointing at.
+ */
+.session-activity__row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 7px;
+}
+
+.session-activity__row:hover {
+  background: var(--surface-2);
+}
+
+/*
+ * The control that opens a row in another tab.
+ *
+ * Quiet: it is a second way to do what the whole row already does, so it earns a
+ * place in the row but not the reader's attention.
+ */
+.session-activity__open {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 6px;
+  color: var(--muted);
+}
+
+.session-activity__open:hover {
+  color: var(--text);
+}
+
 .session-activity__item {
   display: flex;
   align-items: center;
   gap: 0.45rem;
-  width: 100%;
+  /* Fills the row up to the status, which is no longer inside it. */
+  flex: 1;
+  min-width: 0;
   padding: 0.35rem 0.45rem;
   border: 0;
   border-radius: 7px;
@@ -3190,10 +3344,6 @@ textarea {
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.session-activity__item:hover {
-  background: var(--surface-2);
 }
 
 .session-activity__item.current {
@@ -3318,19 +3468,22 @@ textarea {
   flex: 1;
   min-width: 0;
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 0.3rem;
 }
 
-.session-activity__name,
-.session-activity__path {
+.session-activity__name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--text-ui-sm);
 }
 
-.session-activity__path {
+/* The agent's own name: a second, quieter word — one project can hold several. */
+.session-activity__agent {
+  flex: none;
   color: var(--muted);
-  font-size: var(--text-ui-sm);
+  font-size: var(--text-ui-xs, 0.7rem);
 }
 
 .jump-to-latest {
@@ -3698,6 +3851,8 @@ textarea {
  * is the affordance, so the field itself draws nothing.
  */
 .composer-row {
+  /* The resize strip is positioned against this card. */
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -3807,19 +3962,31 @@ textarea {
 }
 
 /*
- * The send button lives inside the composer card now, so it is a compact circle
- * that sits in the card's bottom-right corner rather than a peer of the card.
- * It keeps the same size and shape as the stop button beside it, so it needs
- * the same centring: without `grid` the arrow glyph sits on the text baseline
- * and reads as off-centre.
+ * The send button is ZCode's: a rounded square filled with the inverse of the
+ * page's text colour, carrying an up arrow. ZCode draws its own at 28px, but the
+ * quiet controls beside this one are 32, so it takes the row's 32: it is the fill
+ * that makes it read as the primary action, not the extra weight of a circle.
  */
 .composer button[type="submit"] {
-  width: 2.1rem;
-  height: 2.1rem;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--on-accent);
+  width: 2rem;
+  height: 2rem;
+  /*
+   * ZCode's `rounded-lg`. The quiet controls are 6px; this is the row's only
+   * solid shape, so its corners are allowed to read on their own.
+   */
+  border-radius: 8px;
+  /*
+   * ZCode's `bg-brand` on `text-foreground-inverse`: near-black on white in the
+   * light theme, near-white on black in the dark one. The accent blue this used
+   * to carry is gone from the control row entirely.
+   */
+  background: var(--text);
+  color: var(--surface);
   flex: none;
+  /*
+   * The glyph is centred by `grid` rather than by a line box: as an inline mark
+   * it would sit on the text baseline and read as off-centre.
+   */
   display: grid;
   place-items: center;
   /*
@@ -3831,35 +3998,46 @@ textarea {
   padding: 0;
 }
 
+/*
+ * Disabled is the same button at half strength, which is what ZCode does
+ * (`disabled:opacity-50`). It used to swap to a pale fill and a muted glyph,
+ * which made the control look like a different button — shape included — every
+ * time the composer was empty.
+ */
 .composer button[type="submit"]:disabled {
-  background: var(--surface-2);
-  color: var(--muted);
+  opacity: 0.5;
 }
 
 /*
- * Stop replaces the send button while a turn this client started is running,
- * so it keeps the same footprint and only changes the glyph. It is not
- * accent-coloured: it discards the current turn, so it must not read as the
- * primary action.
+ * Stop replaces the send button while a turn this client started is running, so
+ * it keeps that button's footprint and corners and changes only its treatment:
+ * ZCode draws this control as a ghost, with no fill and no border until the
+ * pointer is on it. It discards the current turn, so it must not read as the
+ * primary action — which is why the colour sits on the glyph instead of on a
+ * plate, and why it is the danger colour rather than the accent.
  */
 .composer button.stop {
-  width: 2.1rem;
-  height: 2.1rem;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  border: 0;
+  background: none;
   color: var(--danger);
   flex: none;
   display: grid;
   place-items: center;
   /*
    * The browser's default button padding is not zero, and under border-box
-   * sizing it shrinks the grid area to 28x38 inside a 40x40 circle. The mark
-   * stays centred in it, but the box it is centred in is no longer square. Its
-   * two siblings reset this; this one was left out.
+   * sizing it eats into the square the glyph is centred in, so the mark drifts
+   * off centre. Its two siblings reset this; this one was left out.
    */
   padding: 0;
   line-height: 1;
+}
+
+/* The quiet fill the attach and expand controls take on hover. */
+.composer button.stop:hover:not(:disabled) {
+  background: var(--surface-2);
 }
 
 .composer button.stop:disabled {
@@ -3937,6 +4115,35 @@ textarea {
  * The field now holds only the textarea; the attach and send controls live in
  * the row beneath it.
  */
+/*
+ * The resize strip, riding the card's top border.
+ *
+ * Drawn only for pointers that can hover. On a touch screen the same downward
+ * swipe is how the page scrolls, and a strip that swallowed it would cost more
+ * than a resize is worth. The cursor is the whole affordance: the card's border
+ * and background stay exactly as they were, so nothing suggests a handle until
+ * the pointer is on it.
+ */
+.composer-row__resize {
+  display: none;
+}
+
+@media (hover: hover) {
+  .composer-row__resize {
+    display: block;
+    position: absolute;
+    top: -0.3rem;
+    left: 0;
+    right: 0;
+    z-index: 2;
+    height: 0.6rem;
+    cursor: ns-resize;
+    /* The strip owns the gesture once it starts, so it neither scrolls the page
+       nor selects the text the pointer passes over. */
+    touch-action: none;
+  }
+}
+
 .composer-field {
   position: relative;
   display: flex;
@@ -4927,6 +5134,167 @@ textarea {
   border: 0;
 }
 
+/*
+ * The quotes attached to the draft, above the input card.
+ *
+ * Its own row rather than beside the attachment chips: a quote is one line of
+ * chrome whatever it holds, and mixing it into the files' row would put the two
+ * kinds of thing at different heights. It takes the card's measure and centring
+ * for the same reason that row does.
+ */
+.quote-chips {
+  width: min(100%, calc(var(--reading-column) + 1.5rem));
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/*
+ * The pill. `relative` because the detail panel hangs off it, and focusable so
+ * the keyboard can read what is attached — the panel opens on `:focus-within`
+ * for the same reason it opens on hover.
+ */
+.quote-chips__pill {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.3rem 0.45rem 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: var(--text-ui-sm);
+}
+
+.quote-chips__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Both controls in the pill follow ZCode: quiet until the pointer is on the pill
+ * or inside the panel, so the chip reads as a label rather than as a row of
+ * buttons — and they stay reachable by keyboard focus, which is what `:focus-`
+ * `within` covers.
+ */
+.quote-chips__clear,
+.quote-chips__remove {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.quote-chips__pill:hover .quote-chips__clear,
+.quote-chips__pill:focus-within .quote-chips__clear,
+.quote-chips__item:hover .quote-chips__remove,
+.quote-chips__item:focus-within .quote-chips__remove {
+  opacity: 1;
+}
+
+.quote-chips__clear:hover,
+.quote-chips__remove:hover {
+  background: var(--surface);
+  color: var(--text);
+}
+
+/*
+ * The passages themselves, above the pill. Nothing needs to survive here but
+ * reading: each one keeps three lines of room and the list scrolls, because the
+ * point of the panel is to see *which* passage was taken, not to read it all
+ * again.
+ */
+.quote-chips__panel {
+  position: absolute;
+  /* Above, because the composer is at the bottom of the screen. */
+  bottom: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 20;
+  display: none;
+  width: min(20rem, 80vw);
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: 0.25rem;
+  border: 1px solid var(--popover-border);
+  border-radius: 10px;
+  background: var(--popover);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
+  font-size: var(--text-ui-sm);
+  color: var(--text);
+}
+
+.quote-chips__pill:hover .quote-chips__panel,
+.quote-chips__pill:focus-within .quote-chips__panel {
+  display: block;
+}
+
+.quote-chips__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.4rem;
+  border-radius: 8px;
+}
+
+.quote-chips__item:hover {
+  background: var(--surface-2);
+}
+
+.quote-chips__item-icon {
+  flex: none;
+  margin-top: 0.15rem;
+  color: var(--muted);
+}
+
+.quote-chips__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.quote-chips__text {
+  margin: 0;
+  /* Three lines: enough to recognise the passage by, without the panel becoming
+     as long as the conversation it was quoted out of. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quote-chips__meta {
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: var(--text-ui-caption);
+}
+
+/*
+ * A refusal. Stated where the reader was looking rather than in a toast: the
+ * composer would otherwise just look as if nothing had happened, and the passage
+ * they selected is still highlighted behind it.
+ */
+.quote-chips__limit {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--text);
+  font-size: var(--text-ui-sm);
+}
+
 .pending-uploads {
   list-style: none;
   margin: 0;
@@ -5073,24 +5441,139 @@ textarea {
  * The enlarged image. Fixed and full-bleed so the conversation underneath keeps
  * its scroll position, and dismissible by a tap anywhere.
  */
-.lightbox {
+/*
+ * The image, full size, over the page.
+ *
+ * The overlay is the wheel target (zoom) and the stage is the drag target, which
+ * is why there are two layers rather than one: a wheel event has to be caught
+ * wherever the pointer is, including the empty space beside the image.
+ */
+.image-viewer {
   position: fixed;
   inset: 0;
   z-index: 50;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  background: color-mix(in srgb, var(--bg) 88%, transparent);
-  cursor: zoom-out;
+  /* Overflow is hidden rather than scrolled: panning is the pointer's job here,
+     and a scrollbar would fight the transform. */
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  /* The whole surface is the gesture, so the browser must not claim it for
+     scrolling or pull-to-refresh. */
+  touch-action: none;
 }
 
-.lightbox img {
-  /* Bounded on both axes so neither a wide nor a tall image overflows. */
+.image-viewer__stage {
+  position: absolute;
+  inset: 0;
+  /*
+   * Flex rather than grid, and that is load-bearing. `max-height: 100%` on the
+   * image is what keeps a tall screenshot inside the window, and against a grid
+   * area that percentage resolves as indefinite — it behaves as `none`, so the
+   * image is sized by `max-width` alone and grows past the bottom of the screen
+   * while a small one fits either way. Against a flex line the same percentage
+   * resolves, so a tall image is centred instead of overflowing.
+   */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3.5rem 1rem;
+  cursor: grab;
+}
+
+.image-viewer.dragging .image-viewer__stage {
+  cursor: grabbing;
+}
+
+.image-viewer__stage img {
+  /*
+   * The image is allowed to be larger than the window — that is what zooming in
+   * is for — so both `max-width` and `max-height` bound it here (the flex line
+   * above is what makes the height percentage resolve), and the transform does
+   * the rest. `contain` keeps its proportions whatever it is.
+   */
   max-width: 100%;
   max-height: 100%;
   object-fit: contain;
   border-radius: 8px;
   border: 1px solid var(--border);
+  /* The transform is set inline; this is what it moves about. */
+  transform-origin: center center;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.image-viewer__controls {
+  position: absolute;
+  left: 50%;
+  bottom: max(1rem, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.24);
+}
+
+.image-viewer__controls .ghost {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.45rem;
+}
+
+/* Fixed width so the buttons do not shift as the number changes. */
+.image-viewer__scale {
+  min-width: 3.2rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.image-viewer__caption {
+  position: absolute;
+  left: 50%;
+  top: max(0.75rem, env(safe-area-inset-top));
+  transform: translateX(-50%);
+  margin: 0;
+  max-width: calc(100vw - 2rem);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+}
+
+/*
+ * An image in the file panel, above the note that says what it is.
+ *
+ * The button is the image: a screenshot is what the reader opened the file for, so
+ * a press on it enlarges it rather than looking for a control somewhere near it.
+ */
+.file-preview__body--image {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.file-preview__image {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  cursor: zoom-in;
+}
+
+.file-preview__image img {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  border-radius: 7px;
 }
 
 /* ---- wide screens ---- */
@@ -5892,69 +6375,39 @@ textarea {
 }
 
 /*
- * Settings dialog: categories on the left, the chosen category's page on the
- * right. Wider than the notification panels because the pages are forms, and
- * the nav column is where later categories land.
+ * The session's size and its download control, in the topbar.
+ *
+ * A fact about the session rather than about the conversation on screen, so it sits
+ * with the session-wide controls rather than in the conversation's own header. It
+ * pushes itself away from the agent identity: that block grows with the working
+ * directory, and a number that travelled with it would sit somewhere different in
+ * every pane.
  */
-.settings-panel {
-  width: min(46rem, 100%);
-}
-
-.settings-panel__body {
+.session-file {
   display: flex;
-  min-height: 0;
-  flex: 1;
+  align-items: center;
+  gap: 0.4rem;
+  flex: none;
+  margin-left: auto;
 }
 
-.settings-panel__nav {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  width: 8.5rem;
-  flex-shrink: 0;
-  padding: 0.75rem 0.5rem;
-  border-right: 1px solid var(--border);
-}
-
-.settings-panel__nav-item {
-  text-align: left;
-  padding: 0.375rem 0.625rem;
-  border-radius: 8px;
-  border: none;
-  background: none;
+.session-file__size {
   color: var(--muted);
-  font: inherit;
-  cursor: pointer;
+  font-size: var(--text-ui-sm);
+  /* A reading rather than a control: even digits keep it from shifting as the
+     session grows. */
+  font-variant-numeric: tabular-nums;
 }
 
-.settings-panel__nav-item.active {
-  background: var(--surface-2);
-  color: inherit;
-}
-
-.settings-panel__content {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  padding: 0.75rem 1rem;
+.session-file__download {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3rem 0.45rem;
 }
 
 .custom-commands-settings {
   display: flex;
   flex-direction: column;
-}
-
-@media (max-width: 40rem) {
-  .settings-panel__body {
-    flex-direction: column;
-  }
-
-  .settings-panel__nav {
-    width: auto;
-    flex-direction: row;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
-  }
 }
 
 /*
@@ -6106,7 +6559,9 @@ textarea {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  max-width: 11rem;
+  /* Wide enough for `provider · model` — the chip names the endpoint as well as
+     the model, and 11rem clipped the second half of it. */
+  max-width: 16rem;
   height: 1.75rem;
   padding: 0 0.375rem 0 0.5rem;
   border: 1px solid transparent;
@@ -6136,6 +6591,13 @@ textarea {
   flex: none;
   margin-left: auto;
   opacity: 0.5;
+}
+
+/* The reasoning mark. Drawn a touch lighter than the label so the level stays
+ * the thing read first, and held against shrinking like the chevron beside it. */
+.model-picker__effort-icon {
+  flex: none;
+  opacity: 0.85;
 }
 
 /*
@@ -6363,4 +6825,56 @@ textarea {
   .model-picker__back:hover {
     background: color-mix(in srgb, var(--text) 8%, transparent);
   }
+}
+
+/*
+ * The pane as a terminal.
+ *
+ * The terminal draws itself, so this is only the frame: a bar for the pane's name
+ * and what the stream is doing, and a host the emulator is opened into. The host
+ * scrolls because the grid is the server's: the pane is as many columns wide as the
+ * process believes, and narrowing the browser should not re-wrap its output.
+ */
+.terminal-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+
+.terminal-view__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-ui-caption);
+  color: var(--muted);
+}
+
+.terminal-view__title {
+  font-family: var(--font-mono);
+  color: var(--text);
+}
+
+.terminal-view__status {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-view__host {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.4rem 0.5rem;
+}
+
+/* Held down while the pane is being shown as a terminal. */
+.terminal-toggle--on {
+  background: var(--surface-2);
+  color: var(--text);
 }

@@ -2522,6 +2522,23 @@
           ],
           "type": "object"
         },
+        "FilesPublishParams": {
+          "description": "Asks for an address the browser can fetch a project file from.\n\nText goes through `files.read`; anything the browser renders itself — an\nimage, most obviously — cannot, because that answer is a JSON string and the\nfile may be megabytes of bytes that are not text at all.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            },
+            "path": {
+              "description": "File to publish, relative to the project root.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "path"
+          ],
+          "type": "object"
+        },
         "FilesReadParams": {
           "properties": {
             "max_bytes": {
@@ -3955,6 +3972,18 @@
           ],
           "type": "object"
         },
+        "PaneSessionDownloadParams": {
+          "description": "Asks for a link that downloads the pane's transcript.",
+          "properties": {
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id"
+          ],
+          "type": "object"
+        },
         "PaneSessionParams": {
           "description": "Reads the agent's own transcript for a pane, parsed into turns.\n\nThis is the structured counterpart to `pane.read`: instead of the rendered\nterminal, it returns what the agent recorded — turns, tool calls, and token\nusage — for clients that want to present a conversation rather than a screen.",
           "properties": {
@@ -4645,6 +4674,38 @@
           ],
           "type": "string"
         },
+        "ScheduleCancelParams": {
+          "properties": {
+            "schedule_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "schedule_id"
+          ],
+          "type": "object"
+        },
+        "ScheduleCreateParams": {
+          "properties": {
+            "at": {
+              "description": "When to send it, in local time: a full date (`YYYY-MM-DD HH:MM[:SS]` or\nwith a `T` separator), or a clock time (`HH:MM[:SS]`) for the next\noccurrence — today, or tomorrow once it has passed.",
+              "type": "string"
+            },
+            "message": {
+              "description": "The text to send, written to the pane's terminal exactly as a typed\nmessage would be.",
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "at",
+            "message"
+          ],
+          "type": "object"
+        },
         "ServerLiveHandoffParams": {
           "properties": {
             "expected_protocol": {
@@ -5053,6 +5114,23 @@
                 },
                 "type": {
                   "const": "pane.scroll_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pane_id"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "The pane's output as it is produced, for a client drawing the terminal\nitself rather than reading its screen.\n\nSubscribing starts the stream; the bytes before it are read with\n`pane.read`. The payload is base64 because it is arbitrary bytes — the\nmiddle of an escape sequence, half a UTF-8 character — and the protocol\ncarries JSON.",
+              "properties": {
+                "pane_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "pane.terminal_output",
                   "type": "string"
                 }
               },
@@ -5846,6 +5924,23 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/FilesSearchParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An address the browser can fetch a project file from directly.",
+          "properties": {
+            "method": {
+              "const": "files.publish",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/FilesPublishParams"
             }
           },
           "required": [
@@ -6737,6 +6832,23 @@
           "type": "object"
         },
         {
+          "description": "A download link for the pane's transcript file.\n\nThe transcript lives outside the pane's project, so `files.read` cannot\nserve it and the browser cannot reach it directly. The link points at the\ngateway's uploads route, whose names cannot be guessed: a download link\ncannot carry the gateway key, and this file is the whole conversation.",
+          "properties": {
+            "method": {
+              "const": "pane.session_download",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneSessionDownloadParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
           "description": "The agent's own todo list for a pane.",
           "properties": {
             "method": {
@@ -7132,6 +7244,54 @@
         {
           "properties": {
             "method": {
+              "const": "schedule.create",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ScheduleCreateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "schedule.list",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "schedule.cancel",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ScheduleCancelParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "integration.install",
               "type": "string"
             },
@@ -7508,6 +7668,28 @@
           ],
           "type": "object"
         },
+        "PaneTerminalOutputEvent": {
+          "description": "One slice of a pane's output, as bytes.",
+          "properties": {
+            "data_base64": {
+              "description": "The output that arrived, base64-encoded.",
+              "type": "string"
+            },
+            "lost": {
+              "default": false,
+              "description": "True when the server dropped output this subscriber had not read.\n\nThe stream continues after it, with a gap: everything the client draws from\nhere on is right, but what came before is not in this stream any more, so a\nterminal emulator has to re-read the screen to catch up.",
+              "type": "boolean"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "data_base64"
+          ],
+          "type": "object"
+        },
         "ReadFormat": {
           "enum": [
             "text",
@@ -7534,6 +7716,9 @@
             },
             {
               "$ref": "#/schemas/subscription_event/$defs/PaneScrollChangedEvent"
+            },
+            {
+              "$ref": "#/schemas/subscription_event/$defs/PaneTerminalOutputEvent"
             }
           ]
         },
@@ -7541,7 +7726,8 @@
           "enum": [
             "pane.output_matched",
             "pane.agent_status_changed",
-            "pane.scroll_changed"
+            "pane.scroll_changed",
+            "pane.terminal_output"
           ],
           "type": "string"
         }
@@ -8650,6 +8836,31 @@
             "root",
             "path",
             "entries"
+          ],
+          "type": "object"
+        },
+        "FilesPublishResult": {
+          "description": "A published file, as a URL the browser can use directly.",
+          "properties": {
+            "name": {
+              "description": "The file's own name, for a client that labels it.",
+              "type": "string"
+            },
+            "size": {
+              "description": "Size on disk, in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "url": {
+              "description": "Path the browser fetches, relative to the gateway: `/uploads/<id>.<ext>`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "name",
+            "size"
           ],
           "type": "object"
         },
@@ -9920,11 +10131,29 @@
             "pane_id": {
               "type": "string"
             },
+            "pane_raw_id": {
+              "default": 0,
+              "description": "The pane's own id, as the server knows it internally.\n\nExposed because a subscription that watches the pane's output has to name\nthe pane to the reader thread, which knows panes by this and not by the\nname a client sees. Public ids are derived from workspace and layout, so\nthere is no way to get from one to the other on the reading side.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
             "state_labels": {
               "additionalProperties": {
                 "type": "string"
               },
               "type": "object"
+            },
+            "terminal": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/PaneTerminalGeometry"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The terminal's grid and cursor, for a client drawing the terminal itself.\n\nAbsent for a pane with no live terminal to ask. A client that renders a\nterminal needs the grid to lay the bytes out the way they were produced, and\nthe cursor because the screen it reads to catch up is text."
             },
             "title": {
               "type": [
@@ -10131,6 +10360,31 @@
           ],
           "type": "object"
         },
+        "PaneSessionDownloadResult": {
+          "description": "A link to the pane's transcript, and the name it should be saved under.",
+          "properties": {
+            "name": {
+              "description": "The transcript's own filename.\n\nThe served name is random, because that is what protects the file on an\nunauthenticated route; this is the name the file has on disk, for a client\nthat saves the download under it.",
+              "type": "string"
+            },
+            "size": {
+              "description": "Size of the file in bytes.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "url": {
+              "description": "Path the browser fetches, relative to the gateway: `/uploads/<id>.<ext>`.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "url",
+            "name",
+            "size"
+          ],
+          "type": "object"
+        },
         "PaneSessionMessage": {
           "properties": {
             "is_reasoning": {
@@ -10220,6 +10474,15 @@
             "provider": {
               "description": "Provider the transcript itself declares.\n\nThis is read from the file rather than from pane detection, so it stays\ncorrect when a session is resumed by a different agent or viewed on a\npane whose detection has not settled yet.",
               "type": "string"
+            },
+            "size_bytes": {
+              "description": "Size of the transcript on disk, when the session is one file.\n\nAbsent for a session an agent keeps in a store: there is no file to size,\nand the store's own size says nothing about this session's share of it.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
             },
             "total_tokens": {
               "description": "Total tokens across the whole session, when the transcript records usage.",
@@ -10673,6 +10936,45 @@
             "source_pane_id",
             "focused_pane_id",
             "layout"
+          ],
+          "type": "object"
+        },
+        "PaneTerminalGeometry": {
+          "description": "A pane's terminal as a client drawing it needs it: the grid, and the cursor.",
+          "properties": {
+            "cols": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "cursor_visible": {
+              "description": "False for an application that has hidden it, which a client should honour\nrather than drawing a caret the terminal does not want shown.",
+              "type": "boolean"
+            },
+            "cursor_x": {
+              "description": "The cursor's column, from zero.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "cursor_y": {
+              "description": "The cursor's row, from zero.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rows": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cols",
+            "rows",
+            "cursor_x",
+            "cursor_y",
+            "cursor_visible"
           ],
           "type": "object"
         },
@@ -11375,6 +11677,59 @@
             }
           ]
         },
+        "PromptScheduleInfo": {
+          "properties": {
+            "agent": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "due": {
+              "description": "When the prompt is due, local time, `YYYY-MM-DD HH:MM:SS`.",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "pane_id": {
+              "description": "The pane's public id as it was when the schedule was made. Shown as it\nwas: if the pane has since closed, resolving this name finds nothing,\nwhich is itself the answer.",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/schemas/success_response/$defs/PromptScheduleStatus"
+            }
+          },
+          "required": [
+            "id",
+            "pane_id",
+            "due",
+            "message",
+            "status"
+          ],
+          "type": "object"
+        },
+        "PromptScheduleStatus": {
+          "description": "What a schedule came to. Only `pending` acts; the rest are a record, kept\nso the list can say what happened instead of quietly forgetting it.",
+          "oneOf": [
+            {
+              "enum": [
+                "pending",
+                "fired",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "missed",
+              "description": "The time came and went without the prompt being sent — the server was\nnot running, or the pane was gone. Recorded, never retried: the moment\nwas the point.",
+              "type": "string"
+            }
+          ]
+        },
         "ReadFormat": {
           "enum": [
             "text",
@@ -11546,6 +11901,23 @@
               "required": [
                 "type",
                 "search"
+              ],
+              "type": "object"
+            },
+            {
+              "description": "A project file the browser can fetch for itself.",
+              "properties": {
+                "file": {
+                  "$ref": "#/schemas/success_response/$defs/FilesPublishResult"
+                },
+                "type": {
+                  "const": "files_publish",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "file"
               ],
               "type": "object"
             },
@@ -12280,6 +12652,23 @@
               "type": "object"
             },
             {
+              "description": "A link that downloads the pane's transcript file.",
+              "properties": {
+                "download": {
+                  "$ref": "#/schemas/success_response/$defs/PaneSessionDownloadResult"
+                },
+                "type": {
+                  "const": "pane_session_download",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "download"
+              ],
+              "type": "object"
+            },
+            {
               "description": "The agent's own todo list, which may be empty.",
               "properties": {
                 "todos": {
@@ -12829,6 +13218,57 @@
               "required": [
                 "type",
                 "pane_id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "schedule": {
+                  "$ref": "#/schemas/success_response/$defs/PromptScheduleInfo"
+                },
+                "type": {
+                  "const": "schedule_created",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "schedule"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "schedules": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/PromptScheduleInfo"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "schedule_list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "schedules"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "schedule": {
+                  "$ref": "#/schemas/success_response/$defs/PromptScheduleInfo"
+                },
+                "type": {
+                  "const": "schedule_cancelled",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "schedule"
               ],
               "type": "object"
             },

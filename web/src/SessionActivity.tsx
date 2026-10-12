@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { Bot } from "lucide-react";
+import { Fragment, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Bot, ExternalLink } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { shortenPath, statusLabel, type AgentStatus, type AgentView } from "./api";
-import { HIGHLIGHT_MS, orderActivity, trackAgents } from "./activity-order";
+import { groupActivity, HIGHLIGHT_MS, orderActivity, trackAgents } from "./activity-order";
+import { opensBackendGroup } from "./command-search";
 import {
   loadPlacement,
   panelOpensTo,
@@ -23,6 +24,12 @@ import {
  * per agent doing the same job, so the list has to answer "which one needs me"
  * before it answers "what exists".
  *
+ * The rail spans every saved backend, and its rows are blocked by backend for the
+ * reason the palette groups them: a reader looking for a pane knows which server
+ * it is on long before they know its directory, and one list with the server
+ * repeated on every row draws no boundary between two of them. A block sits where
+ * its most urgent row did, so urgency still decides what comes first.
+ *
  * The rail is draggable and its position is remembered, because which part of the
  * screen is free depends on the reader's window layout. Dropping it near an edge
  * docks it there — half a pixel of gap reads as a mistake rather than a position —
@@ -33,10 +40,20 @@ import {
  * reader would find a "done" badge that looks identical to one from an hour ago.
  * It closes itself again once the flash is over, unless the reader opened it.
  */
+/**
+ * How far a press may wander from where it began and still count as a click.
+ *
+ * A trackpad tap is not still: the finger moves a few pixels while it is down,
+ * and without this allowance every tap on the handle becomes a drag of the rail
+ * instead of opening the list.
+ */
+const DRAG_SLOP_PX = 5;
+
 export function SessionActivity({
   agents,
   currentPaneId,
   onOpen,
+  hrefFor,
 }: {
   agents: AgentView[];
   /** Kept in the list, marked, so the rail still reads as the whole session. */
@@ -46,6 +63,13 @@ export function SessionActivity({
    * every backend: without it the caller cannot tell which one to open.
    */
   onOpen: (paneId: string, backendId?: string) => void;
+  /**
+   * The address a row can be opened at in another tab, or null for a row that
+   * cannot be opened at all. An anchor rather than a second button: the browser's
+   * own new-tab gestures come with it, and a button inside a button is not a thing
+   * a document may contain.
+   */
+  hrefFor?: (paneId: string, backendId?: string) => string | null;
 }) {
   const [open, setOpen] = useState(false);
   /** Set while the rail is open because of a finish, not because it was asked. */
@@ -82,6 +106,8 @@ export function SessionActivity({
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   /** Where the pointer grabbed the handle, in panel-relative coordinates. */
   const grab = useRef({ x: 0, y: 0 });
+  /** Where the press began, in screen coordinates, for the drag threshold. */
+  const origin = useRef({ x: 0, y: 0 });
   /** Whether the pointer moved, which separates a click from a drag. */
   const moved = useRef(false);
   const railRef = useRef<HTMLElement | null>(null);
@@ -167,9 +193,11 @@ export function SessionActivity({
 
   /**
    * The handle is both a button and a drag grip, so the two gestures have to be
-   * told apart: a press that never moves is a click that toggles the list, and a
-   * press that moves is a drag. `moved` is what separates them, and it also stops
-   * the click that ends a drag from toggling the rail.
+   * told apart: a press that stays within a few pixels of where it began is a
+   * click that toggles the list — a trackpad tap jitters that much while the
+   * finger is still down — and a press that wanders farther is a drag. `moved`
+   * is what separates them, and it also stops the click that ends a drag from
+   * toggling the rail.
    */
   const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     // Ignore secondary buttons; a right-click is not a drag.
@@ -178,30 +206,44 @@ export function SessionActivity({
     if (!rail) return;
     const box = rail.getBoundingClientRect();
     grab.current = { x: event.clientX - box.left, y: event.clientY - box.top };
+    origin.current = { x: event.clientX, y: event.clientY };
     moved.current = false;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Without the capture the drag still works while the pointer stays on the
+      // handle; a pointer that is already going away takes nothing with it.
+    }
   };
 
   const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    /*
+     * A move with nothing pressed means the release never arrived — a system
+     * tap-drag lock, or a pointerup lost along the way. The gesture is over,
+     * and holding the capture would route bare cursor movement into the rail:
+     * the whole strip would follow the pointer with no button held at all.
+     */
+    if (event.buttons === 0) {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // The pointer is already gone; nothing to release.
+      }
+      if (moved.current) commitDrop();
+      return;
+    }
+    const wander = Math.hypot(
+      event.clientX - origin.current.x,
+      event.clientY - origin.current.y,
+    );
+    if (!moved.current && wander < DRAG_SLOP_PX) return;
     moved.current = true;
     setDrag({ x: event.clientX - grab.current.x, y: event.clientY - grab.current.y });
   };
 
-  const onPointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const target = event.currentTarget;
-    if (target.hasPointerCapture(event.pointerId)) {
-      target.releasePointerCapture(event.pointerId);
-    }
-
-    if (!moved.current) {
-      // A plain click: toggle, and hand control back to the reader.
-      autoOpened.current = false;
-      setOpen((value) => !value);
-      setDrag(null);
-      return;
-    }
-
+  /** Docks the rail where a finished drag left it, and closes the stale list. */
+  const commitDrop = () => {
     const dropped = drag;
     setDrag(null);
     // The rail moved, so where the list used to open is stale.
@@ -214,9 +256,30 @@ export function SessionActivity({
     savePlacement(landed);
   };
 
+  const onPointerUp = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const target = event.currentTarget;
+    if (target.hasPointerCapture(event.pointerId)) {
+      try {
+        target.releasePointerCapture(event.pointerId);
+      } catch {
+        // The pointer is already gone; nothing to release.
+      }
+    }
+
+    if (!moved.current) {
+      // A plain click: toggle, and hand control back to the reader.
+      autoOpened.current = false;
+      setOpen((value) => !value);
+      setDrag(null);
+      return;
+    }
+
+    commitDrop();
+  };
+
   const busy = agents.filter((agent) => agent.status === "working" || agent.status === "blocked");
   const finished = agents.filter((agent) => agent.status === "done");
-  const ordered = orderActivity(agents, lastSeen);
+  const ordered = groupActivity(orderActivity(agents, lastSeen));
 
   // A session with no panes has nothing to pin, and a handle counting zero would
   // be pure chrome.
@@ -255,56 +318,80 @@ export function SessionActivity({
       >
         <div className="session-activity__panel" aria-hidden={!open}>
           <ul className="session-activity__list">
-            {ordered.map((agent) => {
+            {ordered.map((agent, index) => {
               const highlight = finishes[agent.paneId];
+              // Owed at the first row of each backend's block. The rows stay one
+              // flat list rather than a list per group: a heading is a label, not
+              // a container the reader can be inside.
+              const opensGroup = opensBackendGroup(ordered, index);
+              const href = hrefFor?.(agent.paneId, agent.backendId) ?? null;
               return (
-                <li key={agent.paneId}>
-                  <button
-                    type="button"
-                    className={`session-activity__item${
-                      agent.paneId === currentPaneId ? " current" : ""
-                    }${highlight ? " finished" : ""}`}
-                    onClick={() => {
-                      // The row did its job; keeping the list out would cover the
-                      // conversation that was just opened.
-                      autoOpened.current = false;
-                      setOpen(false);
-                      onOpen(agent.paneId, agent.backendId);
-                    }}
-                    title={agent.cwd}
-                  >
+                <Fragment key={agent.paneId}>
+                  {opensGroup ? (
+                    <li className="session-activity__group" role="presentation">
+                      {agent.backendName ?? "backend"}
+                    </li>
+                  ) : null}
+                  <li className="session-activity__row">
+                    <button
+                      type="button"
+                      className={`session-activity__item${
+                        agent.paneId === currentPaneId ? " current" : ""
+                      }${highlight ? " finished" : ""}`}
+                      onClick={() => {
+                        // The row did its job; keeping the list out would cover the
+                        // conversation that was just opened.
+                        autoOpened.current = false;
+                        setOpen(false);
+                        onOpen(agent.paneId, agent.backendId);
+                      }}
+                      title={agent.cwd}
+                    >
+                      {/*
+                        The agent itself is the mark, not a word.
+
+                        Its name is what repeats — six panes of one CLI all read
+                        "pi" — so spelling it out said the least and took the room
+                        the row needs for what actually tells these panes apart:
+                        the directory. The mark says the same thing in a fraction of
+                        the width.
+                      */}
+                      <span className="session-activity__mark">
+                        <AgentIcon agent={agent.agent} size={14} />
+                      </span>
+                      <span className={`dot ${agent.status}`} aria-hidden="true" />
+                      {/*
+                        The project, not its path: the same words the terminal's own
+                        sidebar uses, where a full `~/a/b/c` either clips to nothing
+                        useful or pushes the status off the row. The agent's own name
+                        follows in a quieter tone, since one project can hold several,
+                        and the whole path is still a hover away.
+                      */}
+                      <span className="session-activity__main" title={shortenPath(agent.cwd)}>
+                        <span className="session-activity__name">{agent.project}</span>
+                        <span className="session-activity__agent">{agent.label}</span>
+                      </span>
+                    </button>
                     {/*
-                      The agent itself is the mark, not a word.
-                      
-                      Its name is what repeats — six panes of one CLI all read
-                      "pi" — so spelling it out said the least and took the room
-                      the row needs for what actually tells these panes apart:
-                      which backend and which checkout. The mark says the same
-                      thing in a fraction of the width.
+                      A second way to open the row, not part of it: the row button
+                      ends before the status so this can sit where the eye already
+                      is, and the status stays a label rather than a target.
                     */}
-                    <span className="session-activity__mark">
-                      <AgentIcon agent={agent.agent} size={14} />
-                    </span>
-                    <span className={`dot ${agent.status}`} aria-hidden="true" />
-                    {/*
-                      The directory is what tells two panes apart: a session's panes
-                      are usually the same agent in different checkouts, so the name
-                      alone repeats. Stacked rather than inline so the rail stays
-                      narrow.
-                    */}
-                    <span className="session-activity__main">
-                      {/* The rail spans every backend, so a row from one that
-                          is not the one on screen says whose it is. */}
-                      {agent.backendName ? (
-                        <span className="session-activity__name">
-                          <span className="session-activity__backend">{agent.backendName}</span>
-                        </span>
-                      ) : null}
-                      <span className="session-activity__path">{shortenPath(agent.cwd)}</span>
-                    </span>
+                    {href ? (
+                      <a
+                        className="session-activity__open"
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="在新标签页打开"
+                        title="在新标签页打开"
+                      >
+                        <ExternalLink size={13} aria-hidden="true" />
+                      </a>
+                    ) : null}
                     <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
-                  </button>
-                </li>
+                  </li>
+                </Fragment>
               );
             })}
           </ul>

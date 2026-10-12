@@ -3,7 +3,15 @@ import { ArrowDown, ChevronRight } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
 import { useConversationRefresh } from "./useConversationRefresh";
 import { createConversationReader } from "./conversationReader";
+import {
+  dropConversation,
+  readConversation,
+  writeConversation,
+  type ConversationSnapshot,
+} from "./conversationCache";
 import { CopyButton, Markdown } from "./Markdown";
+import { SelectionQuoteMenu } from "./SelectionQuoteMenu";
+import type { QuoteSource } from "./quotes";
 import {
   editDiffLines,
   isEditVisual,
@@ -968,6 +976,8 @@ export function ConversationView({
   sentMessage,
   working = false,
   onPreviewImage,
+  onQuote,
+  onSessionInfo,
   status,
   load,
 }: {
@@ -1001,31 +1011,84 @@ export function ConversationView({
   /** Opens an uploaded image referenced in a message, full size. */
   onPreviewImage?: (url: string) => void;
   /**
+   * Carries a passage the reader selected out of the conversation into the
+   * prompt. Absent when there is nowhere for it to go.
+   */
+  onQuote?: (text: string, source: QuoteSource) => void;
+  /**
+   * Reports the session file behind this conversation: its path, and its size when
+   * the session is one file.
+   *
+   * The detail view shows that size in the topbar and offers the file for
+   * download. Neither is a fact about the reading area, but this is where the
+   * session is read, and asking for it a second time on every refresh would double
+   * the traffic for a number that arrives with the page already being loaded.
+   *
+   * Must be stable — it is reported from the reader's effect, and a new identity
+   * there would reload the conversation every time the parent rendered.
+   */
+  onSessionInfo?: (info: { path: string; sizeBytes?: number }) => void;
+  /**
    * The session's live state — the todo list and running subagents — which
    * floats over the conversation's top right (ZCode's status panel). Rendered
    * by the detail view because the data is polled there.
    */
 }) {
-  const [conversation, setConversation] = useState<Conversation | null>(null);
+  /*
+   * What this pane looked like when the reader left it, if they have been here
+   * before. Read once, before the state it feeds: switching panes remounts this
+   * view — which is what keeps one pane's paging and reading position out of the
+   * next one — so the only way back to a conversation the reader has already read
+   * is to keep it somewhere outside the component.
+   */
+  const restoredRef = useRef<ConversationSnapshot | null | undefined>(undefined);
+  if (restoredRef.current === undefined) restoredRef.current = readConversation(client, paneId);
+  const restored = restoredRef.current ?? null;
+
+  const [conversation, setConversation] = useState<Conversation | null>(
+    () => restored?.conversation ?? null,
+  );
   /**
    * The newest page, replaced on every refresh.
    *
    * Kept separate from `older` so a refresh never has to reconcile against
    * history the reader has already paged in.
    */
-  const [newest, setNewest] = useState<ConversationTurn[]>([]);
+  const [newest, setNewest] = useState<ConversationTurn[]>(() => restored?.newest ?? []);
   /** Newest-first accumulation of pages fetched above the newest page. */
-  const [older, setOlder] = useState<ConversationTurn[][]>([]);
+  const [older, setOlder] = useState<ConversationTurn[][]>(() => restored?.older ?? []);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Nothing to wait for while the first page is on its way when the turns are
+  // already here, so there is no wait to announce.
+  const [loading, setLoading] = useState(() => !restored);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const cursor = useRef<number | undefined>(undefined);
+  const cursor = useRef<number | undefined>(restored?.cursor);
   // Scroll events fire faster than React re-renders, so the in-flight guard must
   // be a ref. With state, several handlers read `false` before the first update
   // lands, and each repeat request re-reads the same cursor and duplicates turns.
   const loadingOlderRef = useRef(false);
-  const historyLoaded = useRef(false);
+  const historyLoaded = useRef(restored?.historyLoaded ?? false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * How far down the pane is, tracked as the reader scrolls.
+   *
+   * Read on the way out, when the element is already gone and cannot be asked:
+   * the held position is what puts the reader back on the line they were on.
+   */
+  const lastScrollTop = useRef(restored?.scrollTop ?? 0);
+  /** The reading area, which is what a quotation may come out of. */
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  /**
+   * The session report, held in a ref so the reader's effect does not depend on it.
+   *
+   * That effect reloads the conversation when its dependencies change, so a
+   * callback that arrived with a new identity on every parent render would reload
+   * a page's worth of turns each time — for a number that has not moved.
+   */
+  const reportSessionInfo = useRef(onSessionInfo);
+  useEffect(() => {
+    reportSessionInfo.current = onSessionInfo;
+  }, [onSessionInfo]);
   const abortRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReturnType<typeof createConversationReader> | null>(null);
   /**
@@ -1035,7 +1098,7 @@ export function ConversationView({
    * back. New output must not yank the viewport away from history they are
    * reading, so this is only recomputed from the user's own scrolling.
    */
-  const pinnedToBottom = useRef(true);
+  const pinnedToBottom = useRef(restored ? !restored.awayFromBottom : true);
   /**
    * Whether the newest output is far enough off screen to offer a jump to it.
    *
@@ -1043,7 +1106,7 @@ export function ConversationView({
    * threshold is wider than the follow one: following resumes almost immediately,
    * but a control that appears on a few pixels of scroll would flicker.
    */
-  const [awayFromBottom, setAwayFromBottom] = useState(false);
+  const [awayFromBottom, setAwayFromBottom] = useState(() => restored?.awayFromBottom ?? false);
   /**
    * Newest turn id at the moment a message was sent.
    *
@@ -1066,29 +1129,47 @@ export function ConversationView({
     readerRef.current?.refresh();
   }, []);
 
-  // Load the newest page and reset paging state when the pane changes.
+  // Load the newest page, and put the paging state where the pane left it.
   useEffect(() => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setLoading(true);
-    setError(null);
-    setConversation(null);
-    setNewest([]);
-    setOlder([]);
-    cursor.current = undefined;
+    /*
+     * A pane the reader has been in before starts where they left it: the turns it
+     * held, the pages they had pulled in, and how far down they were. Everything
+     * else is reset, because a different pane is a different conversation — and
+     * carrying the previous pane's scroll-up state across would leave the new one
+     * unfollowed until they scrolled it.
+     */
+    const held = restoredRef.current ?? null;
+    if (!held) {
+      setLoading(true);
+      setError(null);
+      setConversation(null);
+      setNewest([]);
+      setOlder([]);
+      cursor.current = undefined;
+      pinnedToBottom.current = true;
+      historyLoaded.current = false;
+    }
     loadingOlderRef.current = false;
     setLoadingOlder(false);
-    // A different pane is a different conversation, so following starts over
-    // from the bottom. Carrying the previous pane's scroll-up state across
-    // would leave the new conversation unfollowed until the reader scrolled.
-    pinnedToBottom.current = true;
 
-    historyLoaded.current = false;
     const reader = createConversationReader(
       () => loadConversation(client, paneId, { maxBytes: PAGE_BYTES }),
       (data) => {
+        reportSessionInfo.current?.({ path: data.path, sizeBytes: data.sizeBytes });
+        // An agent that started a new session since this was kept: the held pages
+        // belong to the session before it, so they go rather than being shown as
+        // the history of the one that replaced it.
+        if (held && data.path !== held.conversation.path) {
+          dropConversation(client, paneId);
+          restoredRef.current = null;
+          historyLoaded.current = false;
+          cursor.current = undefined;
+          setOlder([]);
+        }
         setConversation((current) => historyLoaded.current && current
           ? { ...data, pagination: current.pagination } : data);
         setNewest(data.turns ?? []);
@@ -1103,12 +1184,61 @@ export function ConversationView({
     );
     readerRef.current = reader;
     reader.refresh();
+    /*
+     * Back on the line the reader was reading, once the held turns have been laid
+     * out. The follow effect below does nothing while the view is not pinned, so
+     * this is the only thing that scrolls a pane opened into its own history.
+     */
+    if (held && held.awayFromBottom) {
+      window.requestAnimationFrame(() => {
+        const element = scrollRef.current;
+        if (element) element.scrollTop = held.scrollTop;
+      });
+    }
     return () => {
       controller.abort();
       reader.dispose();
       if (readerRef.current === reader) readerRef.current = null;
     };
   }, [client, paneId]);
+
+  /**
+   * The conversation as it stands, for the next visit to this pane.
+   *
+   * Kept in a ref and written on the way out rather than on every change: it is
+   * only ever read when the pane is left, and a write per streamed token would
+   * cost more than it saves.
+   */
+  const snapshotRef = useRef<ConversationSnapshot | null>(null);
+  useEffect(() => {
+    if (!conversation) return;
+    snapshotRef.current = {
+      conversation,
+      newest,
+      older,
+      cursor: cursor.current,
+      historyLoaded: historyLoaded.current,
+      awayFromBottom,
+      scrollTop: lastScrollTop.current,
+    };
+  }, [conversation, newest, older, awayFromBottom]);
+
+  useEffect(
+    () => () => {
+      const snapshot = snapshotRef.current;
+      if (!snapshot) return;
+      // Paging and scrolling move without a re-render, so the refs are read again
+      // here: they are the difference between coming back to where the reader was
+      // and coming back to where the last render happened to be.
+      writeConversation(client, paneId, {
+        ...snapshot,
+        cursor: cursor.current,
+        historyLoaded: historyLoaded.current,
+        scrollTop: lastScrollTop.current,
+      });
+    },
+    [client, paneId],
+  );
 
   useConversationRefresh(
     client,
@@ -1191,6 +1321,7 @@ export function ConversationView({
     // Distance from the bottom, tolerant of sub-pixel rounding and of the
     // scrollbar itself so sitting at the end still counts as pinned.
     const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    lastScrollTop.current = element.scrollTop;
     pinnedToBottom.current = distance < 40;
     setAwayFromBottom(distance > 120);
     // Reaching the top pulls in the previous page.
@@ -1327,7 +1458,13 @@ export function ConversationView({
   // first. While dimmed the rail ignores pointer events, so without this there
   // would be no way to reach it other than by scrolling.
   return (
-    <div className="conversation-wrap" onTouchStart={wakeNavigator}>
+    <div className="conversation-wrap" ref={wrapRef} onTouchStart={wakeNavigator}>
+      {/*
+        Quoting is offered against the reading area rather than the scroll
+        container: the file tree and the rail beside it are chrome, and a passage
+        the reader wants the agent to see comes out of the conversation.
+      */}
+      {onQuote ? <SelectionQuoteMenu root={wrapRef} onQuote={onQuote} /> : null}
       {load}
       {status}
       {/*

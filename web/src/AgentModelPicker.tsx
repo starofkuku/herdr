@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight } from "lucide-react";
 import {
   effortLabel,
   groupByProvider,
-  loadAgentModels,
+  loadAgentModelsSettled,
   modelKey,
   modelLabel,
   type AgentModel,
@@ -85,7 +85,7 @@ export function AgentModelPicker({
     let cancelled = false;
     setCatalog(null);
     setError(null);
-    void loadAgentModels(client, paneId)
+    void loadAgentModelsSettled(client, paneId)
       .then((result) => {
         if (!cancelled) setCatalog(result);
       })
@@ -98,16 +98,13 @@ export function AgentModelPicker({
   }, [client, paneId, supported]);
 
   /*
-   * Opening the menu asks again. A Codex catalog is fetched on a background
-   * thread and cached, so the very first answer — before any fetch has finished
-   * — is a note rather than a list, and a menu that keeps showing that note
-   * until the page is reopened reads as broken. Asking on open is cheap: the
-   * answer is cached, and the fetch it starts is the one the menu is waiting for.
+   * Opening the menu asks again, so the list is current rather than whatever the
+   * mount read. Both reads follow a loading answer to the list behind it.
    */
   useEffect(() => {
     if (!open || !supported) return;
     let cancelled = false;
-    void loadAgentModels(client, paneId)
+    void loadAgentModelsSettled(client, paneId)
       .then((result) => {
         if (!cancelled) {
           setCatalog(result);
@@ -169,6 +166,19 @@ export function AgentModelPicker({
   const currentName = current
     ? modelLabel(current, currentGroup?.models ?? models)
     : undefined;
+  /*
+   * The provider leads the chip when the catalog has one. The same model id
+   * exists under several providers — `deepseek-flash` is served by three here —
+   * so the name alone says which model without saying which endpoint answers,
+   * which is half of what the reader chose. Agents that do not partition their
+   * catalog (Codex) have no provider to name, and their chip reads as before.
+   */
+  const currentDisplay =
+    current && currentName
+      ? partitioned && current.provider
+        ? `${current.provider} · ${currentName}`
+        : currentName
+      : undefined;
 
   // Submenus follow the pointer on devices that have one; on touch, a tap that
   // hovered would immediately toggle back off, so there the row only opens.
@@ -259,8 +269,8 @@ export function AgentModelPicker({
           setOpen((value) => !value);
         }}
       >
-        {currentName ? (
-          <span className="model-picker__current">{currentName}</span>
+        {currentDisplay ? (
+          <span className="model-picker__current">{currentDisplay}</span>
         ) : null}
         <ChevronDown size={13} aria-hidden="true" className="model-picker__chevron" />
       </button>
@@ -282,6 +292,10 @@ export function AgentModelPicker({
             setEffortOpen((value) => !value);
           }}
         >
+          {/* The model control carries only its name; this one needs to say what
+           * it is at a glance, since "高" alone reads as a rating. The brain is
+           * the same mark the reference control uses for the same idea. */}
+          <Brain size={13} aria-hidden="true" className="model-picker__effort-icon" />
           <span className="model-picker__current">
             {effortLabel(currentEffort)}
           </span>

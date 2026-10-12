@@ -8,7 +8,7 @@
 // act on.
 
 /** The slice of the gateway client these loaders need. */
-interface SkillsClient {
+export interface SkillsClient {
   call: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
 }
 
@@ -120,17 +120,18 @@ export function skillInvocationText(name: string, extra: string): string {
 }
 
 /**
- * The slash query a draft carries, or null when the composer is not invoking
- * one. A trigger is the message's first character: mid-message slashes stay
- * plain text so a URL or a fraction never opens the picker.
+ * The slash query a draft ends in, or null when the composer is not invoking
+ * one.
+ *
+ * A trigger is the start of a word — at the beginning or after a space, which is
+ * ZCode's rule — so typing a command under text that is already there still
+ * opens the picker, while a slash inside a URL or a fraction never does. The
+ * word has to reach the end of the draft: a space after it settles the
+ * invocation, which is what closes the picker behind a chosen command.
  */
 export function slashQuery(draft: string): string | null {
-  if (!draft.startsWith("/")) return null;
-  const rest = draft.slice(1);
-  // A space ends the command word: "/git " is a settled invocation, not a query
-  // still being typed.
-  const word = rest.split(/\s/u, 1)[0] ?? "";
-  return word.toLowerCase();
+  const match = /(?:^|\s)\/([^\s/]*)$/u.exec(draft);
+  return match ? (match[1] ?? "").toLowerCase() : null;
 }
 
 /**
@@ -227,17 +228,24 @@ export function expandSlashMessage(
   return message
     .split("\n")
     .map((line) => {
-      if (!line.startsWith("/")) return line;
-      const trimmed = line.slice(1);
-      const spaceAt = trimmed.search(/\s/u);
-      const word = (spaceAt === -1 ? trimmed : trimmed.slice(0, spaceAt)).toLowerCase();
-      const rest = spaceAt === -1 ? "" : trimmed.slice(spaceAt + 1).trim();
+      /*
+       * The first word-start slash on a line is the invocation, and the rest of
+       * the line is its argument — the same place the picker offers one, so a
+       * command chosen under text the reader has already typed is invoked the
+       * same way one typed on its own line is. Anything before it stays: it is
+       * the reader's own words, not part of the command.
+       */
+      const match = /(^|\s)(\/(?:[a-z0-9][\w.-]*))(?:\s+(.*))?$/iu.exec(line);
+      if (!match) return line;
+      const word = (match[2] ?? "").slice(1).toLowerCase();
+      const rest = (match[3] ?? "").trim();
+      const prefix = line.slice(0, match.index + (match[1] ?? "").length);
       const custom = customByName.get(word);
       if (custom) {
-        return rest ? `${custom.content}\n${rest}` : custom.content;
+        return rest ? `${prefix}${custom.content}\n${rest}` : `${prefix}${custom.content}`;
       }
       if (!skillNames.has(word)) return line;
-      return skillInvocationText(word, rest);
+      return prefix + skillInvocationText(word, rest);
     })
     .join("\n");
 }

@@ -209,6 +209,67 @@ pub(crate) fn stage(dir: &Path, extension: &str, data: &[u8]) -> io::Result<Stag
     ))
 }
 
+/// Publishes a file that already exists, under a generated name.
+///
+/// For a file herdr must not move but the browser has to be able to fetch: an
+/// agent's transcript lives outside the pane's project, so `files.read` refuses
+/// it, and the gateway's `/uploads` route is the one path a download link can
+/// take — a link cannot carry the gateway key, which is why the name is what
+/// protects it.
+///
+/// A hard link is the normal cost, because the file is usually on the same
+/// filesystem as the uploads directory and a session can be tens of megabytes;
+/// a copy is the fallback when it is not.
+pub(crate) fn link(dir: &Path, extension: &str, source: &Path) -> io::Result<StagedUpload> {
+    let extension = sanitize_extension(extension);
+    ensure_dir(dir)?;
+    // Same width as the platform's file sizes, and a session larger than a
+    // machine word could not be opened, let alone downloaded.
+    let size = fs::metadata(source)?.len() as usize;
+
+    for _ in 0..100 {
+        let id = random_id()?;
+        let path = dir.join(format!("{id}.{extension}"));
+        // `hard_link` refuses to clobber, which is the collision check this loop
+        // needs. Any other failure is the filesystem saying it cannot link — a
+        // different device, most often — and the copy below is the answer.
+        match fs::hard_link(source, &path) {
+            Ok(()) => {
+                return Ok(StagedUpload {
+                    id,
+                    path,
+                    extension,
+                    size,
+                })
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(_) => {}
+        }
+        let mut options = fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        restrict_file_options(&mut options);
+        match options.open(&path) {
+            Ok(mut file) => {
+                let mut origin = fs::File::open(source)?;
+                io::copy(&mut origin, &mut file)?;
+                return Ok(StagedUpload {
+                    id,
+                    path,
+                    extension,
+                    size,
+                });
+            }
+            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(err) => return Err(err),
+        }
+    }
+
+    Err(io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        "failed to allocate a unique upload path",
+    ))
+}
+
 /// 32 hex characters from the OS random source.
 ///
 /// The served URL is the only thing protecting an upload, so this must not be

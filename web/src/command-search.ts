@@ -1,4 +1,4 @@
-import { shortenPath, statusLabel, type AgentView } from "./api";
+import { shortenPath, type AgentView } from "./api";
 
 /**
  * The agents a query matches, best match first.
@@ -86,10 +86,19 @@ function subsequenceSpan(text: string, needle: string): number | null {
   return first === -1 ? null : last - first;
 }
 
-/** What a row shows besides its name, for the search list. */
+/**
+ * What a row shows besides its name, for the search list.
+ *
+ * The project and the agent's own name, not the directory: the same words the
+ * terminal's own list uses. A `~/a/b/c` path either clips to something
+ * unreadable or pushes the status off the row, and the project name is the part
+ * a reader actually recognises. The state is not repeated here — the row ends
+ * with its own pill, and a word for it in front of the name only pushed the
+ * name further from where the eye starts. Both names stay searchable, the path
+ * included — this is only what the row draws.
+ */
 export function describeAgent(agent: AgentView): string {
-  const where = shortenPath(agent.cwd);
-  return `${statusLabel(agent.status)} · ${where}`;
+  return `${agent.project} · ${agent.label}`;
 }
 /**
  * Whether the row at `index` starts a new backend group.

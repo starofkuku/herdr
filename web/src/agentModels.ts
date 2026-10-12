@@ -44,6 +44,33 @@ export interface AgentModelCatalog {
 }
 
 /**
+ * Reads the pane's model catalog, following a loading answer until it settles.
+ *
+ * A Codex catalog is fetched by the server on a background thread and cached, so
+ * the very first answer — before that fetch has finished — carries a reason
+ * instead of a list. The list arrives moments later, and the reader should not
+ * have to reopen the menu to see it, so a reason with nothing to show is asked
+ * again a few times before it is taken as final.
+ *
+ * Bounded on purpose: a catalog that will never load (an agent that publishes
+ * none, or a daemon that cannot be asked) answers the same way every time, and
+ * retrying it forever would be a loop with no exit.
+ */
+export async function loadAgentModelsSettled(
+  client: ModelClient,
+  paneId: string,
+): Promise<AgentModelCatalog> {
+  const attempts = 5;
+  let catalog = await loadAgentModels(client, paneId);
+  for (let attempt = 1; attempt < attempts; attempt += 1) {
+    if (catalog.models.length > 0 || !catalog.detail) return catalog;
+    await new Promise((resolve) => window.setTimeout(resolve, 600));
+    catalog = await loadAgentModels(client, paneId);
+  }
+  return catalog;
+}
+
+/**
  * Reads the pane's model catalog.
  *
  * A transport failure rejects; a missing catalog resolves with a reason. The

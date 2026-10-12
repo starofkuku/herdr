@@ -27,6 +27,14 @@ pub(crate) use pane_graphics_stream::cancel_inactive_streams as cancel_inactive_
 
 const SOCKET_PERMISSION_MODE: u32 = 0o600;
 pub(super) const CONNECTION_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// How often a connection carrying a terminal stream looks for output.
+///
+/// A tick of `CONNECTION_POLL_INTERVAL` is invisible for a status and is a stutter
+/// per keystroke for output, so a connection that has a stream on it wakes far more
+/// often — but only the stream is polled at that rate, which is what
+/// [`ActiveSubscription::is_immediate`] decides.
+pub(super) const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(1);
 pub(super) const APP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const INITIAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -396,6 +404,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::FilesList(_) => "files.list",
         Method::FilesRead(_) => "files.read",
         Method::FilesSearch(_) => "files.search",
+        Method::FilesPublish(_) => "files.publish",
         Method::GitStatus(_) => "git.status",
         Method::SkillsList(_) => "skills.list",
         Method::SkillsRead(_) => "skills.read",
@@ -451,6 +460,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::PaneSendInput(_) => "pane.send_input",
         Method::PaneRead(_) => "pane.read",
         Method::PaneSession(_) => "pane.session",
+        Method::PaneSessionDownload(_) => "pane.session_download",
         Method::PaneTodos(_) => "pane.todos",
         Method::PaneModels(_) => "pane.models",
         Method::PaneModelSet(_) => "pane.model.set",
@@ -479,6 +489,9 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::EventsSubscribe(_) => "events.subscribe",
         Method::EventsWait(_) => "events.wait",
         Method::PaneWaitForOutput(_) => "pane.wait_for_output",
+        Method::ScheduleCreate(_) => "schedule.create",
+        Method::ScheduleList(_) => "schedule.list",
+        Method::ScheduleCancel(_) => "schedule.cancel",
         Method::IntegrationInstall(_) => "integration.install",
         Method::IntegrationUninstall(_) => "integration.uninstall",
         Method::PluginLink(_) => "plugin.link",
@@ -791,7 +804,8 @@ fn stream_subscriptions(
 ) -> std::io::Result<()> {
     let mut diagnostics =
         crate::api::subscription_diagnostics::SubscriptionDiagnostics::server(&request_id);
-    let mut subscriptions = Vec::with_capacity(params.subscriptions.len());
+    let mut subscriptions: Vec<(ActiveSubscription, std::time::Instant)> =
+        Vec::with_capacity(params.subscriptions.len());
     for (index, subscription) in params.subscriptions.into_iter().enumerate() {
         let active =
             match ActiveSubscription::new(subscription, &request_id, index, api_tx, event_hub) {
@@ -808,7 +822,10 @@ fn stream_subscriptions(
                     return Ok(());
                 }
             };
-        subscriptions.push(active);
+        // Due now, so the first pass polls every subscription exactly as it did
+        // when the loop had no cadence of its own.
+        let due = std::time::Instant::now() - CONNECTION_POLL_INTERVAL;
+        subscriptions.push((active, due));
     }
 
     diagnostics.reason("ack_write_error");
@@ -836,19 +853,37 @@ fn stream_subscriptions(
             return Ok(());
         }
 
-        for subscription in &mut subscriptions {
-            if let Some(event) = subscription.poll(api_tx, event_hub) {
-                diagnostics.reason("event_write_error");
-                if let Err(err) = write_json_line(&mut stream, &event) {
-                    if is_connection_closed_error(&err) {
-                        return Ok(());
+        /*
+         * Each subscription is polled on its own cadence. The loop wakes on the
+         * shortest one it has, and a subscription whose interval has not passed is
+         * skipped: the ones that ask the app for something would otherwise be
+         * asked a thousand times a second because a terminal is attached.
+         */
+        let now = std::time::Instant::now();
+        let mut next_wake = CONNECTION_POLL_INTERVAL;
+        for (subscription, last_poll) in &mut subscriptions {
+            let interval = if subscription.is_immediate() {
+                STREAM_POLL_INTERVAL
+            } else {
+                CONNECTION_POLL_INTERVAL
+            };
+            if now.duration_since(*last_poll) >= interval {
+                *last_poll = now;
+                if let Some(event) = subscription.poll(api_tx, event_hub) {
+                    diagnostics.reason("event_write_error");
+                    if let Err(err) = write_json_line(&mut stream, &event) {
+                        if is_connection_closed_error(&err) {
+                            return Ok(());
+                        }
+                        return Err(err);
                     }
-                    return Err(err);
+                    diagnostics.forwarded();
                 }
-                diagnostics.forwarded();
             }
+            let remaining = interval.saturating_sub(now.duration_since(*last_poll));
+            next_wake = next_wake.min(remaining);
         }
-        std::thread::sleep(CONNECTION_POLL_INTERVAL);
+        std::thread::sleep(next_wake);
     }
 }
 
@@ -1070,6 +1105,8 @@ mod tests {
                                 result: ResponseResult::PanePresentation {
                                     presentation: crate::api::schema::PanePresentationResult {
                                         pane_id: "pane_1".into(),
+                                        pane_raw_id: 1,
+                                        terminal: None,
                                         workspace_id: "ws_1".into(),
                                         agent: None,
                                         agent_status,
@@ -1331,6 +1368,8 @@ mod tests {
                         result: ResponseResult::PanePresentation {
                             presentation: crate::api::schema::PanePresentationResult {
                                 pane_id: "pane_1".into(),
+                                pane_raw_id: 1,
+                                terminal: None,
                                 workspace_id: "ws_1".into(),
                                 agent: None,
                                 agent_status: crate::api::schema::AgentStatus::Unknown,

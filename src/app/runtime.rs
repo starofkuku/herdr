@@ -321,6 +321,26 @@ impl App {
         self.sync_animation_timer(now);
         self.reconcile_plugin_services(now);
 
+        /*
+         * Prompt schedules keep their own wake-up, and heal a missing one:
+         * restore loads the list without touching App-level deadlines, so the
+         * first pass after startup arms the timer rather than waiting for a
+         * change that may never come.
+         */
+        if self.prompt_schedule_deadline.is_none()
+            && self.state.prompt_schedules.iter().any(|schedule| {
+                schedule.status == crate::api::schema::PromptScheduleStatus::Pending
+            })
+        {
+            self.sync_prompt_schedule_deadline();
+        }
+        if self
+            .prompt_schedule_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.fire_due_prompt_schedules();
+        }
+
         if now >= self.next_resize_poll {
             resized = self.handle_resize_poll();
             changed |= resized;
@@ -640,6 +660,7 @@ impl App {
             self.plugin_services.next_deadline(),
             self.pending_agent_resume_deadline,
             self.session_save_deadline,
+            self.prompt_schedule_deadline,
             self.selection_autoscroll_deadline,
             self.selection_highlight_clear_deadline,
             render_deadline,

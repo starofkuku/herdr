@@ -2,8 +2,8 @@ use regex::Regex;
 
 use crate::api::schema::{
     ErrorBody, ErrorResponse, Method, PaneAgentStatusChangedEvent, PaneOutputMatchedEvent,
-    PaneScrollChangedEvent, PaneScrollInfo, Request, Subscription, SubscriptionEventData,
-    SubscriptionEventEnvelope, SubscriptionEventKind,
+    PaneScrollChangedEvent, PaneScrollInfo, PaneTerminalOutputEvent, Request, Subscription,
+    SubscriptionEventData, SubscriptionEventEnvelope, SubscriptionEventKind,
 };
 use crate::api::server::{dispatch_to_app_with_timeout, APP_RESPONSE_TIMEOUT};
 use crate::api::{ApiRequestSender, EventHub};
@@ -102,6 +102,39 @@ pub(super) enum ActiveSubscription {
     OutputMatched(ActiveOutputMatchedSubscription),
     AgentStatusChanged(Box<ActiveAgentStatusChangedSubscription>),
     ScrollChanged(ActiveScrollChangedSubscription),
+    TerminalOutput(Box<ActiveTerminalOutputSubscription>),
+}
+
+/// One subscription that delivers as it is produced, rather than when it changes.
+///
+/// The connection loop polls on a fixed tick, which is right for state — nothing
+/// about "the agent is working" needs to arrive in under a tenth of a second.
+/// Output is not state: every tick is a keypress that has not been drawn yet, so a
+/// subscription of this kind is polled far more often than the rest (`is_immediate`
+/// is what the loop asks).
+pub(super) struct ActiveTerminalOutputSubscription {
+    pane_id: String,
+    tap: crate::api::terminal_tap::TerminalTap,
+}
+
+impl ActiveTerminalOutputSubscription {
+    /// One poll: whatever arrived since the last one, as a single payload.
+    fn poll(&mut self) -> Option<SubscriptionEventEnvelope> {
+        let (chunks, lost) = self.tap.drain();
+        if chunks.is_none() && !lost {
+            return None;
+        }
+        use base64::Engine as _;
+        Some(SubscriptionEventEnvelope {
+            event: SubscriptionEventKind::PaneTerminalOutput,
+            data: SubscriptionEventData::PaneTerminalOutput(PaneTerminalOutputEvent {
+                pane_id: self.pane_id.clone(),
+                data_base64: base64::engine::general_purpose::STANDARD
+                    .encode(chunks.unwrap_or_default()),
+                lost,
+            }),
+        })
+    }
 }
 
 impl ActiveSubscription {
@@ -295,6 +328,22 @@ impl ActiveSubscription {
                     request_prefix: format!("{request_id}:sub:{index}"),
                 }))
             }
+            /*
+             * Output: the pane has to exist before the tap is worth attaching, so
+             * the same cheap probe as the status subscription decides that — and it
+             * is where the pane's own id comes from, which is what the thread
+             * reading the PTY knows the pane by.
+             */
+            Subscription::PaneTerminalOutput { pane_id } => {
+                let probe =
+                    pane_presentation(format!("{request_id}:sub:{index}:probe"), &pane_id, api_tx)?;
+                Ok(Self::TerminalOutput(Box::new(
+                    ActiveTerminalOutputSubscription {
+                        pane_id: probe.pane_id,
+                        tap: crate::api::terminal_tap::TerminalTap::subscribe(probe.pane_raw_id),
+                    },
+                )))
+            }
         }
     }
 
@@ -314,7 +363,17 @@ impl ActiveSubscription {
             Self::ScrollChanged(subscription) => {
                 serde_json::to_value(subscription.poll(api_tx)?).ok()
             }
+            Self::TerminalOutput(subscription) => serde_json::to_value(subscription.poll()?).ok(),
         }
+    }
+
+    /// Whether this one has to be polled as fast as the loop can manage.
+    ///
+    /// Only the stream does. The rest ask the app on some polls — a pane's
+    /// presentation, a pane's recent output — and a thousand of those a second is a
+    /// load the server never agreed to carry.
+    pub(super) fn is_immediate(&self) -> bool {
+        matches!(self, Self::TerminalOutput(_))
     }
 
     pub(super) fn poll_for_wait(

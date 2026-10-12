@@ -61,6 +61,29 @@ pub struct FilesReadResult {
     pub size: u64,
 }
 
+/// Asks for an address the browser can fetch a project file from.
+///
+/// Text goes through `files.read`; anything the browser renders itself — an
+/// image, most obviously — cannot, because that answer is a JSON string and the
+/// file may be megabytes of bytes that are not text at all.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
+pub struct FilesPublishParams {
+    pub pane_id: String,
+    /// File to publish, relative to the project root.
+    pub path: String,
+}
+
+/// A published file, as a URL the browser can use directly.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FilesPublishResult {
+    /// Path the browser fetches, relative to the gateway: `/uploads/<id>.<ext>`.
+    pub url: String,
+    /// The file's own name, for a client that labels it.
+    pub name: String,
+    /// Size on disk, in bytes.
+    pub size: u64,
+}
+
 /// A search over every file in the project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
 pub struct FilesSearchParams {

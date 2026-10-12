@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { Subscription, ConnectionState } from "./gateway";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { HISTORY_PAGE_LINES, directoryName, statusLabel, paneIdOfEvent, type AgentView } from "./api";
@@ -6,7 +6,7 @@ import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import { CodexInteractionNotice } from "./CodexInteractionNotice";
 import type { InteractionAnswer } from "./interaction";
-import { Maximize2, Minimize2, Plus, Send, Settings, Square } from "lucide-react";
+import { AlarmClock, ArrowUp, Download, Maximize2, Minimize2, Plus, Settings, Square, SquareTerminal, Terminal } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { CopyButton } from "./Markdown";
 import { AgentCycleOverlay } from "./AgentCycleOverlay";
@@ -14,9 +14,24 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import { useAgentCycle } from "./useAgentCycle";
 import { PendingUploads } from "./PendingUploads";
 import { ComposerInput } from "./ComposerInput";
+import { TerminalView } from "./TerminalView";
+import { SchedulePanel } from "./SchedulePanel";
+import { createShellPane } from "./terminal";
+import { SelectionQuoteMenu } from "./SelectionQuoteMenu";
+import { QuoteChips } from "./QuoteChips";
+import {
+  addQuote,
+  newQuote,
+  NO_QUOTES,
+  quotedPromptBlocks,
+  removeQuote,
+  type QuoteSource,
+  type QuoteState,
+} from "./quotes";
 import { useInputHistory } from "./useInputHistory";
 import { BackendBadge } from "./BackendBadge";
 import { FilePreview } from "./FilePreview";
+import { ImageViewer } from "./ImageViewer";
 import { SettingsPanel } from "./SettingsPanel";
 import { commandsForAgent } from "./agentCommands";
 import { customCommandSummary, loadCustomCommands, type CustomCommand } from "./customCommands";
@@ -40,6 +55,7 @@ import { TODO_POLL_MS, loadTodos, type TodoItem } from "./todos";
 import { ThemeToggle } from "./ThemeToggle";
 import {
   fileToBase64,
+  formatBytes,
   releaseUpload,
   stageUpload,
   uploadError,
@@ -276,6 +292,8 @@ export function AgentDetail({
   connection,
   onRetry,
   onSelectAgent,
+  onOpenPane,
+  routePaneId,
 }: {
   agent: AgentView | null;
   agents: AgentView[];
@@ -295,6 +313,15 @@ export function AgentDetail({
   connection: ConnectionState;
   onRetry: () => void;
   onSelectAgent: (paneId: string, backendId?: string) => void;
+  /** Leaves for another pane in this session, which is how a new shell is shown. */
+  onOpenPane: (paneId: string) => void;
+  /**
+   * The pane the route named.
+   *
+   * Needed on its own because a pane is not necessarily an agent: a shell has no
+   * agent to be listed as, and it still has a screen to read and a stream to follow.
+   */
+  routePaneId: string;
 }) {
   // Oldest page first, so prepending older pages does not disturb scroll.
   const [pages, setPages] = useState<string[]>([]);
@@ -303,6 +330,13 @@ export function AgentDetail({
   const [draft, setDraft] = useState("");
   /** Whether the reader asked for a taller field; the text grows it either way. */
   const [tall, setTall] = useState(false);
+  /**
+   * The floor a drag left on the field, in pixels, or null for the default.
+   *
+   * A floor rather than a height: the field still grows with what is typed, so
+   * dragging raises how small it may get without capping what it may hold.
+   */
+  const [fieldFloor, setFieldFloor] = useState<number | null>(null);
   /** The file shown in the preview column, if any. */
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   /** The pane's installed skills, fetched once a slash is first typed. */
@@ -386,7 +420,12 @@ export function AgentDetail({
   // steady until the drag actually leaves the pane.
   const dragDepth = useRef(0);
 
-  const paneId = agent?.paneId ?? null;
+  /*
+   * The pane this screen is about: the agent's own id when the pane runs an agent,
+   * and the route's otherwise. A shell is a pane too, and the terminal view is the
+   * only thing that makes it useful — but it needs the pane's name to address it.
+   */
+  const paneId = agent?.paneId ?? routePaneId;
   const skillNames = useMemo(
     () => new Set(skills.map((skill) => skill.name)),
     [skills],
@@ -408,10 +447,19 @@ export function AgentDetail({
     [customCommands],
   );
   const slashTrigger = slashQuery(draft);
-  const slashMenu =
-    slashTrigger !== null && !slashSettled(draft, skillNames) && !slashSettled(draft, customCommandNames)
-      ? buildSlashMenu(skills, agentCommands, customSlashItems, slashTrigger)
-      : { custom: [], skills: [], commands: [] as SlashMenuItem[], flat: [] as SlashMenuItem[] };
+  /*
+   * Settled means the word names a known command exactly, so the picker has
+   * nothing left to offer: choosing one leaves "/name " in the draft, which is
+   * settled, and the menu must close behind it rather than linger over the
+   * composer with an empty list.
+   */
+  const slashOffering =
+    slashTrigger !== null &&
+    !slashSettled(draft, skillNames) &&
+    !slashSettled(draft, customCommandNames);
+  const slashMenu = slashOffering
+    ? buildSlashMenu(skills, agentCommands, customSlashItems, slashTrigger)
+    : { custom: [], skills: [], commands: [] as SlashMenuItem[], flat: [] as SlashMenuItem[] };
   // The keyboard walks one flat list across both groups, so the highlighted
   // row keeps its place as the groups grow and shrink.
   const slashMatches = slashMenu.flat;
@@ -421,7 +469,7 @@ export function AgentDetail({
     setSlashDismissed(false);
     setSlashIndex(0);
   }, [slashTrigger]);
-  const slashMenuOpen = slashTrigger !== null && !slashDismissed;
+  const slashMenuOpen = slashOffering && !slashDismissed;
   const highlightedSlash = Math.min(slashIndex, slashMatches.length - 1);
   // The list is only worth fetching once a slash is typed, and only once:
   // reloading the page is the way to see newly installed skills.
@@ -433,9 +481,14 @@ export function AgentDetail({
       if (state) setSkills(state.skills);
     });
   }, [client, paneId, slashTrigger, skillsFetched]);
-  /** Replaces the draft's slash word with the chosen skill and its trailing space. */
+  /** Replaces the draft's trailing slash word with the chosen skill and its trailing space. */
   const chooseSlashSkill = useCallback((name: string) => {
-    setDraft(`/${name} `);
+    /*
+     * Only the word is replaced, not the whole draft: the trigger can sit under
+     * text the reader has already typed, and that text is theirs, not part of the
+     * command.
+     */
+    setDraft((current) => `${current.replace(/\/[^\s/]*$/u, "")}/${name} `);
     requestAnimationFrame(() => {
       const field = composerRef.current;
       if (!field) return;
@@ -451,7 +504,11 @@ export function AgentDetail({
    * to it before sending.
    */
   const chooseCustomCommand = useCallback((content: string) => {
-    setDraft(content);
+    /*
+     * The command's text replaces only the trailing slash word, for the same
+     * reason as the skill above: what the reader typed around it is theirs.
+     */
+    setDraft((current) => current.replace(/\/[^\s/]*$/u, content));
     requestAnimationFrame(() => {
       const field = composerRef.current;
       if (!field) return;
@@ -784,12 +841,28 @@ export function AgentDetail({
     // prompt; an agent-native command passes through as typed.
     const message = expandSlashMessage(draft.trim(), skillNames, customCommands);
     // A file with no message is a normal thing to send, so the composer is not
-    // required to contain text when something is attached.
-    if (!paneId || (!message && uploads.length === 0) || busy || preparing) return;
+    // required to contain text when something is attached — and a quoted passage
+    // is something to send on its own.
+    if (
+      !paneId ||
+      (!message && uploads.length === 0 && quotes.quotes.length === 0) ||
+      busy ||
+      preparing
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const pasted = await uploadFiles();
-      const text = [message, ...pasted].filter((part) => part.length > 0).join("\n");
+      const base = [message, ...pasted].filter((part) => part.length > 0).join("\n");
+      /*
+       * The quotes go after the message and its files, set off by a blank line:
+       * the agent reads the whole thing as one prompt, and a quotation that is not
+       * run together with the sentence above it stays legible for the reader who
+       * scrolls back to find out what they asked.
+       */
+      const quoting = quotedPromptBlocks(quotes.quotes);
+      const text = quoting ? (base ? `${base}\n\n${quoting}` : quoting) : base;
       // The files are only dropped once the message is away: an upload that
       // succeeded must not leave a copy behind, and a send that failed must not
       // take the user's files with it.
@@ -797,7 +870,15 @@ export function AgentDetail({
       inputHistory.record(draft);
       clearUploads();
       setDraft("");
+      // The passage was sent with the message, so keeping it attached would send
+      // it again with the next one.
+      setQuotes(NO_QUOTES);
       setError(null);
+      // The box was sized for the message that just went. The next one starts
+      // from the default again, so a long draft cannot leave a tall empty card
+      // taking room from the conversation.
+      setFieldFloor(null);
+      setTall(false);
       setPendingTurn(true);
       pendingSince.current = Date.now();
       setSentMessage(text);
@@ -1105,6 +1186,11 @@ export function AgentDetail({
    * measuring, because `scrollHeight` only shrinks once the element has been
    * allowed to; without the reset, deleting text would leave the box tall.
    * `max-height` in CSS caps it, after which the field scrolls.
+   *
+   * The floor is a dependency because a drag changes it: the measurement below is
+   * taken while the floor is holding the field open, so without a re-run the
+   * height some previous floor produced would outlive it and dragging the field
+   * back down would appear to do nothing.
    */
   useEffect(() => {
     const field = composerRef.current;
@@ -1117,7 +1203,178 @@ export function AgentDetail({
     // `scrollHeight` where it was, so the field never recovers on its own.
     const border = field.offsetHeight - field.clientHeight;
     field.style.height = `${field.scrollHeight + border}px`;
-  }, [draft]);
+  }, [draft, fieldFloor]);
+
+  /**
+   * The smallest the field is ever drawn: the CSS floor for a single line.
+   *
+   * The ceiling is read from the element's own `max-height` instead, so the
+   * upper bound keeps one source of truth. Both matter because a floor above
+   * the ceiling would win — CSS resolves that conflict in the floor's favour —
+   * and the field would then grow without ever reaching its scroll ceiling.
+   */
+  const COMPOSER_FLOOR_PX = 40;
+
+  /**
+   * Resizes the field by dragging the card's top edge.
+   *
+   * The pointer is captured for the whole gesture: without it, a drag that left
+   * the strip would begin selecting the text underneath and the field would stop
+   * following the hand mid-resize.
+   */
+  const startComposerResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const field = composerRef.current;
+    if (!field) return;
+    event.preventDefault();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    // Capture keeps the gesture when the pointer leaves the strip. It can fail —
+    // a pointer already gone, or an event no browser is tracking — and that is
+    // not worth abandoning the resize over: without capture the drag still works
+    // while the pointer stays on the strip.
+    try {
+      handle.setPointerCapture(pointerId);
+    } catch {
+      // The gesture continues uncaptured.
+    }
+    const startY = event.clientY;
+    const startHeight = field.offsetHeight;
+    const ceiling = Number.parseFloat(window.getComputedStyle(field).maxHeight);
+    const ceilingPx = Number.isFinite(ceiling) ? ceiling : 160;
+
+    const onMove = (move: PointerEvent) => {
+      // The handle rides the top edge, so moving up is taller: the distance
+      // travelled is subtracted from the height the gesture began at.
+      const next = startHeight - (move.clientY - startY);
+      setFieldFloor(Math.min(ceilingPx, Math.max(COMPOSER_FLOOR_PX, next)));
+    };
+    const onEnd = () => {
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onEnd);
+      handle.removeEventListener("pointercancel", onEnd);
+      if (handle.hasPointerCapture(pointerId)) {
+        try {
+          handle.releasePointerCapture(pointerId);
+        } catch {
+          // Nothing left to release.
+        }
+      }
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onEnd);
+    handle.addEventListener("pointercancel", onEnd);
+  };
+
+  /** The passages quoted out of the conversation, to be sent with the prompt. */
+  const [quotes, setQuotes] = useState<QuoteState>(NO_QUOTES);
+
+  /**
+   * The file the agent records this conversation in, as the conversation view sees
+   * it while reading. Absent until a session is read, and never reported for a
+   * session an agent keeps in a store, which has no file of its own.
+   */
+  const [sessionFile, setSessionFile] = useState<{ path: string; sizeBytes?: number } | null>(null);
+  /** Set while the server is being asked for a download link. */
+  const [downloading, setDownloading] = useState(false);
+  /**
+   * Whether this pane is drawn as a terminal rather than as its conversation.
+   *
+   * `null` means the reader has not said, and the pane decides: a pane with no
+   * agent is a shell, and the only thing worth showing for a shell is the terminal
+   * itself. The toggle exists because the raw screen is sometimes what you want
+   * from an agent pane too.
+   */
+  const [terminalOpen, setTerminalOpen] = useState<boolean | null>(null);
+  /** Set while a shell is being created, so one tap cannot ask for two. */
+  const [shellBusy, setShellBusy] = useState(false);
+  /** Whether the scheduled-prompt panel is open. */
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const showTerminal = terminalOpen ?? agent === null;
+
+  /*
+   * Stable, and that is load-bearing: the conversation view reports through the
+   * reader's effect, which reloads the conversation whenever it re-runs. The
+   * equality check keeps a refresh with an unchanged size from re-rendering at all.
+   */
+  const onSessionInfo = useCallback((info: { path: string; sizeBytes?: number }) => {
+    setSessionFile((current) =>
+      current && current.path === info.path && current.sizeBytes === info.sizeBytes ? current : info,
+    );
+  }, []);
+
+  /**
+   * Saves a copy of the session file the agent is keeping.
+   *
+   * The link, not the bytes: a session is routinely tens of megabytes, and the
+   * gateway serves the file from disk, so nothing that size passes through the
+   * socket or ends up as a string here. The server publishes it under a name that
+   * cannot be guessed, because a download cannot carry the gateway's key.
+   */
+  /**
+   * Opens a shell and goes to it.
+   *
+   * The shell is a real pane in a real workspace, started by the server, so it can
+   * be typed into from here and also left alone in the TUI. It goes to its own
+   * workspace rather than beside this conversation, because a pane's size is shared
+   * by every viewer of it, and the browser has no business resizing a pane the
+   * terminal is also laying out.
+   */
+  const openShell = async () => {
+    if (shellBusy) return;
+    setShellBusy(true);
+    try {
+      const pane = await createShellPane(client, agent?.cwd ?? null);
+      if (!pane) {
+        setError("新建 Shell 失败：后端没有返回 pane。");
+        return;
+      }
+      setTerminalOpen(true);
+      // Another pane is another screen, so this one is left rather than repainted:
+      // the route is what decides which pane is showing.
+      onOpenPane(pane);
+    } finally {
+      setShellBusy(false);
+    }
+  };
+
+  const downloadSession = async () => {
+    if (!paneId || downloading) return;
+    setDownloading(true);
+    try {
+      const envelope = await client.call<{ download?: { url: string; name: string } }>(
+        "pane.session_download",
+        { pane_id: paneId },
+      );
+      const link = envelope.download;
+      if (!link) throw new Error("the server returned no download link");
+      const anchor = document.createElement("a");
+      anchor.href = link.url;
+      // The served name is random; this is the name the file has on disk.
+      anchor.download = link.name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  /**
+   * Attaches a passage the reader quoted to the prompt.
+   *
+   * To the chip above the field rather than into the field itself: the passage is
+   * context the reader referred to, not text they meant to write, and a quote
+   * inside the draft would have to be deleted by hand and could be edited into
+   * something else on the way. The field still takes focus afterwards, because
+   * asking the question about the passage is the next thing they do.
+   */
+  const takeQuote = useCallback((text: string, source: QuoteSource) => {
+    setQuotes((current) => addQuote(current, newQuote(text, source)));
+    window.requestAnimationFrame(() => composerRef.current?.focus());
+  }, []);
 
   // The list belongs to the agent and is read back from its transcript, so it
   // is refreshed on a slow timer while the agent runs and left alone once it
@@ -1186,6 +1443,7 @@ export function AgentDetail({
         <SettingsPanel
           onClose={() => setSettingsOpen(false)}
           onCommandsSaved={() => setCustomCommands(loadCustomCommands())}
+          skills={wideLayout && paneId ? { client, paneId } : undefined}
         />
       ) : null}
       <div className="detail-main">
@@ -1206,6 +1464,67 @@ export function AgentDetail({
           currentBackendId={backend.id}
           onSelect={onSelectAgent}
         />
+        {sessionFile?.sizeBytes !== undefined ? (
+          /*
+           * The session's own file: how large the record has grown, and a way to
+           * take a copy of it. It sits with the controls that are about the
+           * session rather than in the conversation's header, which is about the
+           * turns.
+           */
+          <div className="session-file">
+            <span className="session-file__size" title={sessionFile.path}>
+              {formatBytes(sessionFile.sizeBytes)}
+            </span>
+            <button
+              type="button"
+              className="ghost session-file__download"
+              disabled={downloading}
+              onClick={() => void downloadSession()}
+              aria-label="下载当前会话"
+              title="下载当前会话（原始会话文件）"
+            >
+              <Download size={15} aria-hidden="true" />
+            </button>
+          </div>
+        ) : null}
+        {/*
+          The pane as a terminal, and a way to open another. Both are about the pane
+          rather than the conversation, so they sit with the session's own controls
+          instead of in the conversation's header.
+        */}
+        {/*
+          Timed prompts: made here because the pane is what they talk to, and
+          listed here because a task nobody is watching is the point of one.
+        */}
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => setScheduleOpen(true)}
+          aria-label="定时任务"
+          title="定时任务（到点给这个 agent 发提示词）"
+        >
+          <AlarmClock size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className={`ghost terminal-toggle${showTerminal ? " terminal-toggle--on" : ""}`}
+          onClick={() => setTerminalOpen(!showTerminal)}
+          aria-pressed={showTerminal}
+          aria-label="终端"
+          title={showTerminal ? "隐藏终端" : "以终端方式查看并操作此 pane"}
+        >
+          <Terminal size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => void openShell()}
+          disabled={shellBusy}
+          aria-label="新建 Shell"
+          title="新建 Shell（在 shell 工作区）"
+        >
+          <SquareTerminal size={15} aria-hidden="true" />
+        </button>
         <ThemeToggle />
         <button
           type="button"
@@ -1270,7 +1589,17 @@ export function AgentDetail({
         TUI agent is chrome and redraws rather than the conversation. An agent
         with neither still shows something rather than an empty panel.
       */}
-      {hasConversation ? (
+      {showTerminal ? (
+        /*
+         * A terminal, not a picture of one: the same bytes the process wrote are
+         * drawn here by a terminal emulator, and what is typed goes back as bytes.
+         */
+        /*
+         * After the pane is gone the route names a pane that no longer exists, so
+         * closing also leaves the screen for the session's list.
+         */
+        <TerminalView client={client} paneId={paneId ?? ""} onClose={onBack} />
+      ) : hasConversation ? (
         <ConversationView
           client={client}
           paneId={paneId ?? ""}
@@ -1278,6 +1607,8 @@ export function AgentDetail({
           sentMessage={sentMessage}
           working={agent?.status === "working"}
           onPreviewImage={setLightbox}
+          onQuote={takeQuote}
+          onSessionInfo={onSessionInfo}
           status={
             <StatusPanel
               todos={todos}
@@ -1303,6 +1634,12 @@ export function AgentDetail({
           {loadingOlder ? <p className="pager">loading earlier output…</p> : null}
           {exhausted && pages.length > 1 ? <p className="pager">start of history</p> : null}
           <pre>{transcript || "waiting for output…"}</pre>
+          {/*
+            A pane shown as terminal text quotes the same way: the reader is
+            looking at output either way, and the menu anchors to what is on screen
+            rather than to a turn, which this fallback view does not have.
+          */}
+          <SelectionQuoteMenu root={transcriptRef} onQuote={takeQuote} />
         </div>
       )}
 
@@ -1323,7 +1660,28 @@ export function AgentDetail({
           onRemove={removeUpload}
           onPreview={setLightbox}
         />
+        <QuoteChips
+          state={quotes}
+          onRemove={(id) => setQuotes((current) => removeQuote(current, id))}
+          onRemoveAll={() => setQuotes(NO_QUOTES)}
+        />
         <div className="composer-row">
+          {tall ? (
+            /*
+             * The drag strip, riding the card's top border. Offered only while
+             * the field is expanded: a one-line card has nothing worth resizing,
+             * and an invisible target over its border would swallow presses
+             * meant for whatever sits above it.
+             */
+            <div
+              className="composer-row__resize"
+              role="separator"
+              aria-orientation="horizontal"
+              aria-label="拖动调整输入框高度"
+              title="拖动调整输入框高度"
+              onPointerDown={startComposerResize}
+            />
+          ) : null}
           {/*
             The card is a column: the field on top, then a fixed row of controls
             — attach at its start, send at its end, ZCode's own arrangement. The
@@ -1336,6 +1694,7 @@ export function AgentDetail({
               draft={draft}
               onChange={setDraft}
               fieldRef={composerRef}
+              minHeight={fieldFloor ?? undefined}
               onHistoryKey={inputHistory.onKeyDown}
               historyError={inputHistory.error}
               slash={{
@@ -1413,15 +1772,17 @@ export function AgentDetail({
                   title="Stop the agent (sends Esc)"
                   onClick={() => void interrupt()}
                 >
-                  <Square size={15} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
+                  <Square size={16} strokeWidth={2.5} fill="currentColor" aria-hidden="true" />
                 </button>
               ) : (
                 <button
                   type="submit"
-                  disabled={busy || preparing || (!draft.trim() && uploads.length === 0)}
+                  disabled={
+                    busy || preparing || (!draft.trim() && uploads.length === 0 && !quotes.quotes.length)
+                  }
                   aria-label="Send"
                 >
-                  <Send size={18} aria-hidden="true" />
+                  <ArrowUp size={16} strokeWidth={1.5} aria-hidden="true" />
                 </button>
               )}
             </div>
@@ -1458,14 +1819,7 @@ export function AgentDetail({
         conversation stays where it was, and dismissed by a tap anywhere.
       */}
       {lightbox ? (
-        <div
-          className="lightbox"
-          role="dialog"
-          aria-label="Image preview"
-          onClick={() => setLightbox(null)}
-        >
-          <img src={lightbox} alt="" />
-        </div>
+        <ImageViewer url={lightbox} alt="" onClose={() => setLightbox(null)} />
       ) : null}
 
       {drawerOpen && subagents.runs.length > 0 ? (
@@ -1476,6 +1830,15 @@ export function AgentDetail({
         Last in the document so it needs no stacking contest: the cycle covers
         the whole page, including the file tree and any drawer already open.
       */}
+      {scheduleOpen ? (
+        <SchedulePanel
+          client={client}
+          agents={agents}
+          currentPaneId={paneId}
+          onClose={() => setScheduleOpen(false)}
+        />
+      ) : null}
+
       {cycle ? (
         <AgentCycleOverlay
           cycle={cycle}

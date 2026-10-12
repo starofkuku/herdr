@@ -114,6 +114,10 @@ pub struct App {
     pub(crate) last_terminal_size: Option<(u16, u16)>,
     pub(crate) config_diagnostic_deadline: Option<Instant>,
     pub(crate) toast_deadline: Option<Instant>,
+    /// When the nearest pending prompt schedule is due, as a loop deadline.
+    /// Re-synced whenever schedules change or fire; `None` with pending
+    /// schedules is healed by the scheduled-task tick itself.
+    pub(crate) prompt_schedule_deadline: Option<Instant>,
     /// A push waiting out `notification.feishu.delay_seconds`.
     ///
     /// Kept on the app rather than in the pusher so the deadline rides the event
@@ -412,6 +416,9 @@ impl App {
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        // Restored schedules ride along the same way: converted where the
+        // snapshot is in hand, applied where the state is built.
+        let mut restored_prompt_schedules = Vec::new();
         let (
             workspaces,
             active,
@@ -449,6 +456,11 @@ impl App {
                 render_notify.clone(),
                 render_dirty.clone(),
             );
+            restored_prompt_schedules = snap
+                .prompt_schedules
+                .iter()
+                .filter_map(crate::prompt_schedule::from_snapshot)
+                .collect();
             restored_terminals = terminals;
             restored_terminal_runtimes = terminal_runtimes.into();
             if ws.is_empty() {
@@ -552,6 +564,7 @@ impl App {
         let (theme_palette, theme_name) = resolve_effective_theme(&theme_runtime, None);
 
         let mut state = AppState {
+            prompt_schedules: restored_prompt_schedules,
             terminals: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
@@ -763,6 +776,7 @@ impl App {
         Self {
             config_diagnostic_deadline: None,
             toast_deadline: None,
+            prompt_schedule_deadline: None,
             pending_push: None,
             push_deadline: None,
             copy_feedback_deadline: None,
@@ -841,6 +855,11 @@ impl App {
     ) -> io::Result<Self> {
         let mut app = Self::new(config, true, config_diagnostic, api_rx, event_hub);
         app.state.installed_plugins = load_plugin_registry(false);
+        app.state.prompt_schedules = snapshot
+            .prompt_schedules
+            .iter()
+            .filter_map(crate::prompt_schedule::from_snapshot)
+            .collect();
         app.plugin_services.suspend();
         let (workspaces, terminals, runtimes) = crate::persist::restore_handoff(
             snapshot,

@@ -1675,6 +1675,9 @@ pub struct AppState {
     pub integration_install_messages: Vec<String>,
     /// Installed or linked plugins known to this running Herdr instance.
     pub(crate) installed_plugins: InstalledPluginRegistry,
+    /// Prompts waiting for their time, and the record of the ones that got
+    /// there. Server-owned because it has to outlive any one pane or client.
+    pub(crate) prompt_schedules: Vec<crate::prompt_schedule::PromptSchedule>,
     /// Pane ids opened through the plugin pane API.
     pub(crate) plugin_panes: std::collections::HashMap<PaneId, PluginPaneRecord>,
     /// Runtime image layers owned by API clients and composited over panes.
@@ -2148,6 +2151,7 @@ impl AppState {
             agent_manifest_update_status:
                 crate::detect::manifest_update::ManifestUpdateStatus::default(),
             integration_install_messages: Vec::new(),
+            prompt_schedules: Vec::new(),
             installed_plugins: std::collections::HashMap::new(),
             plugin_panes: std::collections::HashMap::new(),
             pane_graphics_layers: std::collections::HashMap::new(),

@@ -1240,6 +1240,7 @@ impl HeadlessServer {
             self.app.state.sidebar_width,
             self.app.state.sidebar_section_split,
             self.app.state.collapsed_space_keys.clone(),
+            &self.app.state.prompt_schedules,
         );
 
         let mut handoff_entries = Vec::new();
@@ -4977,6 +4978,26 @@ impl HeadlessServer {
             self.app.config_diagnostic_deadline = None;
             self.app.state.config_diagnostic = None;
             changed = true;
+        }
+
+        /*
+         * Prompt schedules, mirrored from the TUI loop's own tick: the same
+         * self-healing arm for a deadline that restore left unset, then the
+         * firing pass for everything due.
+         */
+        if self.app.prompt_schedule_deadline.is_none()
+            && self.app.state.prompt_schedules.iter().any(|schedule| {
+                schedule.status == crate::api::schema::PromptScheduleStatus::Pending
+            })
+        {
+            self.app.sync_prompt_schedule_deadline();
+        }
+        if self
+            .app
+            .prompt_schedule_deadline
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.app.fire_due_prompt_schedules();
         }
 
         if self

@@ -10,6 +10,13 @@ interface ComposerInputProps {
   draft: string;
   onChange: (text: string) => void;
   fieldRef: RefObject<HTMLTextAreaElement>;
+  /**
+   * The floor a resize left on the field, in pixels.
+   *
+   * Optional because the field has a CSS floor of its own; this only ever raises
+   * it, so the field keeps growing with what is typed.
+   */
+  minHeight?: number;
   slash: SlashMenuState;
   onFiles: (files: File[]) => void;
   onSend: () => void;
@@ -37,6 +44,7 @@ export function ComposerInput(props: ComposerInputProps) {
       : props.slash.open ? <SlashMenu state={props.slash} /> : null}
     <textarea
       value={props.draft} rows={1} ref={props.fieldRef}
+      style={props.minHeight === undefined ? undefined : { minHeight: props.minHeight }}
       placeholder="Send a message… / 命令，@ 文件或目录"
       aria-label="消息输入框"
       aria-autocomplete="list"

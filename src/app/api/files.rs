@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 use super::responses::{encode_error, encode_success};
 use super::App;
 use crate::api::schema::{
-    FileEntryInfo, FileSearchHit, FilesListParams, FilesListResult, FilesReadParams,
-    FilesReadResult, FilesSearchParams, FilesSearchResult, GitChangedFileInfo, GitStatusParams,
-    GitStatusResult, ResponseResult,
+    FileEntryInfo, FileSearchHit, FilesListParams, FilesListResult, FilesPublishParams,
+    FilesPublishResult, FilesReadParams, FilesReadResult, FilesSearchParams, FilesSearchResult,
+    GitChangedFileInfo, GitStatusParams, GitStatusResult, ResponseResult,
 };
 
 /// Directories never worth walking: build output, dependency stores, and
@@ -257,6 +257,68 @@ impl App {
                     root: root.display().to_string(),
                     path: relative_to_root(&root, &directory).unwrap_or_default(),
                     entries: items.into_iter().map(|(_, _, entry)| entry).collect(),
+                },
+            },
+        )
+    }
+
+    /// Publishes a project file at a URL the browser can fetch for itself.
+    ///
+    /// A text file has an answer in `files.read`; a file the browser renders
+    /// itself does not, because that answer is a JSON string and the reader would
+    /// be handed megabytes of bytes that are not text — or the file would be
+    /// refused for being one. The address comes from the gateway's uploads route,
+    /// which serves a name that cannot be guessed and sends it as a download, so
+    /// nothing about a project file reaches the browser except that it exists.
+    ///
+    /// Published by name rather than by copying, where the filesystem allows it,
+    /// so a screenshot of any size costs no disk and no time.
+    pub(super) fn handle_files_publish(
+        &mut self,
+        id: String,
+        params: FilesPublishParams,
+    ) -> String {
+        let root = match self.project_root_for_pane(&params.pane_id) {
+            Ok(root) => root,
+            Err(err) => return encode_error(id, err.code, err.message),
+        };
+        let file = match resolve_within_root(&root, &params.path) {
+            Ok(path) => path,
+            Err(err) => return encode_error(id, err.code, err.message),
+        };
+        let Some(name) = file.file_name().and_then(|name| name.to_str()) else {
+            return encode_error(id, "invalid_path", "path has no file name");
+        };
+        let metadata = match std::fs::metadata(&file) {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                return encode_error(id, "read_failed", format!("could not stat file: {err}"))
+            }
+        };
+        if !metadata.is_file() {
+            return encode_error(id, "not_a_file", "path is not a file");
+        }
+        let Some(dir) = self.uploads_dir.clone() else {
+            return encode_error(
+                id,
+                "no_uploads_directory",
+                "no uploads directory configured; set [web] static_dir or [web] uploads_dir",
+            );
+        };
+
+        let extension = crate::server::uploads::extension_of(name);
+        let staged = match crate::server::uploads::link(&dir, extension, &file) {
+            Ok(staged) => staged,
+            Err(err) => return encode_error(id, "publish_failed", err.to_string()),
+        };
+
+        encode_success(
+            id,
+            ResponseResult::FilesPublish {
+                file: FilesPublishResult {
+                    url: format!("/uploads/{}.{}", staged.id, staged.extension),
+                    name: name.to_string(),
+                    size: staged.size as u64,
                 },
             },
         )

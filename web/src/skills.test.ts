@@ -116,20 +116,23 @@ test("skill entries keep their source narrow", () => {
 describe("slash trigger", () => {
   const names = new Set(["git-commit", "deploy", "docx-generator"]);
 
-  test("a leading slash is a query; anything else is not", () => {
+  test("a slash that starts a word is a query; anything else is not", () => {
     expect(slashQuery("/git")).toBe("git");
     expect(slashQuery("/")).toBe("");
     expect(slashQuery("/GIT-Commit")).toBe("git-commit");
-    expect(slashQuery("hello /git")).toBeNull();
+    expect(slashQuery("hello /git")).toBe("git");
+    expect(slashQuery("see https://x/y")).toBeNull();
     expect(slashQuery("")).toBeNull();
   });
 
-  test("a space settles the word, so the query is only the first token", () => {
-    expect(slashQuery("/git only the docs")).toBe("git");
+  test("a space settles the word, so only a trailing word is a query", () => {
+    expect(slashQuery("/git only the docs")).toBeNull();
+    expect(slashQuery("hello /git ")).toBeNull();
   });
 
   test("a settled word matches a known skill exactly", () => {
-    expect(slashSettled("/git-commit ", names)).toBe(true);
+    expect(slashSettled("/git-commit", names)).toBe(true);
+    expect(slashSettled("hello /git-commit", names)).toBe(true);
     expect(slashSettled("/git", names)).toBe(false);
     expect(slashSettled("plain text", names)).toBe(false);
   });
@@ -180,8 +183,10 @@ describe("slash rewriting on send", () => {
     expect(expandSlashMessage("/compact", names, custom)).toBe("/compact");
   });
 
-  test("only line-initial slashes are rewritten", () => {
-    expect(expandSlashMessage("see /deploy docs", names, custom)).toBe("see /deploy docs");
+  test("a slash that starts a word is rewritten, keeping the words before it", () => {
+    expect(expandSlashMessage("see /deploy docs", names, custom)).toBe(
+      'see Use the "deploy" skill to: docs',
+    );
   });
 
   test("multi-line messages rewrite each invocation line", () => {

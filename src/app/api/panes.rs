@@ -11,11 +11,11 @@ use crate::api::schema::{
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
     PaneReportDiagnosticParams, PaneReportInteractionParams, PaneReportMetadataParams,
     PaneResizeParams, PaneResizeReason, PaneResizeResult, PaneSendInputParams, PaneSendKeysParams,
-    PaneSendTextParams, PaneSessionMessage, PaneSessionPagination, PaneSessionParams,
-    PaneSessionResult, PaneSessionToolCall, PaneSessionTurn, PaneSplitParams,
-    PaneStageUploadParams, PaneStageUploadResult, PaneSwapParams, PaneSwapReason, PaneSwapResult,
-    PaneTakeInteractionAnswerParams, PaneTarget, PaneZoomMode, PaneZoomParams, PaneZoomReason,
-    PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
+    PaneSendTextParams, PaneSessionDownloadParams, PaneSessionDownloadResult, PaneSessionMessage,
+    PaneSessionPagination, PaneSessionParams, PaneSessionResult, PaneSessionToolCall,
+    PaneSessionTurn, PaneSplitParams, PaneStageUploadParams, PaneStageUploadResult, PaneSwapParams,
+    PaneSwapReason, PaneSwapResult, PaneTakeInteractionAnswerParams, PaneTarget, PaneZoomMode,
+    PaneZoomParams, PaneZoomReason, PaneZoomResult, ReadFormat, ReadSource, ResponseResult,
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
@@ -1325,6 +1325,8 @@ impl App {
                     session: PaneSessionResult {
                         pane_id: public_pane_id,
                         path,
+                        // Nothing has been written yet, so there is no file to size.
+                        size_bytes: None,
                         agent: reported_agent,
                         // Nothing has been written, so there is nothing to read a
                         // provider out of. The pane's own detection is the only
@@ -1386,6 +1388,9 @@ impl App {
                 session: PaneSessionResult {
                     pane_id: public_pane_id,
                     path,
+                    // The whole file rather than the page: a client showing this is
+                    // describing the session, not the part of it it holds.
+                    size_bytes: Some(source_size),
                     agent: reported_agent,
                     // The transcript itself says which agent wrote it. That can
                     // disagree with the label detected on the pane, for example
@@ -1859,6 +1864,81 @@ impl App {
         }
     }
 
+    /// Publishes the pane's transcript file so a browser can download it.
+    ///
+    /// A link rather than the bytes: a session is routinely tens of megabytes, and
+    /// sending it through the socket would put a second copy in the browser on top
+    /// of the one on disk. The gateway serves it from the uploads directory, whose
+    /// names cannot be guessed — which is what makes an unauthenticated route safe
+    /// for a file that is the entire conversation.
+    ///
+    /// The published name is another name for the same file rather than a copy,
+    /// where the filesystem allows it, so this costs no disk and does not depend on
+    /// how large the session is.
+    pub(super) fn handle_pane_session_download(
+        &mut self,
+        id: String,
+        params: PaneSessionDownloadParams,
+    ) -> String {
+        let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
+
+        let Some(conversation) = self.pane_conversation(ws_idx, pane_id) else {
+            return encode_error(
+                id,
+                "no_transcript",
+                "pane has no agent transcript; the agent reports a session id rather than a path",
+            );
+        };
+
+        // A store has no single file, so there is nothing a link could point at.
+        let PaneConversation::File { path, .. } = conversation else {
+            return encode_error(
+                id,
+                "no_transcript_file",
+                "session is kept in a store rather than a file, so there is nothing to download",
+            );
+        };
+
+        let Some(dir) = self.uploads_dir.clone() else {
+            return encode_error(
+                id,
+                "no_uploads_directory",
+                "no uploads directory configured; set [web] static_dir or [web] uploads_dir",
+            );
+        };
+
+        let source = std::path::Path::new(&path);
+        let file_name = source
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("session.jsonl")
+            .to_string();
+        let extension = crate::server::uploads::extension_of(&file_name);
+        let staged = match crate::server::uploads::link(&dir, extension, source) {
+            Ok(staged) => staged,
+            Err(err) => return encode_error(id, "download_link_failed", err.to_string()),
+        };
+
+        tracing::info!(
+            pane = %params.pane_id,
+            bytes = staged.size,
+            "published a session transcript for download"
+        );
+
+        encode_success(
+            id,
+            ResponseResult::PaneSessionDownload {
+                download: PaneSessionDownloadResult {
+                    url: format!("/uploads/{}.{}", staged.id, staged.extension),
+                    name: file_name,
+                    size: staged.size as u64,
+                },
+            },
+        )
+    }
+
     /// One page of a conversation kept in the agent's own store, in the same
     /// shape a transcript file produces.
     ///
@@ -1883,6 +1963,8 @@ impl App {
                     session: PaneSessionResult {
                         pane_id: public_pane_id,
                         path: database.display().to_string(),
+                        // A store is not one file, so there is no size to report.
+                        size_bytes: None,
                         agent,
                         provider: String::new(),
                         cwd: None,
@@ -1913,6 +1995,9 @@ impl App {
                     // The file that was read. A store has no per-session path,
                     // and this is the honest answer to "what did you read".
                     path: database.display().to_string(),
+                    // The store holds every session, so its size says nothing about
+                    // this one; a session kept in a file reports its own.
+                    size_bytes: None,
                     agent,
                     provider: "zcode".to_string(),
                     cwd: page.cwd,

@@ -290,10 +290,11 @@ mod tests {
 
     /// The desktop shell's frame, characterized by content digest.
     ///
-    /// The digest covers the sidebar footer, which renders the build's version.
-    /// So this value changes on every version bump and must be re-pinned in the
-    /// release commit: `89c12f27…` is the 0.8.5 rendering, and the same value on
-    /// Linux and macOS is what makes the pin portable rather than platform-local.
+    /// The digest covers the sidebar footer, which renders the build's version
+    /// and the footer's load row, so it changes whenever either changes and must
+    /// be re-pinned: `0c4d526f…` is the 0.8.6 rendering with the collapsed load
+    /// row, and the same value on Linux and macOS is what makes the pin portable
+    /// rather than platform-local.
     #[tokio::test]
     async fn desktop_full_app_semantic_frame_is_characterized() {
         let uri = "https://example.com/full-app";
@@ -310,7 +311,7 @@ mod tests {
         assert_eq!(frame.hyperlinks, vec![uri.to_owned()]);
         assert_eq!(
             frame_digest(&frame),
-            "89c12f27f8741fa33864108bf47516e033ec6c569a96caa09654ae7101bc0a01"
+            "0c4d526f1881027a42a8e9d74bb9a9dde2f9fac710bd7d96d0ad6baf6c92a252"
         );
     }
 

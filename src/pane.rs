@@ -266,7 +266,20 @@ struct AgentDetectionPresence {
 
 #[cfg(unix)]
 fn absolute_process_cwd(pid: u32) -> Option<std::path::PathBuf> {
-    crate::platform::process_cwd(pid).filter(|cwd| cwd.is_absolute())
+    crate::platform::process_cwd(pid)
+        .filter(|cwd| cwd.is_absolute() && !is_pseudo_process_directory(cwd))
+}
+
+/// Kernel pseudo-filesystems are not working directories.
+///
+/// `/proc/<pid>/…` and its kin are real directories with real inodes, and some
+/// processes deliberately live in them — Chrome's zygote `chdir`s into
+/// `/proc/<pid>/fdinfo` to pin a descriptor. A cwd report naming one says nothing
+/// about the project a pane is working in, and without this check a background
+/// daemon spawned from an agent pane renames that pane in every list that
+/// follows its reported directory.
+fn is_pseudo_process_directory(path: &std::path::Path) -> bool {
+    path.starts_with("/proc") || path.starts_with("/sys") || path.starts_with("/dev")
 }
 
 #[cfg(unix)]
@@ -1496,7 +1509,13 @@ fn is_powershell_shell(shell: &str) -> bool {
 }
 
 fn usable_reported_cwd(cwd: std::path::PathBuf) -> Option<std::path::PathBuf> {
-    (cwd.is_absolute() && cwd.is_dir()).then_some(cwd)
+    (cwd.is_absolute()
+            && cwd.is_dir()
+            // The same rule as `is_pseudo_process_directory`, applied to reports
+            // that did not come from reading a process: a shell can say anything,
+            // and `/proc` directories pass `is_dir`.
+            && !is_pseudo_process_directory(&cwd))
+    .then_some(cwd)
 }
 
 fn publish_reported_cwd(
@@ -1865,6 +1884,13 @@ impl PaneRuntime {
             let rt = tokio::runtime::Handle::current();
             let delay_rt = rt.clone();
             let on_read = Box::new(move |bytes: &[u8]| {
+                /*
+                 * Handed to any client drawing this terminal itself, before the
+                 * bytes are parsed: a terminal emulator needs the stream, not the
+                 * screen it produces, and the parse below is what the TUI reads.
+                 * Costs one atomic load when nobody is watching.
+                 */
+                crate::api::terminal_tap::broadcast(pane_id.raw(), bytes);
                 let shell_pid = child_pid.load(Ordering::Acquire);
                 let result =
                     terminal.process_pty_bytes(pane_id, shell_pid, bytes, &response_writer);
@@ -2025,6 +2051,9 @@ impl PaneRuntime {
             let reported_cwd = reported_cwd.clone();
             let rt = tokio::runtime::Handle::current();
             let on_read = Box::new(move |bytes: &[u8]| {
+                // See the other read loop: a client drawing this terminal needs
+                // the bytes themselves, before they are parsed into a screen.
+                crate::api::terminal_tap::broadcast(pane_id.raw(), bytes);
                 let shell_pid = child_pid.load(Ordering::Acquire);
                 let result =
                     terminal.process_pty_bytes(pane_id, shell_pid, bytes, &response_writer);
@@ -2493,6 +2522,15 @@ impl PaneRuntime {
     pub(crate) fn current_size(&self) -> (u16, u16) {
         let (rows, cols, _, _) = self.current_size.get();
         (rows, cols)
+    }
+
+    /// The cursor's own cell, as the terminal reports it.
+    ///
+    /// Separate from [`Self::cursor_state`], which maps a cell into a drawing area
+    /// for the TUI: a client drawing the terminal itself has its own area and wants
+    /// the cell the terminal is actually on.
+    pub(crate) fn terminal_cursor(&self) -> Option<TerminalCursorState> {
+        self.terminal.cursor_state()
     }
 
     /// Resize if the dimensions actually changed.

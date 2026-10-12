@@ -132,6 +132,17 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
                 }
             };
 
+            /*
+             * Small frames leave immediately. The gateway writes one frame per
+             * keystroke and per line of terminal output, and Nagle would hold a
+             * small frame back until the previous one is acknowledged — the
+             * classic forty-millisecond stutter on a link with any latency at all.
+             * The browser already sets this on its side; this is the other half.
+             */
+            if let Err(err) = stream.set_nodelay(true) {
+                debug!(%peer, err = %err, "could not disable Nagle on a web connection");
+            }
+
             let shared = shared.clone();
             tokio::spawn(async move {
                 if let Err(err) = handle_connection(stream, peer, shared).await {
@@ -274,33 +285,52 @@ async fn handle_upload_asset(
         "X-Content-Type-Options: nosniff\r\n"
     };
 
-    match tokio::fs::read(&path).await {
-        Ok(body) => {
-            let header = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
-                 Content-Disposition: {disposition}\r\n{nosniff}\
-                 Cache-Control: no-cache\r\nConnection: close\r\n\r\n",
-                serving.content_type,
-                body.len()
-            );
-            use tokio::io::AsyncWriteExt as _;
-            stream.write_all(header.as_bytes()).await?;
-            if request.method == "GET" {
-                stream.write_all(&body).await?;
-            }
-            stream.flush().await
-        }
+    /*
+     * Streamed rather than read whole. This route also serves files it did not
+     * write — a published project file, which can be a screenshot far larger than
+     * the process should ever hold in one buffer — and the bytes only have to pass
+     * through once. The length comes from the file's own metadata, so the response
+     * still carries a `Content-Length` and the browser can show progress.
+     */
+    let metadata = match tokio::fs::metadata(&path).await {
+        Ok(metadata) => metadata,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            http::write_simple(&mut stream, 404, "text/plain", "not found").await
+            return http::write_simple(&mut stream, 404, "text/plain", "not found").await;
         }
         Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => {
-            http::write_simple(&mut stream, 403, "text/plain", "forbidden").await
+            return http::write_simple(&mut stream, 403, "text/plain", "forbidden").await;
         }
         Err(err) => {
-            debug!(path = %path.display(), err = %err, "failed to read uploaded asset");
-            http::write_simple(&mut stream, 500, "text/plain", "internal error").await
+            debug!(path = %path.display(), err = %err, "failed to stat uploaded asset");
+            return http::write_simple(&mut stream, 500, "text/plain", "internal error").await;
+        }
+    };
+    if !metadata.is_file() {
+        return http::write_simple(&mut stream, 404, "text/plain", "not found").await;
+    }
+
+    let header = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n\
+         Content-Disposition: {disposition}\r\n{nosniff}\
+         Cache-Control: no-cache\r\nConnection: close\r\n\r\n",
+        serving.content_type,
+        metadata.len()
+    );
+    use tokio::io::AsyncWriteExt as _;
+    stream.write_all(header.as_bytes()).await?;
+    if request.method == "GET" {
+        match tokio::fs::File::open(&path).await {
+            Ok(mut file) => {
+                // A file that vanishes between the stat and the open leaves the
+                // response short rather than answered: the headers are already on
+                // the wire and there is no status left to change.
+                tokio::io::copy(&mut file, &mut stream).await?;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
         }
     }
+    stream.flush().await
 }
 
 async fn handle_static(
@@ -637,28 +667,29 @@ async fn handle_message(
             }))
             .map_err(std::io::Error::other)?;
 
-            let response = tokio::task::spawn_blocking(move || {
-                api::request_with_limit(&socket, &line, request_limit)
-            })
-            .await
-            .map_err(std::io::Error::other)?;
-
-            let payload = match response {
-                Ok(raw) => serde_json::from_str::<serde_json::Value>(raw.trim())
-                    .unwrap_or_else(|_| serde_json::json!({"raw": raw})),
-                Err(err) => serde_json::json!({
-                    "error": {"code": "gateway_error", "message": err.to_string()}
-                }),
-            };
-
-            send(
-                sink,
-                &ServerMessage::ApiResult {
+            /*
+             * Proxied without waiting. The reply used to be awaited here, which
+             * meant this connection — and every frame behind it — waited for it: a
+             * keystroke sent while the conversation was reading a page of transcript
+             * arrived after that read finished, which is a stutter a terminal shows.
+             * The answer comes back through the same channel the events do, tagged
+             * with the request's id, which is how the browser matched it anyway.
+             */
+            let tx = events_tx.clone();
+            tokio::task::spawn_blocking(move || {
+                let payload = match api::request_with_limit(&socket, &line, request_limit) {
+                    Ok(raw) => serde_json::from_str::<serde_json::Value>(raw.trim())
+                        .unwrap_or_else(|_| serde_json::json!({"raw": raw})),
+                    Err(err) => serde_json::json!({
+                        "error": {"code": "gateway_error", "message": err.to_string()}
+                    }),
+                };
+                let _ = tx.send(ServerMessage::ApiResult {
                     id,
                     result: payload,
-                },
-            )
-            .await
+                });
+            });
+            Ok(())
         }
 
         ClientMessage::Subscribe {

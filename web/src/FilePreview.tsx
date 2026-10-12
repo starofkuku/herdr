@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { Maximize2, Minimize2 } from "lucide-react";
 import { CopyButton, Markdown } from "./Markdown";
-import { loadFileContent, type FileContent } from "./files";
+import {
+  isImagePath,
+  loadFileContent,
+  publishFile,
+  type FileContent,
+  type PublishedFile,
+} from "./files";
+import { ImageViewer } from "./ImageViewer";
 
 interface FilesClient {
   call: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
@@ -196,7 +203,42 @@ function FileHead({
 }
 
 /** The file's contents, or why there are none to show. */
-function FilePane({ path, file, loading }: { path: string; file: FileContent | null; loading: boolean }) {
+function FilePane({
+  path,
+  file,
+  image,
+  loading,
+  onOpenImage,
+}: {
+  path: string;
+  file: FileContent | null;
+  image: PublishedFile | null;
+  loading: boolean;
+  /** Opens the image full size, over the page. */
+  onOpenImage: () => void;
+}) {
+  if (image) {
+    return (
+      <div className="file-preview__body file-preview__body--image">
+        {/*
+         * The image itself is the control: a screenshot is what the reader came
+         * for, so a press on it should enlarge it rather than select a button
+         * placed somewhere near it.
+         */}
+        <button
+          type="button"
+          className="file-preview__image"
+          onClick={onOpenImage}
+          title="点击放大（可缩放、拖拽）"
+        >
+          <img src={image.url} alt={image.name} draggable={false} />
+        </button>
+        <p className="file-tree__note">
+          {image.name} · {formatSize(image.size)} · 点击放大
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="file-preview__body">
       {loading ? (
@@ -238,23 +280,45 @@ export function FilePreview({
   onClose: () => void;
 }) {
   const [file, setFile] = useState<FileContent | null>(null);
+  /**
+   * Set for a file the browser draws itself, which is published rather than read.
+   *
+   * An image has no text to show and no size worth refusing: `files.read` would
+   * call it binary and stop at its first NUL byte, so it takes the other path.
+   */
+  const [image, setImage] = useState<PublishedFile | null>(null);
+  /** Whether the image is open full size over the page. */
+  const [viewing, setViewing] = useState(false);
   const [loading, setLoading] = useState(true);
   /** Whether the file is filling the window rather than the docked panel. */
   const [fullscreen, setFullscreen] = useState(false);
 
+  const asImage = isImagePath(path);
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    void loadFileContent(client, paneId, path).then((result) => {
-      if (!cancelled) {
-        setFile(result);
-        setLoading(false);
-      }
-    });
+    if (asImage) {
+      setFile(null);
+      void publishFile(client, paneId, path).then((result) => {
+        if (!cancelled) {
+          setImage(result);
+          setLoading(false);
+        }
+      });
+    } else {
+      setImage(null);
+      void loadFileContent(client, paneId, path).then((result) => {
+        if (!cancelled) {
+          setFile(result);
+          setLoading(false);
+        }
+      });
+    }
     return () => {
       cancelled = true;
     };
-  }, [client, paneId, path]);
+  }, [asImage, client, paneId, path]);
 
   /*
    * Esc leaves the full-screen view first, and only closes the preview when
@@ -264,12 +328,17 @@ export function FilePreview({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // The image viewer sits above this panel, so it takes the key first.
+      if (viewing) {
+        setViewing(false);
+        return;
+      }
       if (fullscreen) setFullscreen(false);
       else onClose();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose, fullscreen]);
+  }, [onClose, fullscreen, viewing]);
 
   const showText = file !== null && !file.binary && !file.tooLarge;
   const head = {
@@ -287,7 +356,13 @@ export function FilePreview({
           fullscreen={false}
           onToggleFullscreen={() => setFullscreen(true)}
         />
-        <FilePane path={path} file={file} loading={loading} />
+        <FilePane
+          path={path}
+          file={file}
+          image={image}
+          loading={loading}
+          onOpenImage={() => setViewing(true)}
+        />
       </aside>
 
       {fullscreen ? (
@@ -311,9 +386,24 @@ export function FilePreview({
               fullscreen
               onToggleFullscreen={() => setFullscreen(false)}
             />
-            <FilePane path={path} file={file} loading={loading} />
+            <FilePane
+              path={path}
+              file={file}
+              image={image}
+              loading={loading}
+              onOpenImage={() => setViewing(true)}
+            />
           </div>
         </div>
+      ) : null}
+
+      {viewing && image ? (
+        <ImageViewer
+          url={image.url}
+          alt={image.name}
+          caption={`${image.name} · ${formatSize(image.size)}`}
+          onClose={() => setViewing(false)}
+        />
       ) : null}
     </>
   );

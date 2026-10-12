@@ -1171,6 +1171,7 @@ mod tests {
     async fn restore_carries_persisted_agent_session_metadata() {
         let cwd = std::env::current_dir().unwrap();
         let snapshot = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             version: super::super::snapshot::SNAPSHOT_VERSION,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
@@ -1251,6 +1252,7 @@ mod tests {
     async fn restore_preserves_public_id_mapping_after_pane_id_remap() {
         let cwd = std::env::current_dir().unwrap();
         let snapshot = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             version: super::super::snapshot::SNAPSHOT_VERSION,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("w1".into()),
@@ -1360,6 +1362,7 @@ mod tests {
             launch_argv: None,
         };
         let snapshot = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             version: super::super::snapshot::SNAPSHOT_VERSION,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("w1".into()),
@@ -1482,6 +1485,7 @@ mod tests {
     async fn native_agent_restore_defers_runtime_launch() {
         let cwd = std::env::current_dir().unwrap();
         let snapshot = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             version: super::super::snapshot::SNAPSHOT_VERSION,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),
@@ -1691,6 +1695,7 @@ mod tests {
             }],
         };
         let snapshot = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             version: super::super::snapshot::SNAPSHOT_VERSION,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("workspace".into()),

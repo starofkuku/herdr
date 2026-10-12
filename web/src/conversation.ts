@@ -100,6 +100,13 @@ export interface Conversation {
   cwd?: string;
   /** Total tokens across the whole session. */
   totalTokens?: number;
+  /**
+   * Size of the transcript on disk, when the session is one file.
+   *
+   * Absent for a session an agent keeps in a store: there is no file to size, so
+   * a client offering the session for download has nothing to offer.
+   */
+  sizeBytes?: number;
   turns: ConversationTurn[];
   pagination?: ConversationPagination;
 }
@@ -196,6 +203,7 @@ interface SessionResponse {
   session?: {
     pane_id: string;
     path: string;
+    size_bytes?: number;
     agent: string;
     provider: string;
     cwd?: string;
@@ -225,6 +233,7 @@ export async function loadConversation(
   return {
     paneId: session.pane_id,
     path: session.path,
+    sizeBytes: session.size_bytes,
     agent: session.agent,
     provider: session.provider,
     cwd: session.cwd,

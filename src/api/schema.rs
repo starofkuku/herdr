@@ -10,6 +10,7 @@ pub mod load;
 pub mod panes;
 pub mod plugins;
 pub mod response;
+pub mod schedules;
 pub mod server;
 pub mod session;
 pub mod skills;
@@ -27,6 +28,7 @@ pub use load::*;
 pub use panes::*;
 pub use plugins::*;
 pub use response::*;
+pub use schedules::*;
 pub use server::*;
 pub use session::*;
 pub use skills::*;
@@ -101,6 +103,9 @@ pub enum Method {
     FilesRead(FilesReadParams),
     #[serde(rename = "files.search")]
     FilesSearch(FilesSearchParams),
+    /// An address the browser can fetch a project file from directly.
+    #[serde(rename = "files.publish")]
+    FilesPublish(FilesPublishParams),
     #[serde(rename = "git.status")]
     GitStatus(GitStatusParams),
     #[serde(rename = "skills.list")]
@@ -214,6 +219,14 @@ pub enum Method {
     /// Parsed agent transcript for a pane, as opposed to its rendered screen.
     #[serde(rename = "pane.session")]
     PaneSession(PaneSessionParams),
+    /// A download link for the pane's transcript file.
+    ///
+    /// The transcript lives outside the pane's project, so `files.read` cannot
+    /// serve it and the browser cannot reach it directly. The link points at the
+    /// gateway's uploads route, whose names cannot be guessed: a download link
+    /// cannot carry the gateway key, and this file is the whole conversation.
+    #[serde(rename = "pane.session_download")]
+    PaneSessionDownload(PaneSessionDownloadParams),
     /// The agent's own todo list for a pane.
     #[serde(rename = "pane.todos")]
     PaneTodos(PaneTodosParams),
@@ -286,6 +299,12 @@ pub enum Method {
     EventsWait(EventsWaitParams),
     #[serde(rename = "pane.wait_for_output")]
     PaneWaitForOutput(PaneWaitForOutputParams),
+    #[serde(rename = "schedule.create")]
+    ScheduleCreate(ScheduleCreateParams),
+    #[serde(rename = "schedule.list")]
+    ScheduleList(EmptyParams),
+    #[serde(rename = "schedule.cancel")]
+    ScheduleCancel(ScheduleCancelParams),
     #[serde(rename = "integration.install")]
     IntegrationInstall(IntegrationInstallParams),
     #[serde(rename = "integration.uninstall")]

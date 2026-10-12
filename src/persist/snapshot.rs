@@ -26,6 +26,26 @@ pub struct SessionSnapshot {
     pub sidebar_section_split: Option<f32>,
     #[serde(default)]
     pub collapsed_space_keys: std::collections::HashSet<String>,
+    /// Prompt schedules, carried as plain fields: the model type lives in the
+    /// app layer, and a snapshot that can be read by an older binary is worth
+    /// more than one that shares types with it.
+    #[serde(default)]
+    pub prompt_schedules: Vec<PromptScheduleSnapshot>,
+}
+
+/// One scheduled prompt, as persisted.
+#[derive(Serialize, Deserialize)]
+pub struct PromptScheduleSnapshot {
+    pub id: String,
+    /// The pane's own id. Public ids are derived from layout and move; this is
+    /// the identity firing looks up.
+    pub pane_id: u32,
+    pub pane_label: String,
+    #[serde(default)]
+    pub agent: Option<String>,
+    pub due_unix: i64,
+    pub message: String,
+    pub status: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -184,6 +204,8 @@ struct RawSessionSnapshot {
     sidebar_section_split: Option<f32>,
     #[serde(default)]
     collapsed_space_keys: std::collections::HashSet<String>,
+    #[serde(default)]
+    prompt_schedules: Vec<PromptScheduleSnapshot>,
 }
 
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
@@ -199,6 +221,7 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         sidebar_width: raw.sidebar_width,
         sidebar_section_split: raw.sidebar_section_split,
         collapsed_space_keys: raw.collapsed_space_keys,
+        prompt_schedules: raw.prompt_schedules,
     })
 }
 
@@ -261,6 +284,7 @@ pub fn capture(
     sidebar_width: u16,
     sidebar_section_split: f32,
     collapsed_space_keys: std::collections::HashSet<String>,
+    prompt_schedules: &[crate::prompt_schedule::PromptSchedule],
 ) -> SessionSnapshot {
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
@@ -273,6 +297,10 @@ pub fn capture(
         sidebar_width: Some(sidebar_width),
         sidebar_section_split: Some(sidebar_section_split),
         collapsed_space_keys,
+        prompt_schedules: prompt_schedules
+            .iter()
+            .map(crate::prompt_schedule::to_snapshot)
+            .collect(),
     }
 }
 
@@ -544,6 +572,7 @@ mod tests {
             state.sidebar_width,
             state.sidebar_section_split,
             state.collapsed_space_keys.clone(),
+            &state.prompt_schedules,
         )
     }
 
@@ -601,6 +630,7 @@ mod tests {
     #[test]
     fn round_trip_empty_session() {
         let snap = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             version: SNAPSHOT_VERSION,
             workspaces: vec![],
             active: None,
@@ -666,6 +696,7 @@ mod tests {
         );
 
         let snap = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("wproj".to_string()),
                 custom_name: Some("pi-mono".to_string()),
@@ -1248,6 +1279,7 @@ mod tests {
         );
 
         let snap = SessionSnapshot {
+            prompt_schedules: Vec::new(),
             version: SNAPSHOT_VERSION,
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("test-ws".to_string()),

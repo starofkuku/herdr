@@ -2,7 +2,7 @@
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // HERDR_INTEGRATION_ID=pi
-// HERDR_INTEGRATION_VERSION=9
+// HERDR_INTEGRATION_VERSION=10
 // @ts-nocheck
 
 import net from "node:net";
@@ -193,7 +193,7 @@ function askRequest(request: unknown, timeoutMs: number): Promise<any> {
       resolve(value);
     };
 
-    const socket = createConnection(socketPath!);
+    const socket = net.createConnection(socketPath!);
     let buffer = "";
     socket.setEncoding("utf8");
     socket.on("error", () => finish(undefined));
@@ -582,7 +582,12 @@ export default function (pi) {
     const signal = { abort: false };
     activePrompt?.signal && (activePrompt.signal.abort = true);
     activePrompt = { signature, signal };
-    void bridgeAskUserQuestion(payload, signal).finally(() => {
+    // The bridge is best-effort: herdr not being reachable, or a bug in the
+    // bridge itself, must not take the session down with it - an unhandled
+    // rejection here crashes the agent, it does not just fail one dialog.
+    void bridgeAskUserQuestion(payload, signal)
+        .catch(() => {})
+        .finally(() => {
       // Only clear our own dialog's baseline: a newer dialog may already have
       // replaced it while this wait was finishing.
       if (activePromptSignature === signature) {

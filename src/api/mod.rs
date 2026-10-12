@@ -12,6 +12,7 @@ pub(crate) mod server_load;
 mod status;
 pub(crate) mod subscription_diagnostics;
 mod subscriptions;
+pub(crate) mod terminal_tap;
 mod wait;
 
 pub use event_hub::EventHub;

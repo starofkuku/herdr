@@ -77,6 +77,31 @@ export function orderActivity(
 }
 
 /**
+ * The same rows with each backend's together, so the rail can label each block.
+ *
+ * Grouping is why this is not `orderActivity` again: urgency is decided per row,
+ * and two backends interleave freely under it — one pane working on one server
+ * while the rest sit idle on another — which is exactly the pile a reader cannot
+ * read. A backend's block lands where its best-ranked row was, so the server that
+ * needs the reader most is still the first one they see, and the rows inside a
+ * block keep the order they already had.
+ *
+ * A `Map` rather than an object because its keys keep insertion order, which is
+ * what puts the blocks in that ranking instead of in whatever order the servers
+ * happened to arrive in.
+ */
+export function groupActivity(ordered: AgentView[]): AgentView[] {
+  const blocks = new Map<string, AgentView[]>();
+  for (const agent of ordered) {
+    const key = agent.backendId ?? "";
+    const rows = blocks.get(key);
+    if (rows) rows.push(agent);
+    else blocks.set(key, [agent]);
+  }
+  return [...blocks.values()].flat();
+}
+
+/**
  * Statuses that put a pane at the top of the list, in display order.
  *
  * `working` and `blocked` are the states where the reader is the next step, and

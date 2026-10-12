@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { ExternalLink, Search } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
-import { statusLabel, type AgentView } from "./api";
+import { shortenPath, statusLabel, type AgentView } from "./api";
 import { describeAgent, matchAgents, opensBackendGroup } from "./command-search";
 
 /**
@@ -22,6 +22,7 @@ export function CommandPalette({
   currentBackendId,
   onOpen,
   onClose,
+  hrefFor,
 }: {
   /** Every agent on every backend; each carries its backend's id and name. */
   agents: AgentView[];
@@ -31,6 +32,13 @@ export function CommandPalette({
   currentBackendId?: string | null;
   /** Opens one. The backend comes with it: the list spans all of them. */
   onOpen: (paneId: string, backendId?: string) => void;
+  /**
+   * The address a row can be opened at in another tab, or null for a row that
+   * cannot be opened at all. An anchor rather than a second button: the browser's
+   * own new-tab gestures come with it, and a button inside a button is not a thing
+   * a document may contain.
+   */
+  hrefFor?: (paneId: string, backendId?: string) => string | null;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -130,6 +138,7 @@ export function CommandPalette({
               // A heading each time the backend changes. The rows stay one flat
               // list so the arrow keys walk them without stepping into headings.
               const opensGroup = opensBackendGroup(results, index);
+              const href = hrefFor?.(agent.paneId, agent.backendId) ?? null;
               return (
                 <Fragment key={`${agent.backendId ?? ""}:${agent.paneId}`}>
                   {opensGroup ? (
@@ -137,34 +146,45 @@ export function CommandPalette({
                       {agent.backendName ?? "backend"}
                     </li>
                   ) : null}
-                  <li>
+                  <li
+                    className={`palette__row${index === active ? " active" : ""}`}
+                    // Pointer and keyboard share one highlight, so moving the
+                    // mouse and then pressing Enter goes where the pointer is.
+                    onMouseMove={() => setActive(index)}
+                  >
                     <button
                       type="button"
                       role="option"
                       aria-selected={index === active}
-                      className={`palette__item${index === active ? " active" : ""}${
-                        isCurrent(agent) ? " current" : ""
-                      }`}
-                      // Pointer and keyboard share one highlight, so moving the
-                      // mouse and then pressing Enter goes where the pointer is.
-                      onMouseMove={() => setActive(index)}
+                      className={`palette__item${isCurrent(agent) ? " current" : ""}`}
                       onClick={() => choose(agent)}
                     >
                       {/*
-                        The mark is the whole of the row's agent identity — the
-                        name is not spelled out beside it. Six panes of one CLI
-                        all read "pi", so the name was the least telling thing in
-                        the row and the most repeated; the icon says the same
-                        thing in less width, which leaves the meta line room for
-                        the directory that actually tells those six apart.
+                        The mark names the agent's kind at a glance; the meta line then
+                        says which project and which agent it is, which is what tells
+                        two panes of one CLI apart. The directory is still the hover.
                       */}
                       <span className="palette__mark">
                         <AgentIcon agent={agent.agent} size={15} />
                       </span>
                       <span className={`dot ${agent.status}`} aria-hidden="true" />
-                      <span className="palette__meta">{describeAgent(agent)}</span>
-                      <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
+                      <span className="palette__meta" title={shortenPath(agent.cwd)}>
+                        {describeAgent(agent)}
+                      </span>
                     </button>
+                    {href ? (
+                      <a
+                        className="palette__open"
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label="在新标签页打开"
+                        title="在新标签页打开"
+                      >
+                        <ExternalLink size={13} aria-hidden="true" />
+                      </a>
+                    ) : null}
+                    <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
                   </li>
                 </Fragment>
               );

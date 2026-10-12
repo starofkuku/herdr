@@ -3,7 +3,9 @@ use serde::{Deserialize, Serialize};
 use super::agents::AgentInfo;
 use super::common::{ClientWindowTitleReason, NotificationShowReason};
 use super::events::EventEnvelope;
-use super::files::{FilesListResult, FilesReadResult, FilesSearchResult, GitStatusResult};
+use super::files::{
+    FilesListResult, FilesPublishResult, FilesReadResult, FilesSearchResult, GitStatusResult,
+};
 use super::integrations::{
     IntegrationInstallResult, IntegrationTarget, IntegrationUninstallResult,
 };
@@ -11,13 +13,14 @@ use super::panes::{
     LayoutDescription, PaneAnswerInteractionResult, PaneEdgesResult, PaneFocusDirectionResult,
     PaneInfo, PaneInteractionAnswer, PaneLayoutSnapshot, PaneModelSetResult, PaneModelsResult,
     PaneMoveResult, PaneNeighborResult, PanePresentationResult, PaneProcessInfo, PaneReadResult,
-    PaneResizeResult, PaneSessionResult, PaneStageUploadResult, PaneSubagentsResult,
-    PaneSwapResult, PaneTodosResult, PaneZoomResult,
+    PaneResizeResult, PaneSessionDownloadResult, PaneSessionResult, PaneStageUploadResult,
+    PaneSubagentsResult, PaneSwapResult, PaneTodosResult, PaneZoomResult,
 };
 use super::plugins::{
     InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
     PluginPaneInfo,
 };
+use super::schedules::PromptScheduleInfo;
 use super::server::ServerCapabilities;
 use super::session::SessionSnapshot;
 use super::skills::{SkillsListResult, SkillsReadResult};
@@ -74,6 +77,10 @@ pub enum ResponseResult {
     },
     FilesSearch {
         search: FilesSearchResult,
+    },
+    /// A project file the browser can fetch for itself.
+    FilesPublish {
+        file: FilesPublishResult,
     },
     SkillsList {
         skills: SkillsListResult,
@@ -215,6 +222,10 @@ pub enum ResponseResult {
     PaneSession {
         session: PaneSessionResult,
     },
+    /// A link that downloads the pane's transcript file.
+    PaneSessionDownload {
+        download: PaneSessionDownloadResult,
+    },
     /// The agent's own todo list, which may be empty.
     PaneTodos {
         todos: PaneTodosResult,
@@ -328,6 +339,15 @@ pub enum ResponseResult {
     },
     PluginPaneClosed {
         pane_id: String,
+    },
+    ScheduleCreated {
+        schedule: PromptScheduleInfo,
+    },
+    ScheduleList {
+        schedules: Vec<PromptScheduleInfo>,
+    },
+    ScheduleCancelled {
+        schedule: PromptScheduleInfo,
     },
     ConfigReload {
         status: crate::config::ConfigReloadStatus,

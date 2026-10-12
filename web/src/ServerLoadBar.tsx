@@ -109,19 +109,17 @@ export function ServerLoadBar({ client }: { client: LoadClient }) {
   }
 
   return (
-    <div
-      className={`server-load${failed && !load ? " server-load--failed" : ""}`}
-      aria-label="服务器负载"
+    <button
+      type="button"
+      className={`server-load server-load--expanded${failed && !load ? " server-load--failed" : ""}`}
+      onClick={toggle}
+      aria-expanded
+      aria-label="收起服务负载"
+      title="收起服务负载"
     >
-      <button
-        type="button"
-        className="server-load__toggle"
-        onClick={toggle}
-        aria-expanded
-        title="收起服务负载"
-      >
+      <span className="server-load__toggle">
         <span className="server-load__label">服务负载</span>
-      </button>
+      </span>
 
       {load === null ? (
         <span className="server-load__value">{failed ? "不可用" : "…"}</span>
@@ -170,21 +168,13 @@ export function ServerLoadBar({ client }: { client: LoadClient }) {
         </>
       )}
 
-      {/*
-        The collapse control sits at the far right, away from the label: the
-        figures run left to right, and a control wedged among them would move
-        with every change in their width.
-      */}
-      <button
-        type="button"
+      {/* The arrow stays at the far right; the whole strip is the control. */}
+      <span
         className="server-load__toggle server-load__toggle--trailing"
-        onClick={toggle}
-        aria-expanded
-        aria-label="收起服务负载"
-        title="收起服务负载"
+        aria-hidden="true"
       >
         <ChevronUp size={13} />
-      </button>
-    </div>
+      </span>
+    </button>
   );
 }

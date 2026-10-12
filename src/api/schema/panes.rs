@@ -660,6 +660,21 @@ pub struct PaneNeighborResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PanePresentationResult {
     pub pane_id: String,
+    /// The pane's own id, as the server knows it internally.
+    ///
+    /// Exposed because a subscription that watches the pane's output has to name
+    /// the pane to the reader thread, which knows panes by this and not by the
+    /// name a client sees. Public ids are derived from workspace and layout, so
+    /// there is no way to get from one to the other on the reading side.
+    #[serde(default)]
+    pub pane_raw_id: u32,
+    /// The terminal's grid and cursor, for a client drawing the terminal itself.
+    ///
+    /// Absent for a pane with no live terminal to ask. A client that renders a
+    /// terminal needs the grid to lay the bytes out the way they were produced, and
+    /// the cursor because the screen it reads to catch up is text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal: Option<PaneTerminalGeometry>,
     pub workspace_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
@@ -670,6 +685,20 @@ pub struct PanePresentationResult {
     pub display_agent: Option<String>,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub state_labels: HashMap<String, String>,
+}
+
+/// A pane's terminal as a client drawing it needs it: the grid, and the cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneTerminalGeometry {
+    pub cols: u32,
+    pub rows: u32,
+    /// The cursor's column, from zero.
+    pub cursor_x: u32,
+    /// The cursor's row, from zero.
+    pub cursor_y: u32,
+    /// False for an application that has hidden it, which a client should honour
+    /// rather than drawing a caret the terminal does not want shown.
+    pub cursor_visible: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -936,6 +965,12 @@ pub struct PaneSessionResult {
     pub pane_id: String,
     /// Transcript path that was read, as reported by the agent's integration.
     pub path: String,
+    /// Size of the transcript on disk, when the session is one file.
+    ///
+    /// Absent for a session an agent keeps in a store: there is no file to size,
+    /// and the store's own size says nothing about this session's share of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
     /// Agent that produced the transcript, for example `pi` or `claude`.
     pub agent: String,
     /// Provider the transcript itself declares.
@@ -962,6 +997,27 @@ pub struct PaneSessionPagination {
     pub next_cursor: Option<u64>,
     pub has_more: bool,
     pub total_turns: u64,
+}
+
+/// Asks for a link that downloads the pane's transcript.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
+pub struct PaneSessionDownloadParams {
+    pub pane_id: String,
+}
+
+/// A link to the pane's transcript, and the name it should be saved under.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneSessionDownloadResult {
+    /// Path the browser fetches, relative to the gateway: `/uploads/<id>.<ext>`.
+    pub url: String,
+    /// The transcript's own filename.
+    ///
+    /// The served name is random, because that is what protects the file on an
+    /// unauthenticated route; this is the name the file has on disk, for a client
+    /// that saves the download under it.
+    pub name: String,
+    /// Size of the file in bytes.
+    pub size: u64,
 }
 
 /// One exchange between the user and the agent.

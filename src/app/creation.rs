@@ -490,8 +490,27 @@ impl App {
         let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
         ws.find_tab_index_for_pane(pane_id)?;
         let presentation = terminal.effective_presentation();
+        /*
+         * The runtime, not the terminal state: only the runtime knows the grid it
+         * was resized to and where the cursor is in it.
+         */
+        let geometry = self
+            .state
+            .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+            .map(|runtime| runtime.terminal_geometry());
         Some(crate::api::schema::PanePresentationResult {
             pane_id: self.public_pane_id(ws_idx, pane_id)?,
+            pane_raw_id: pane_id.raw(),
+            terminal: geometry.map(|(rows, cols, cursor)| {
+                let (cursor_x, cursor_y, cursor_visible) = cursor.unwrap_or((0, 0, false));
+                crate::api::schema::PaneTerminalGeometry {
+                    cols: u32::from(cols),
+                    rows: u32::from(rows),
+                    cursor_x: u32::from(cursor_x),
+                    cursor_y: u32::from(cursor_y),
+                    cursor_visible,
+                }
+            }),
             workspace_id: self.public_workspace_id(ws_idx),
             agent: terminal.effective_agent_label().map(str::to_string),
             agent_status: pane_agent_status(terminal.state, pane.seen),

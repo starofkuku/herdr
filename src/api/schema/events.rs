@@ -80,6 +80,15 @@ pub enum Subscription {
     },
     #[serde(rename = "pane.scroll_changed")]
     PaneScrollChanged { pane_id: String },
+    /// The pane's output as it is produced, for a client drawing the terminal
+    /// itself rather than reading its screen.
+    ///
+    /// Subscribing starts the stream; the bytes before it are read with
+    /// `pane.read`. The payload is base64 because it is arbitrary bytes — the
+    /// middle of an escape sequence, half a UTF-8 character — and the protocol
+    /// carries JSON.
+    #[serde(rename = "pane.terminal_output")]
+    PaneTerminalOutput { pane_id: String },
     #[serde(rename = "layout.updated")]
     LayoutUpdated {},
 }
@@ -372,6 +381,8 @@ pub enum SubscriptionEventKind {
     PaneAgentStatusChanged,
     #[serde(rename = "pane.scroll_changed")]
     ScrollChanged,
+    #[serde(rename = "pane.terminal_output")]
+    PaneTerminalOutput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -386,6 +397,22 @@ pub enum SubscriptionEventData {
     PaneOutputMatched(PaneOutputMatchedEvent),
     PaneAgentStatusChanged(PaneAgentStatusChangedEvent),
     ScrollChanged(PaneScrollChangedEvent),
+    PaneTerminalOutput(PaneTerminalOutputEvent),
+}
+
+/// One slice of a pane's output, as bytes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PaneTerminalOutputEvent {
+    pub pane_id: String,
+    /// The output that arrived, base64-encoded.
+    pub data_base64: String,
+    /// True when the server dropped output this subscriber had not read.
+    ///
+    /// The stream continues after it, with a gap: everything the client draws from
+    /// here on is right, but what came before is not in this stream any more, so a
+    /// terminal emulator has to re-read the screen to catch up.
+    #[serde(default)]
+    pub lost: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

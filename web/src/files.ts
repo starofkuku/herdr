@@ -124,6 +124,62 @@ export async function loadFileContent(
   }
 }
 
+/**
+ * The extensions the browser draws itself rather than showing as text.
+ *
+ * Raster formats only. An SVG is a document that can carry script, and the served
+ * route shares this gateway's origin, so it stays on the text path — where the
+ * server already forces it to download rather than letting the browser run it.
+ */
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "ico"]);
+
+/** Whether a path names an image the browser can draw. */
+export function isImagePath(path: string): boolean {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return IMAGE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+}
+
+/** A project file published at a URL the browser fetches for itself. */
+export interface PublishedFile {
+  url: string;
+  name: string;
+  size: number;
+}
+
+/**
+ * Publishes a file the browser has to fetch itself — an image, most of the time.
+ *
+ * `files.read` answers with text and refuses anything binary or past its cap,
+ * which is every screenshot worth looking at. This hands back an address on the
+ * gateway's uploads route instead: the bytes never travel as JSON and the request
+ * carries no size, so the browser streams the file the way it streams any image.
+ */
+export async function publishFile(
+  client: FilesClient,
+  paneId: string,
+  path: string,
+): Promise<PublishedFile | null> {
+  try {
+    const response = await client.call<{ file?: unknown }>("files.publish", {
+      pane_id: paneId,
+      path,
+    });
+    const file = response?.file as Record<string, unknown> | undefined;
+    if (!file) return null;
+    const url = asString(file.url);
+    if (!url) return null;
+    return {
+      url,
+      name: asString(file.name) ?? path.slice(path.lastIndexOf("/") + 1),
+      size: typeof file.size === "number" ? file.size : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** The status codes the tree marks, and nothing else. */
 const GIT_STATUSES: readonly GitFileStatus[] = [
   "modified",

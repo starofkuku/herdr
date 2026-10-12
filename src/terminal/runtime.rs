@@ -258,6 +258,20 @@ impl TerminalRuntime {
         self.0.resize(rows, cols, cell_width_px, cell_height_px);
     }
 
+    /// The terminal's grid, in cells, and where the cursor sits in it.
+    ///
+    /// For a client that draws the terminal itself: the bytes it receives were laid
+    /// out for this many columns, and the screen it reads to catch up is text,
+    /// which does not say where the cursor is.
+    pub(crate) fn terminal_geometry(&self) -> (u16, u16, Option<(u16, u16, bool)>) {
+        let (rows, cols) = self.0.current_size();
+        let cursor = self
+            .0
+            .terminal_cursor()
+            .map(|cursor| (cursor.x, cursor.y, cursor.visible));
+        (rows, cols, cursor)
+    }
+
     #[cfg(unix)]
     pub fn nudge_child_redraw_after_handoff(&self) {
         self.0.nudge_child_redraw_after_handoff();

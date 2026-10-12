@@ -17,7 +17,7 @@ import {
   type BackendProfile,
   type StoredSettings,
 } from "./settings";
-import { currentRoute, navigate, type Route } from "./route";
+import { currentRoute, navigate, routeHash, type Route } from "./route";
 
 /**
  * Which screen is shown, and for which backend.
@@ -204,6 +204,22 @@ export default function App() {
     [hub, route],
   );
 
+  /**
+   * The address a row opens in another tab, or null when it cannot be opened.
+   *
+   * Built from the target the row itself opens, so a pane that cannot be opened
+   * here — a backend whose session is not bound — is not offered as a link either,
+   * rather than as a link to the wrong session. Absolute, so the new tab is a fresh
+   * page rather than a fragment of whatever the reader has open.
+   */
+  const linkFor = useCallback(
+    (paneId: string, backendId: string | undefined) => {
+      const target = targetFor(paneId, backendId);
+      return target ? new URL(routeHash(target), window.location.href).href : null;
+    },
+    [targetFor],
+  );
+
   const withActivity = (screen: JSX.Element) => (
     <>
       {paletteOpen ? (
@@ -218,12 +234,14 @@ export default function App() {
             setRoute(target);
           }}
           onClose={() => setPaletteOpen(false)}
+          hrefFor={linkFor}
         />
       ) : null}
       {route.view !== "home" ? (
         <SessionActivity
           agents={allAgents}
           currentPaneId={route.view === "detail" ? route.paneId : null}
+          hrefFor={linkFor}
           onOpen={(paneId, backendId) => {
             const target = targetFor(paneId, backendId);
             if (!target) return;
@@ -275,6 +293,7 @@ export default function App() {
         key={`${route.backendId}:${route.paneId}`}
         client={runtime.client}
         agent={agent}
+        routePaneId={route.paneId}
         agents={agents}
         backend={runtime.profile}
         connection={runtime.state}
@@ -290,6 +309,17 @@ export default function App() {
         }}
         onSelectAgent={(paneId, backendId) => {
           const target = targetFor(paneId, backendId);
+          if (!target) return;
+          navigate(target);
+          setRoute(target);
+        }}
+        onOpenPane={(paneId) => {
+          /*
+           * The same session, a different pane: a shell opened from the web is a
+           * real pane but not an agent, so it is not in the list the route is
+           * usually built from. Only the session is needed to address it.
+           */
+          const target = targetFor(paneId, undefined);
           if (!target) return;
           navigate(target);
           setRoute(target);
