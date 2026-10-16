@@ -31,6 +31,8 @@ export const QUOTE_SOURCE_LABELS: Record<QuoteSource, string> = {
 
 export interface Quote {
   id: string;
+  /** The number its placeholder carries; fixed for as long as the quote lives. */
+  seq: number;
   text: string;
   source: QuoteSource;
 }
@@ -65,9 +67,10 @@ export const NO_QUOTES: QuoteState = { quotes: [], limit: null };
  * The id is what lets the chip remove exactly one passage: two quotes of the same
  * text from the same source would otherwise be indistinguishable.
  */
-export function newQuote(text: string, source: QuoteSource): Quote {
+export function newQuote(text: string, source: QuoteSource, seq: number): Quote {
   return {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    seq,
     text,
     source,
   };
@@ -114,7 +117,92 @@ export function quotedPromptBlock(quote: Quote): string {
   return `> 引用${QUOTE_SOURCE_LABELS[quote.source]}：\n${body}`;
 }
 
-/** Every quote's block, in the order the reader took them. */
-export function quotedPromptBlocks(quotes: readonly Quote[]): string {
-  return quotes.map(quotedPromptBlock).join("\n\n");
+/** The placeholder a quote takes inside the draft, so the reader can point at a passage where they mean it. */
+export function quotePlaceholder(seq: number): string {
+  return `[引用${seq}]`;
+}
+
+/** Splits a line into its text and the quote numbers marked inside it. */
+const PLACEHOLDER_SPLIT = /\[引用(\d+)\]/;
+
+/**
+ * The draft with every placeholder expanded into its quotation block, standing
+ * exactly where the reader put it.
+ *
+ * A blockquote cannot sit inside a sentence, so a placeholder held mid-line
+ * breaks the line into paragraphs around its block: the words before it, the
+ * quotation, the words after. A number that names no quote — typed by hand, or
+ * left behind by a chip that was removed — stays as the reader wrote it.
+ */
+export function expandQuotedPlaceholders(text: string, quotes: readonly Quote[]): string {
+  const bySeq = new Map<number, Quote>();
+  for (const quote of quotes) bySeq.set(quote.seq, quote);
+  return text
+    .split("\n")
+    .map((line) => {
+      if (!line.includes("[引用")) return line;
+      const parts = line.split(PLACEHOLDER_SPLIT);
+      if (parts.length === 1) return line;
+      const blocks: string[] = [];
+      let carried = "";
+      for (let index = 0; index < parts.length; index += 1) {
+        const part = parts[index];
+        if (index % 2 === 1) {
+          const quote = bySeq.get(Number(part));
+          if (quote) {
+            if (carried.trim()) blocks.push(carried.trim());
+            carried = "";
+            blocks.push(quotedPromptBlock(quote));
+          } else {
+            carried += `[引用${part}]`;
+          }
+        } else {
+          carried += part;
+        }
+      }
+      if (carried.trim()) blocks.push(carried.trim());
+      return blocks.join("\n\n");
+    })
+    .join("\n");
+}
+
+/** One stretch of a draft: either plain text, or one quote's placeholder. */
+export type QuoteSegment = { text: string } | { seq: number };
+
+/**
+ * The draft cut at its placeholders, so the field can paint each one as a badge
+ * over the text the reader is writing. Nothing is changed — the segments join
+ * back to exactly the draft — this is only a view of it.
+ */
+export function splitQuotePlaceholders(text: string): QuoteSegment[] {
+  const out: QuoteSegment[] = [];
+  let last = 0;
+  for (const match of text.matchAll(/\[引用(\d+)\]/g)) {
+    const at = match.index ?? 0;
+    if (at > last) out.push({ text: text.slice(last, at) });
+    out.push({ seq: Number(match[1]) });
+    last = at + match[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}
+
+/** The draft with one quote's placeholders pulled out, as if never written. */
+export function stripQuotePlaceholder(text: string, seq: number): string {
+  const token = quotePlaceholder(seq);
+  return text
+    .split("\n")
+    .map((line) =>
+      line.includes(token)
+        ? line.split(token).join("").replace(/ {2,}/g, " ").trim()
+        : line,
+    )
+    .join("\n");
+}
+
+/** The draft with every listed quote's placeholders pulled out. */
+export function stripAllQuotePlaceholders(text: string, quotes: readonly Quote[]): string {
+  let out = text;
+  for (const quote of quotes) out = stripQuotePlaceholder(out, quote.seq);
+  return out;
 }

@@ -227,6 +227,20 @@ mod fallback;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 pub use fallback::*;
 
+/*
+ * Heap housekeeping for the server, defined here so callers need no platform
+ * condition of their own: glibc retains freed heap, and only this platform has
+ * a trim to call. Everywhere else there is nothing to do — musl and the
+ * non-Linux allocators return freed pages far more readily.
+ */
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+pub(crate) fn spawn_heap_trim_task() {
+    linux::spawn_heap_trim_task();
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+pub(crate) fn spawn_heap_trim_task() {}
+
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn available_pane_shell_from_job(child_pid: u32, job: ForegroundJob) -> Option<String> {
     if job.process_group_id != child_pid

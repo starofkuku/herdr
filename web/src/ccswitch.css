@@ -1,0 +1,759 @@
+/*
+ * The cc-switch panel's own pieces: the shell it borrows from the settings
+ * panel, plus the list, detail and setup shapes that are particular to it.
+ */
+
+/* 90% of the window: the list, the settings document and the editor all want
+   room, and the panel is the only thing on screen while it is open. Two classes
+   so this wins over the dialog shell's own width and max-height. */
+.notification-panel__panel.ccswitch {
+  width: 90vw;
+  height: 90vh;
+  max-height: 90vh;
+}
+
+.ccswitch__symbol {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.ccswitch__endpoint {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch__body {
+  min-height: 18rem;
+}
+
+.ccswitch__section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* Fills the panel's body and owns the scrolling, so the editor inside can
+     size itself against the panel rather than against its own content. */
+  flex: 1;
+  overflow-y: auto;
+  gap: 0.4rem;
+}
+
+/* The panel's content column: the shared class scrolls itself, which caps the
+   section at its own content height; here the section is the scroller instead,
+   so height can reach the editor's textarea. */
+.ccswitch .settings-panel__content {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ccswitch__tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.ccswitch__tab {
+  padding: 0.25rem 0.6rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  cursor: pointer;
+}
+
+.ccswitch__tab.active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.ccswitch__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ccswitch__row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.1rem;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.ccswitch__row.current {
+  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+.ccswitch__row-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0.35rem 0.4rem;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ccswitch__row-main:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.ccswitch__name {
+  flex: none;
+  font-size: var(--text-ui-sm);
+}
+
+.ccswitch__id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex: none;
+  padding: 0 0.35rem;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+.ccswitch__action {
+  flex: none;
+  min-width: 3.6rem;
+}
+
+.ccswitch__detail {
+  margin-top: 0.4rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+
+.ccswitch__detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  font-size: var(--text-ui-sm);
+}
+
+.ccswitch__facts {
+  display: grid;
+  grid-template-columns: minmax(4rem, auto) 1fr;
+  gap: 0.2rem 0.6rem;
+  margin: 0.5rem 0 0;
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch__fact {
+  display: contents;
+}
+
+.ccswitch__fact dt {
+  color: var(--muted);
+}
+
+.ccswitch__fact dd {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+
+.ccswitch__prompt {
+  flex-basis: 100%;
+  order: 3;
+  max-height: 12rem;
+  margin: 0.3rem 0 0;
+  padding: 0.5rem 0.6rem;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
+  white-space: pre-wrap;
+}
+
+.ccswitch__json {
+  max-height: 14rem;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0.6rem;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.ccswitch__note {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.2rem 0;
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+}
+
+.ccswitch__note.error {
+  color: var(--err);
+}
+
+.ccswitch__note.ok {
+  color: var(--ok);
+}
+
+.ccswitch__hint {
+  margin: 0.4rem 0;
+  color: var(--muted);
+  font-size: var(--text-ui-caption);
+  line-height: 1.6;
+}
+
+.ccswitch__setup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+/* The address is read-only and the port is short: together they fit one row. */
+.ccswitch__pair {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.ccswitch__pair .ccswitch__field:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.ccswitch__field--port {
+  flex: none;
+  width: 6rem;
+}
+
+.ccswitch__field input[readonly] {
+  color: var(--muted);
+  background: var(--bg);
+  cursor: default;
+}
+
+.ccswitch__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.ccswitch__field input {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  outline: none;
+}
+
+.ccswitch__field input:focus {
+  border-color: var(--accent);
+}
+
+.ccswitch__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+}
+
+.ccswitch__spin {
+  animation: ccswitch-spin 1s linear infinite;
+}
+
+@keyframes ccswitch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ccswitch__spin {
+    animation: none;
+  }
+}
+
+/* The list's own header: a count on the left, the one action on the right. */
+.ccswitch__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.ccswitch__new {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex: none;
+}
+
+/* The editor replaces the list while it is open, so it takes the whole column. */
+.ccswitch__editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.ccswitch__editor-settings {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.ccswitch__settings {
+  width: 100%;
+  /* Fills whatever the form has left; the floor keeps it usable on a phone,
+     where the form scrolls instead. Manual resize is off because the box now
+     tracks the panel, not the drag. */
+  flex: 1 1 auto;
+  min-height: 14rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  white-space: pre;
+  overflow: auto;
+}
+
+.ccswitch__settings:focus {
+  border-color: var(--accent);
+}
+
+.ccswitch__detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.ccswitch__detail-actions .ccswitch__hint {
+  flex: 1;
+  margin: 0;
+}
+
+.ccswitch__hint.error {
+  color: var(--err);
+}
+
+/* The dialog shell scopes this button to its own class; the panel needs it too. */
+/* Same story as the danger button below: the shell styles its primary button
+   only inside its own dialog class, so every primary action in this panel —
+   connect, save provider, upload snapshot — would otherwise render as bare
+   faint text instead of a button. */
+.ccswitch .agent-primary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.8rem;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ccswitch .agent-primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 85%, var(--text));
+}
+
+.ccswitch .agent-primary-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ccswitch .agent-danger-button {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--err) 14%, transparent);
+  color: var(--err);
+  font: inherit;
+  font-size: var(--text-ui-sm);
+  cursor: pointer;
+}
+
+.ccswitch .agent-danger-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--err) 22%, transparent);
+}
+
+.ccswitch .agent-danger-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The one nav entry that is not an app: sync snapshots the whole tool, so it
+   sits above the app list with a separator, not among the apps. */
+.ccswitch__nav-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ccswitch__nav-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 0.45rem 0.55rem;
+}
+
+/* The sync view: one column of explanation, actions, and outcomes. */
+.ccswitch__sync {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ccswitch__sync-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ccswitch__sync-actions .ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ccswitch__sync-raw {
+  display: block;
+  margin-top: 0.2rem;
+  opacity: 0.75;
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+}
+
+/* The restore confirmation: what it overwrites is the whole point, so it reads
+   as a stop rather than a second button. */
+.ccswitch__danger-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--err) 8%, transparent);
+}
+
+.ccswitch__danger-zone .ccswitch__hint {
+  margin: 0;
+  color: var(--err);
+}
+
+/* A list row can carry a detail block under it, so the clickable part and the
+   action button sit on one line of their own. */
+.ccswitch__row-line {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.ccswitch__row-line .ccswitch__row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The label wrapping the prompt content textarea: it has to grow for the
+   textarea inside it to have room to fill. */
+.ccswitch__field--grow {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── The page ─────────────────────────────────────────────────────────────
+ * cc-switch as a page of its own: a header bar over the same nav/content
+ * body the panel had, filling the viewport instead of a 90% dialog. */
+.ccswitch-page {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  min-height: 0;
+}
+
+.ccswitch-page__head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  padding-top: max(0.6rem, env(safe-area-inset-top));
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.ccswitch-page__title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ccswitch-page__body {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── The drawer ────────────────────────────────────────────────────────────
+ * Creating and editing happen beside the list rather than in place, so the
+ * row being edited keeps its context. On a phone the drawer is the page. */
+.ccswitch__drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.35);
+  z-index: 60;
+}
+
+.ccswitch__drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(46rem, 100vw);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  box-shadow: -20px 0 60px rgb(0 0 0 / 0.35);
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+}
+
+.ccswitch__drawer-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.ccswitch__drawer-title {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.95rem;
+}
+
+.ccswitch__drawer-armed {
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ccswitch__drawer-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  padding: 0.75rem;
+}
+
+.ccswitch__drawer-body > form {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── The prompt editor's split: source on one side, rendered on the other ── */
+.ccswitch__md {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ccswitch__md-edit {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ccswitch__md-edit .ccswitch__settings {
+  min-height: 10rem;
+}
+
+.ccswitch__md-preview {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 0.55rem 0.65rem;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 40rem) {
+  .ccswitch__md {
+    flex-direction: column;
+  }
+
+  .ccswitch__md-preview {
+    max-height: 40%;
+  }
+}
+
+/* ── The JSON editor's frame: CodeMirror fills whatever the form leaves ──── */
+.ccswitch__cm {
+  flex: 1 1 auto;
+  min-height: 14rem;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ccswitch__cm .cm-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.ccswitch__cm .cm-scroller {
+  font-family: var(--font-mono);
+}
+
+/* The page's own icon buttons: same baseline problem as the conversation top
+   bar, fixed the same way — an inline svg sits on the text baseline and the
+   descender space lifts it about 1.5px above the button's centre. */
+.ccswitch-page__head .ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* The section head's action group, and the import control's pi-only menu. */
+.ccswitch__head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+}
+
+.ccswitch__import {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ccswitch__import .ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ccswitch__import-caret {
+  padding: 0.35rem 0.4rem;
+  margin-left: -0.2rem;
+}
+
+.ccswitch__import-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.3rem;
+  z-index: 5;
+  min-width: 12rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.3rem;
+  border: 1px solid var(--popover-border);
+  border-radius: 10px;
+  background: var(--popover);
+  box-shadow: 0 16px 40px rgb(0 0 0 / 0.35);
+}
+
+.ccswitch__import-menu button {
+  display: block;
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-ui-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.ccswitch__import-menu button:hover {
+  background: var(--surface-2);
+}

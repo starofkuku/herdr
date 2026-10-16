@@ -93,6 +93,18 @@ export function navigatorLayout(
     return { pitch, indices: range(count) };
   }
 
+  /*
+   * No room for two ticks: a rail collapsing mid-transition (a device-toolbar
+   * switch, a short phone viewport) measures a height near the padding, which
+   * floors the capacity to one — and the sampling loop below divides by
+   * `capacity - 1`. Show a single tick rather than producing `NaN` indices,
+   * which reached the caller as `anchors[NaN]` and crashed the render.
+   */
+  if (capacity <= 1) {
+    const only = clampIndex(activeIndex, count) ?? 0;
+    return { pitch: pitchRange.min, indices: [only] };
+  }
+
   // Too many entries to show individually: sample evenly, always including the
   // first and last so the rail still spans the whole conversation.
   const indices: number[] = [];

@@ -1,5 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
+import { applyTheme, loadTheme } from "./theme";
 import "./styles.css";
 import "./tailwind.css";
 
@@ -8,6 +9,10 @@ if (!container) {
   throw new Error("missing #root container");
 }
 
-// The theme switch renders inside each screen's header rather than here, so it
-// lines up with that screen's own controls.
+// The saved theme is applied before the first render: every screen carries its
+// own switch, but a fresh tab that lands on a screen without one — a link to a
+// tool page, say — would otherwise start on the dark default instead of the
+// reader's choice.
+applyTheme(loadTheme());
+
 createRoot(container).render(<App />);

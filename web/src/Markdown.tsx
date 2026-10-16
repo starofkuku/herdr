@@ -229,8 +229,51 @@ interface ReactElementWithCode {
   props?: { className?: unknown; children?: ReactNode };
 }
 
+/*
+ * One pasted machine record — a JSON blob, a dump, a log — can be a single
+ * line of hundreds of kilobytes. The GFM pipeline's cost on such a line grows
+ * faster than quadratically (measured: 160k chars ≈ 11s; 639k extrapolates to
+ * minutes), which freezes the whole page on one message. Length alone is not
+ * the signal — long fenced blocks parse linearly — so the guard is the shape:
+ * a line this long outside any structure the parser handles cheaply marks the
+ * text as data, and data is shown as data instead of being parsed.
+ */
+const MAX_MARKDOWN_LINE = 4000;
+
+/** Whether any single line of the text exceeds the markdown limit. */
+function hasRunawayLine(text: string): boolean {
+  if (text.length <= MAX_MARKDOWN_LINE) return false;
+  let start = 0;
+  while (start <= text.length) {
+    const end = text.indexOf("\n", start);
+    const stop = end === -1 ? text.length : end;
+    if (stop - start > MAX_MARKDOWN_LINE) return true;
+    if (end === -1) return false;
+    start = end + 1;
+  }
+  return false;
+}
+
+/** The runaway shape rendered as what it is: one copyable block of data. */
+function DataBlock({ text }: { text: string }) {
+  return (
+    <div className="markdown">
+      <div className="code-block">
+        <div className="code-block-head">
+          <span className="code-lang">text</span>
+          <CopyButton text={() => text} title="Copy code" />
+        </div>
+        <pre>
+          <code>{text}</code>
+        </pre>
+      </div>
+    </div>
+  );
+}
+
 /** Renders Markdown with the shared blocks and affordances. */
 export function Markdown({ text }: { text: string }) {
+  if (hasRunawayLine(text)) return <DataBlock text={text} />;
   return (
     <div className="markdown">
       <ReactMarkdown

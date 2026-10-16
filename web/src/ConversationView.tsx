@@ -11,7 +11,8 @@ import {
 } from "./conversationCache";
 import { CopyButton, Markdown } from "./Markdown";
 import { SelectionQuoteMenu } from "./SelectionQuoteMenu";
-import type { QuoteSource } from "./quotes";
+import type { Quote, QuoteSource } from "./quotes";
+import { QuoteOriginLayer } from "./QuoteOriginLayer";
 import {
   editDiffLines,
   isEditVisual,
@@ -977,6 +978,7 @@ export function ConversationView({
   working = false,
   onPreviewImage,
   onQuote,
+  quotes = [],
   onSessionInfo,
   status,
   load,
@@ -1015,6 +1017,8 @@ export function ConversationView({
    * prompt. Absent when there is nowhere for it to go.
    */
   onQuote?: (text: string, source: QuoteSource) => void;
+  /** The passages attached to the draft, to be marked where they came from. */
+  quotes?: readonly Quote[];
   /**
    * Reports the session file behind this conversation: its path, and its size when
    * the session is one file.
@@ -1509,6 +1513,7 @@ export function ConversationView({
         </button>
       ) : null}
       <div className="conversation" ref={scrollRef} onScroll={onScroll}>
+        <QuoteOriginLayer scrollRef={scrollRef} quotes={quotes} />
         <div className="conversation-bar">
           <span className="conversation-title">{label}</span>
           {conversation?.provider ? (

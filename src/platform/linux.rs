@@ -407,6 +407,52 @@ pub(crate) async fn connect_shared_codex(path: &str) -> std::io::Result<tokio::n
     Ok(socket)
 }
 
+/// Returns the process's resident set, in bytes, from /proc.
+fn resident_bytes() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("VmRSS:") {
+            let kb: u64 = rest.split_whitespace().next()?.parse().ok()?;
+            return Some(kb * 1024);
+        }
+    }
+    None
+}
+
+/// Periodically returns freed heap pages to the OS.
+///
+/// glibc keeps freed memory in the process (arenas, trim thresholds) — a burst
+/// of allocations raises the resident set for the life of the process even
+/// after every one of them is freed, which on a long-running server reads as a
+/// leak. `malloc_trim(0)` hands the free top of the arenas back; it is cheap,
+/// so a timer is enough, and the log line only appears when it actually gave
+/// something back, so a quiet heap stays quiet.
+pub(crate) fn spawn_heap_trim_task() {
+    std::thread::Builder::new()
+        .name("heap-trim".into())
+        .spawn(|| loop {
+            std::thread::sleep(std::time::Duration::from_secs(300));
+            #[cfg(target_env = "gnu")]
+            {
+                let before = resident_bytes();
+                // SAFETY: malloc_trim is a plain libc call with no preconditions.
+                let trimmed = unsafe { libc::malloc_trim(0) } == 1;
+                if trimmed {
+                    if let (Some(before), Some(after)) = (before, resident_bytes()) {
+                        if before.saturating_sub(after) > 1024 * 1024 {
+                            tracing::info!(
+                                before_mb = before / 1048576,
+                                after_mb = after / 1048576,
+                                "returned free heap to the OS"
+                            );
+                        }
+                    }
+                }
+            }
+        })
+        .ok();
+}
+
 pub fn session_processes(child_pid: u32) -> Vec<u32> {
     let Some(session_id) = process_session_id(child_pid) else {
         return Vec::new();

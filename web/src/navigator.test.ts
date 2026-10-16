@@ -123,3 +123,24 @@ describe("tickPositionAt", () => {
     expect(tickPositionAt(10, 0, count)).toBeUndefined();
   });
 });
+
+describe("navigatorLayout: collapsed rail", () => {
+  test("returns a valid single tick when the height fits only one (no NaN indices)", () => {
+    // A rail collapsing mid-transition measures near the padding: usable is 0,
+    // capacity floors to 1, and the sampling loop would divide by zero.
+    for (const pitch of [POINTER_PITCH, TOUCH_PITCH]) {
+      const layout = navigatorLayout(8, 24, undefined, pitch);
+      expect(layout.indices.length).toBe(1);
+      for (const index of layout.indices) {
+        expect(Number.isInteger(index)).toBe(true);
+        expect(index).toBeGreaterThanOrEqual(0);
+        expect(index).toBeLessThan(8);
+      }
+    }
+  });
+
+  test("keeps the active tick when the rail fits only one", () => {
+    const layout = navigatorLayout(8, 10, 5, TOUCH_PITCH);
+    expect(layout.indices).toEqual([5]);
+  });
+});

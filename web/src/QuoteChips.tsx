@@ -10,6 +10,7 @@
 
 import { Quote as QuoteIcon, Trash2, X } from "lucide-react";
 import {
+  quotePlaceholder,
   QUOTE_LIMIT_MESSAGES,
   QUOTE_SOURCE_LABELS,
   type QuoteState,
@@ -17,10 +18,13 @@ import {
 
 export function QuoteChips({
   state,
+  placedSeqs,
   onRemove,
   onRemoveAll,
 }: {
   state: QuoteState;
+  /** The quotes whose placeholder still stands in the field; the rest are not sent. */
+  placedSeqs: ReadonlySet<number>;
   /** Drops one quote, by id. */
   onRemove: (id: string) => void;
   /** Drops every quote. */
@@ -61,7 +65,17 @@ export function QuoteChips({
                 <QuoteIcon size={13} aria-hidden="true" className="quote-chips__item-icon" />
                 <div className="quote-chips__body">
                   <p className="quote-chips__text">{quote.text}</p>
-                  <p className="quote-chips__meta">{QUOTE_SOURCE_LABELS[quote.source]}</p>
+                  <p className="quote-chips__meta">
+                    {QUOTE_SOURCE_LABELS[quote.source]} · {quotePlaceholder(quote.seq)}
+                  </p>
+                  {placedSeqs.has(quote.seq) ? null : (
+                    /* The passage is attached but its placeholder is gone from
+                     * the field, so it will not be sent — stated here because
+                     * the composer otherwise looks as if it would carry it. */
+                    <p className="quote-chips__meta quote-chips__meta--unplaced">
+                      占位符不在输入框中，发送时不会带上这条引用
+                    </p>
+                  )}
                 </div>
                 <button
                   type="button"

@@ -6777,6 +6777,43 @@ textarea {
  * every pointer — is what returns to it.
  */
 @media (max-width: 40rem) {
+  /*
+   * The action row on a phone. The model chip is the widest thing in it, and at
+   * its desktop cap (`max-width: 16rem`) it left the row wider than the screen,
+   * which pushed the send button past the right edge. So on a phone the chip is
+   * the part that gives: it takes whatever room is left after the buttons, and
+   * its label ellipsizes into that — the buttons themselves never shrink, and
+   * the row can still wrap if even that is not enough.
+   */
+  .composer-actions {
+    flex-wrap: wrap;
+    gap: 0.25rem;
+  }
+
+  .composer-actions__end {
+    flex: 1 1 auto;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+
+  /*
+   * `flex-basis: 0` is what keeps this to one row: with the chip's natural width
+   * (279px) as its basis, the row was wide enough to wrap, and the attach button
+   * ended up alone on the first line. At a zero basis the chip asks for nothing,
+   * takes whatever is left, and only reaches its floor on a very narrow screen —
+   * where the wrap above finally moves the group down a line.
+   */
+  .model-picker {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .model-picker__trigger {
+    max-width: 100%;
+    min-width: 0;
+  }
+
+
   .model-picker__menu {
     position: fixed;
     left: 0.5rem;
@@ -6877,4 +6914,283 @@ textarea {
 .terminal-toggle--on {
   background: var(--surface-2);
   color: var(--text);
+}
+
+/*
+ * The topbar's action row, and its phone form.
+ *
+ * On the desktop the wrapper is `display: contents`, so the buttons lay out
+ * exactly as they did unwrapped. A phone cannot fit the row, so there the row
+ * keeps only the terminal toggle — the one control that shows state — and the
+ * rest wait behind the "…" button beside it (see TopbarOverflowMenu).
+ */
+.topbar-actions {
+  display: contents;
+}
+
+.topbar-more {
+  display: none;
+}
+
+.topbar-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+}
+
+.topbar-menu {
+  position: absolute;
+  top: 100%;
+  right: 0.5rem;
+  margin-top: 0.35rem;
+  z-index: 2;
+  min-width: 12.5rem;
+  max-width: 17rem;
+  max-height: min(60vh, 24rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.3rem;
+  border: 1px solid var(--popover-border);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: 0 20px 60px rgb(0 0 0 / 0.45);
+  animation: slash-menu-in 120ms ease-out;
+}
+
+.topbar-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  min-height: 2.4rem;
+  padding: 0.5rem 0.6rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.topbar-menu__item:hover:not(:disabled),
+.topbar-menu__item:focus-visible {
+  background: var(--surface-2);
+}
+
+.topbar-menu__item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.topbar-menu__icon {
+  flex: none;
+  display: inline-flex;
+}
+
+.topbar-menu__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 40rem) {
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+  }
+
+  .topbar-actions > *:not(.terminal-toggle) {
+    display: none;
+  }
+
+  .topbar-more {
+    display: inline-flex;
+  }
+}
+
+/*
+ * Icon-only buttons in the top bar: centre the glyph itself.
+ *
+ * A plain `.ghost` lays its svg out as an inline element on the text baseline,
+ * and the font's descender space then lifts the icon about 1.5px above the
+ * button's centre — visible in a row, next to `.settings-toggle`, which centres
+ * explicitly. Scoped to the top bar so icon+text ghosts elsewhere keep their
+ * spacing.
+ */
+.topbar .ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * A quote attached whose placeholder no longer stands in the field: the passage
+ * will not be sent, and the chip says so in the same warn tone as a refusal.
+ */
+.quote-chips__meta--unplaced {
+  color: var(--warn);
+}
+
+/*
+ * ---- quote placeholders as badges in the composer ----
+ *
+ * The field's text cannot be painted in part, so the badges are drawn in a
+ * read-only layer behind the field while the field's own text is transparent
+ * (Slack's arrangement). The layer mirrors the textarea's box metric by metric
+ * — padding, font, line height, wrapping — so its characters land where the
+ * field's are; the caret stays the field's, because the layer cannot hold one.
+ */
+.composer-field__backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  padding: 0.55rem 0.7rem;
+  font-size: 16px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  overflow: hidden;
+  color: var(--text);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* IME composition is drawn in the field's own colour, so for as long as it
+   runs the field shows its plain text and this layer steps out of the way. */
+.composer-field__backdrop--aside {
+  visibility: hidden;
+}
+
+/* The field itself: raised above the layer, its text transparent but its
+   caret and selection still visible. The element is named twice on purpose —
+   `.composer textarea` sets the colour and would otherwise win. */
+.composer-field > textarea {
+  position: relative;
+}
+
+.composer-field textarea.composer-field__ghost {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+}
+
+.composer-field textarea.composer-field__ghost::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* A transparent field would take its placeholder with it; the hint is restated. */
+.composer-field textarea.composer-field__ghost::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+/* The badge itself: one line box of its own, so it never splits across lines.
+   The gradient is built from the theme's accent, deepened toward violet so it
+   reads as a highlight without leaving the palette; its box stays under the
+   field's line height so a badge line never grows taller than the field's own
+   line and the two layers keep their alignment. */
+.composer-quote-token {
+  display: inline-block;
+  box-sizing: border-box;
+  /* No margin: the badge stands exactly where the placeholder's characters
+     stand, so anything outside that width would push the following text out
+     of step with the field's own layout. */
+  margin: 0;
+  padding: 0.14em 2px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, #8b5cf6 45%);
+  border-radius: 999px;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--accent) 92%, #6366f1 8%) 0%,
+    color-mix(in srgb, var(--accent) 52%, #7c3aed 48%) 100%
+  );
+  color: #ffffff;
+  font-size: 0.75em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  /* Middle rather than baseline: a badge hanging from the baseline would push
+     the layer's line box taller than the field's own, and every line below it
+     would drift a little further out of step with the caret. */
+  vertical-align: middle;
+  box-shadow:
+    0 1px 8px color-mix(in srgb, var(--accent) 42%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.composer-quote-token::before {
+  content: "❝ ";
+  font-size: 0.85em;
+  opacity: 0.85;
+}
+
+/*
+ * ---- quoted passages, marked where they came from ----
+ *
+ * The transcript becomes the anchor for the marks' layer: the rectangles are
+ * positioned in content coordinates (top of the content, not of the viewport),
+ * so they ride along when the transcript scrolls and nothing else in it is
+ * positioned, so anchoring changes nothing else.
+ */
+.transcript {
+  position: relative;
+}
+
+.quote-origin-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Height comes from the content, measured on each paint: the box is the
+     container's padding box otherwise, which is only the viewport tall. */
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* One passage, one rectangle per visual line — a marker over the text rather
+   than behind it, in the theme's accent so it reads as part of the page. */
+.quote-origin-rect {
+  position: absolute;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* The number at the passage's top right, matching the composer's badge:
+   same accent gradient, same white numeral, sized down to sit on a line. */
+.quote-origin-chip {
+  position: absolute;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, #8b5cf6 45%);
+  border-radius: 999px;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--accent) 92%, #6366f1 8%) 0%,
+    color-mix(in srgb, var(--accent) 52%, #7c3aed 48%) 100%
+  );
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+/* The conversation's scroll container is the marks' anchor, for the same
+   reason as the transcript's: the rectangles are drawn in content
+   coordinates there, and nothing else in either is positioned. */
+.conversation {
+  position: relative;
 }

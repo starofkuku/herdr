@@ -5377,6 +5377,18 @@ pub fn run_server() -> io::Result<()> {
         .map_err(io::Error::other)?;
 
     let result = rt.block_on(async {
+        // Before the first pane exists: occupy the shared Codex app-server with
+        // a daemon started outside any pane. Restoring panes first lets a
+        // pane's codex auto-start the daemon, and one that inherits a pane's
+        // environment is refused by the bridge, which leaves the model catalog
+        // unreadable until someone restarts it by hand.
+        #[cfg(target_os = "linux")]
+        crate::codex_bridge::preflight_shared_daemon().await;
+        // glibc keeps freed heap resident for the life of the process; a
+        // periodic trim is what turns a burst into a bump instead of a new
+        // floor. See platform::spawn_heap_trim_task.
+        crate::platform::spawn_heap_trim_task();
+
         // Create the App (with AppState, event channels, etc.).
         let mut app = app::App::new(
             &loaded_config.config,

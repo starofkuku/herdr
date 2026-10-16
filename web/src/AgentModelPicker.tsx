@@ -40,6 +40,47 @@ const SWITCHABLE_AGENTS = new Set(["pi", "codex"]);
  * first; on a touch screen it replaces it, with a way back. A catalog with no
  * provider axis is a single flat list.
  */
+/**
+ * True on a phone-width viewport, where the chip has to be short: the row it sits
+ * in also holds the effort chip and the composer's own buttons, and the full
+ * `provider · model` does not fit beside them.
+ */
+function useNarrowViewport(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 40rem)").matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 40rem)");
+    const update = () => setNarrow(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return narrow;
+}
+
+/**
+ * The backend's own words, when they are readable and actionable.
+ *
+ * The one that matters is a refusal: herdr will not use a shared Codex daemon
+ * that inherited a pane's environment, because hooks from it could land on the
+ * wrong pane. The reader can fix that, but only if the menu says so — the raw
+ * English paragraph with its instructions is not a thing to puzzle over on a
+ * phone.
+ */
+function friendlyDetail(detail: string | undefined): string | undefined {
+  if (!detail) return detail;
+  if (detail.includes("pane-specific environment")) {
+    return "Codex 的共享 daemon 是在某个面板里启动的（带了面板变量），herdr 为防 hooks 发错面板而拒用它。修法：停掉 herdr 服务 → sudo pkill -f 'codex app-server' → sudo codex app-server daemon start → 再起服务，然后重开本菜单。";
+  }
+  if (detail.includes("did not become ready") || detail.includes("Cannot start the shared Codex daemon")) {
+    return "Codex 的共享 daemon 没起来（或启动后没就绪）。修法：sudo pkill -f 'codex app-server' 然后 sudo codex app-server daemon start，再重开本菜单。";
+  }
+  if (detail.includes("did not answer in time") || detail.includes("timed out")) {
+    return "Codex 的 app-server 没有及时应答；重启它（sudo pkill -f 'codex app-server' && sudo codex app-server daemon start）后重开本菜单。";
+  }
+  return detail;
+}
+
 export function AgentModelPicker({
   client,
   paneId,
@@ -69,6 +110,9 @@ export function AgentModelPicker({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const root = useRef<HTMLDivElement>(null);
+  // Hooks run unconditionally, so this sits with the others above the
+  // `!supported` return rather than beside the label it feeds.
+  const narrow = useNarrowViewport();
 
   // Only agents with a catalog herdr can read are offered the control. Codex
   // additionally needs a session to exist — there is no thread to retarget
@@ -175,7 +219,7 @@ export function AgentModelPicker({
    */
   const currentDisplay =
     current && currentName
-      ? partitioned && current.provider
+      ? partitioned && current.provider && !narrow
         ? `${current.provider} · ${currentName}`
         : currentName
       : undefined;
@@ -330,7 +374,7 @@ export function AgentModelPicker({
             {error ? <p className="model-picker__note">{error}</p> : null}
             {!catalog && !error ? <p className="model-picker__note">读取中…</p> : null}
             {catalog && models.length === 0 ? (
-              <p className="model-picker__note">{catalog.detail ?? "没有可用的模型"}</p>
+              <p className="model-picker__note">{friendlyDetail(catalog.detail) ?? "没有可用的模型"}</p>
             ) : null}
 
             {!partitioned ? (

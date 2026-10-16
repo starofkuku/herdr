@@ -12,6 +12,15 @@ use serde_json::json;
 use std::io;
 use std::process::{Child, Command, Stdio};
 
+/// Starts the shared Codex app-server daemon before any pane exists.
+///
+/// See `shared::preflight` for why the order matters. Called by the server
+/// startup path, ahead of session restore.
+#[cfg(target_os = "linux")]
+pub(crate) async fn preflight_shared_daemon() {
+    shared::preflight().await;
+}
+
 /// Keep managed starts and restores on the same protocol connection path.
 pub(crate) fn launch_argv(args: &[String]) -> io::Result<Vec<String>> {
     let executable = std::env::current_exe()?;

@@ -18,6 +18,7 @@ import {
   type StoredSettings,
 } from "./settings";
 import { currentRoute, navigate, routeHash, type Route } from "./route";
+import { CcSwitchPage } from "./CcSwitchPage";
 
 /**
  * Which screen is shown, and for which backend.
@@ -75,7 +76,7 @@ export default function App() {
     (id: string) => {
       commit(removeBackend(settings, id));
       // Anything showing that backend is now showing nothing.
-      if (route.view !== "home" && route.backendId === id) {
+      if (route.view !== "home" && route.view !== "ccswitch" && route.backendId === id) {
         navigate({ view: "home" }, { replace: true });
         setRoute({ view: "home" });
       }
@@ -151,7 +152,8 @@ export default function App() {
           : "detail";
 
   /** The runtime the route points at, when it points at one that exists. */
-  const runtime = route.view === "home" ? undefined : hub.get(route.backendId);
+  const runtime =
+    route.view === "home" || route.view === "ccswitch" ? undefined : hub.get(route.backendId);
 
   /*
    * A route can outlive its backend — the profile was deleted, or the link came
@@ -159,7 +161,8 @@ export default function App() {
    * shell, and it is reported rather than silent.
    */
   useEffect(() => {
-    if (route.view === "home") return;
+    // ccswitch 是工具页，没有 backendId，不该被这条“回退”规则弹回首页。
+    if (route.view === "home" || route.view === "ccswitch") return;
     if (hub.get(route.backendId)) return;
     navigate({ view: "home" }, { replace: true });
     setRoute({ view: "home" });
@@ -191,7 +194,8 @@ export default function App() {
   /** Where an agent on `backendId` lives, or null when it cannot be opened. */
   const targetFor = useCallback(
     (paneId: string, backendId: string | undefined) => {
-      const id = backendId ?? (route.view === "home" ? null : route.backendId);
+      const id =
+        backendId ?? (route.view === "home" || route.view === "ccswitch" ? null : route.backendId);
       if (!id) return null;
       const entry = hub.get(id);
       // An agent is only listed once its session is bound, and that session is
@@ -226,7 +230,9 @@ export default function App() {
         <CommandPalette
           agents={allAgents}
           currentPaneId={route.view === "detail" ? route.paneId : null}
-          currentBackendId={route.view === "home" ? null : route.backendId}
+          currentBackendId={
+            route.view === "home" || route.view === "ccswitch" ? null : route.backendId
+          }
           onOpen={(paneId, backendId) => {
             const target = targetFor(paneId, backendId);
             if (!target) return;
@@ -253,6 +259,21 @@ export default function App() {
       {screen}
     </>
   );
+
+  if (route.view === "ccswitch") {
+    return withActivity(
+      <CcSwitchPage
+        onBack={() => {
+          // 从应用内打开时用浏览器返回；直接输链接进来时没有回处，落回首页。
+          if (window.history.length > 1) window.history.back();
+          else {
+            navigate({ view: "home" }, { replace: true });
+            setRoute({ view: "home" });
+          }
+        }}
+      />,
+    );
+  }
 
   if (phase === "home") {
     return withActivity(

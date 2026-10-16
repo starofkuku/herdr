@@ -50,6 +50,26 @@ pub(super) async fn daemon_socket() -> io::Result<String> {
         .ok_or_else(|| io::Error::other("Codex daemon did not report its socket path"))
 }
 
+/// Occupies the shared daemon slot with a cleanly started daemon.
+///
+/// A daemon auto-started from inside a pane inherits that pane's environment,
+/// and `connect()` then refuses it — hooks from a shared service must not
+/// carry one pane's identity. On a machine that restores panes at boot, a
+/// pane's codex usually wins that race and the model catalog stays unreadable
+/// until someone restarts the daemon by hand. Starting one from here, before
+/// any pane exists, leaves the panes nothing to start: they connect instead.
+///
+/// Best effort: a machine without codex logs and carries on. Bounded, because
+/// this runs during server startup.
+pub(super) async fn preflight() {
+    let started = tokio::time::timeout(std::time::Duration::from_secs(15), daemon_socket()).await;
+    match started {
+        Ok(Ok(path)) => tracing::info!(path = %path, "shared Codex app-server daemon preflighted"),
+        Ok(Err(error)) => tracing::warn!(%error, "shared Codex app-server daemon preflight failed"),
+        Err(_) => tracing::warn!("shared Codex app-server daemon preflight timed out"),
+    }
+}
+
 pub(super) async fn connect() -> io::Result<Connection> {
     let path = daemon_socket().await?;
     let stream = crate::platform::connect_shared_codex(&path).await?;

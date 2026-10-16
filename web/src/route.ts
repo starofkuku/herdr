@@ -21,9 +21,16 @@
 //   #/<backendId>/<session>          that session's agent list
 //   #/<backendId>/<session>/<paneId> one agent's conversation
 
+/*
+ * `#/ccswitch` is a reserved first segment — a path prefix owned by the app — so
+ * the tool page has a stable address; a backend actually named that would be
+ * shadowed, which is the accepted cost.
+ */
+
 /** One parsed route. */
 export type Route =
   | { view: "home" }
+  | { view: "ccswitch" }
   | { view: "sessions"; backendId: string }
   | { view: "agents"; backendId: string; session: string }
   | { view: "detail"; backendId: string; session: string; paneId: string };
@@ -37,6 +44,7 @@ export type Route =
 export function parseRoute(hash: string): Route {
   const raw = hash.startsWith("#") ? hash.slice(1) : hash;
   const segments = raw.split("/").filter(Boolean).map(decodeURIComponent);
+  if (segments[0] === "ccswitch") return { view: "ccswitch" };
   const [backendId] = segments;
   if (!backendId) return { view: "home" };
   if (segments.length === 1) return { view: "sessions", backendId };
@@ -55,6 +63,8 @@ export function routeHash(route: Route): string {
   switch (route.view) {
     case "home":
       return "#";
+    case "ccswitch":
+      return "#/ccswitch";
     case "sessions":
       return `#/${encodeURIComponent(route.backendId)}`;
     case "agents":

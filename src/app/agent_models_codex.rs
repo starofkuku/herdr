@@ -40,6 +40,45 @@ fn refreshing() -> &'static AtomicBool {
     &REFRESHING
 }
 
+/// The last refresh failure, so a reader is told the real reason.
+///
+/// The refresh runs on a thread of its own and the request that started it has
+/// already answered, so without this the only trace is a log line — and the menu
+/// keeps saying "open it again", which is true and useless. A refusal (a daemon
+/// carrying a pane's environment, say) is something a reader can fix, but only
+/// if someone tells them what it is.
+fn last_error() -> &'static Mutex<Option<String>> {
+    static LAST_ERROR: std::sync::OnceLock<Mutex<Option<String>>> = std::sync::OnceLock::new();
+    LAST_ERROR.get_or_init(|| Mutex::new(None))
+}
+
+fn last_error_text() -> Option<String> {
+    last_error().lock().ok().and_then(|guard| guard.clone())
+}
+
+/// When a failed refresh may be retried.
+///
+/// A broken catalog used to retry on every request once the 30-second cache
+/// expired: each attempt spawns a thread and forks the codex CLI, and on a box
+/// where that path fails, the churn itself became a load — thread stacks,
+/// allocator arenas, file descriptors — every half minute, forever. After a
+/// failure the next attempt waits; a success clears the wait, so a healthy
+/// daemon still refreshes at the cache cadence.
+fn retry_after() -> &'static Mutex<Option<Instant>> {
+    static RETRY_AFTER: std::sync::OnceLock<Mutex<Option<Instant>>> = std::sync::OnceLock::new();
+    RETRY_AFTER.get_or_init(|| Mutex::new(None))
+}
+
+/// How long a failed refresh backs off before trying again.
+const REFRESH_FAILURE_BACKOFF: Duration = Duration::from_secs(300);
+
+fn refresh_backed_off(now: Instant) -> bool {
+    retry_after()
+        .lock()
+        .ok()
+        .is_some_and(|guard| guard.is_some_and(|not_before| now < not_before))
+}
+
 /// Reads the catalog, from a cache that never blocks the caller.
 ///
 /// The list comes from the app-server over a socket, and a socket call can take
@@ -54,16 +93,21 @@ pub(crate) fn read() -> io::Result<Vec<PaneModel>> {
     if let Some(models) = cached_while_fresh() {
         return Ok(models);
     }
-    refresh_in_background();
+    if !refresh_backed_off(Instant::now()) {
+        refresh_in_background();
+    }
     match cache()
         .lock()
         .ok()
         .and_then(|guard| guard.as_ref().map(|cached| cached.models.clone()))
     {
         Some(models) => Ok(models),
-        None => Err(io::Error::other(
-            "reading the model list from the Codex app-server; open the menu again in a moment",
-        )),
+        // A recorded failure is the honest answer; "in a moment" is only right
+        // while the very first attempt is still in flight.
+        None => Err(io::Error::other(last_error_text().unwrap_or_else(|| {
+            "reading the model list from the Codex app-server; open the menu again in a moment"
+                .to_string()
+        }))),
     }
 }
 
@@ -92,11 +136,24 @@ fn refresh_in_background() {
                         models,
                     });
                 }
+                if let Ok(mut guard) = last_error().lock() {
+                    *guard = None;
+                }
+                if let Ok(mut guard) = retry_after().lock() {
+                    *guard = None;
+                }
             }
-            // Reported rather than surfaced: the request that started this
-            // refresh has already answered, so the failure has nowhere to go
-            // except the log the next request's note points at.
-            Err(error) => tracing::warn!(%error, "codex model list refresh failed"),
+            // Logged and kept: the next reader is told what went wrong instead
+            // of being asked to open the menu again.
+            Err(error) => {
+                tracing::warn!(%error, "codex model list refresh failed");
+                if let Ok(mut guard) = last_error().lock() {
+                    *guard = Some(error.to_string());
+                }
+                if let Ok(mut guard) = retry_after().lock() {
+                    *guard = Some(Instant::now() + REFRESH_FAILURE_BACKOFF);
+                }
+            }
         }
         refreshing().store(false, Ordering::SeqCst);
     });

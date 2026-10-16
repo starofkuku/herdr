@@ -6,7 +6,7 @@ import { ConversationView } from "./ConversationView";
 import { InteractionPanel } from "./InteractionPanel";
 import { CodexInteractionNotice } from "./CodexInteractionNotice";
 import type { InteractionAnswer } from "./interaction";
-import { AlarmClock, ArrowUp, Download, Maximize2, Minimize2, Plus, Settings, Square, SquareTerminal, Terminal } from "lucide-react";
+import { AlarmClock, ArrowUp, Download, Maximize2, Minimize2, Moon, MoreHorizontal, Plug, Plus, Settings, Square, SquareTerminal, Sun, Terminal } from "lucide-react";
 import { AgentIcon } from "./AgentIcon";
 import { CopyButton } from "./Markdown";
 import { AgentCycleOverlay } from "./AgentCycleOverlay";
@@ -21,13 +21,17 @@ import { SelectionQuoteMenu } from "./SelectionQuoteMenu";
 import { QuoteChips } from "./QuoteChips";
 import {
   addQuote,
+  expandQuotedPlaceholders,
   newQuote,
   NO_QUOTES,
-  quotedPromptBlocks,
+  quotePlaceholder,
   removeQuote,
+  stripAllQuotePlaceholders,
+  stripQuotePlaceholder,
   type QuoteSource,
   type QuoteState,
 } from "./quotes";
+import { QuoteOriginLayer } from "./QuoteOriginLayer";
 import { useInputHistory } from "./useInputHistory";
 import { BackendBadge } from "./BackendBadge";
 import { FilePreview } from "./FilePreview";
@@ -53,6 +57,14 @@ import { AgentModelPicker } from "./AgentModelPicker";
 import { SUBAGENT_POLL_MS, isRunning, loadSubagents, type SubagentRun } from "./subagents";
 import { TODO_POLL_MS, loadTodos, type TodoItem } from "./todos";
 import { ThemeToggle } from "./ThemeToggle";
+import { applyTheme, loadTheme, toggleTheme, type Theme } from "./theme";
+import { routeHash } from "./route";
+
+/** The cc-switch page as an absolute link, for opening beside this one. */
+function ccswitchHref(): string {
+  return new URL(routeHash({ view: "ccswitch" }), window.location.href).href;
+}
+import { TopbarOverflowMenu } from "./TopbarOverflowMenu";
 import {
   fileToBase64,
   formatBytes,
@@ -840,29 +852,25 @@ export function AgentDetail({
     // A leading slash that names an installed skill becomes the invocation
     // prompt; an agent-native command passes through as typed.
     const message = expandSlashMessage(draft.trim(), skillNames, customCommands);
+    /*
+     * The quotes stand where their placeholders stand: each one is expanded
+     * into its blockquote in place, so the agent reads the passages exactly
+     * where the reader pointed. A quote whose placeholder is no longer in the
+     * field is not sent — the reader moved it out, and sending it anyway would
+     * be the pile-at-the-end this arrangement replaced.
+     */
+    const expanded = expandQuotedPlaceholders(message, quotes.quotes);
     // A file with no message is a normal thing to send, so the composer is not
-    // required to contain text when something is attached — and a quoted passage
-    // is something to send on its own.
-    if (
-      !paneId ||
-      (!message && uploads.length === 0 && quotes.quotes.length === 0) ||
-      busy ||
-      preparing
-    ) {
+    // required to contain text when something is attached — and a placeholder
+    // on its own is a message too.
+    if (!paneId || busy || preparing || (!expanded.trim() && uploads.length === 0)) {
       return;
     }
     setBusy(true);
     try {
       const pasted = await uploadFiles();
-      const base = [message, ...pasted].filter((part) => part.length > 0).join("\n");
-      /*
-       * The quotes go after the message and its files, set off by a blank line:
-       * the agent reads the whole thing as one prompt, and a quotation that is not
-       * run together with the sentence above it stays legible for the reader who
-       * scrolls back to find out what they asked.
-       */
-      const quoting = quotedPromptBlocks(quotes.quotes);
-      const text = quoting ? (base ? `${base}\n\n${quoting}` : quoting) : base;
+      const text = [expanded, ...pasted].filter((part) => part.length > 0).join("\n");
+      if (!text.trim()) return;
       // The files are only dropped once the message is away: an upload that
       // succeeded must not leave a copy behind, and a send that failed must not
       // take the user's files with it.
@@ -873,6 +881,8 @@ export function AgentDetail({
       // The passage was sent with the message, so keeping it attached would send
       // it again with the next one.
       setQuotes(NO_QUOTES);
+      quotesRef.current = NO_QUOTES;
+      quoteSeqRef.current = 0;
       setError(null);
       // The box was sized for the message that just went. The next one starts
       // from the default again, so a long draft cannot leave a tall empty card
@@ -1267,6 +1277,11 @@ export function AgentDetail({
 
   /** The passages quoted out of the conversation, to be sent with the prompt. */
   const [quotes, setQuotes] = useState<QuoteState>(NO_QUOTES);
+  /* Mirrors `quotes` for handlers that must read it without a stale closure. */
+  const quotesRef = useRef(quotes);
+  quotesRef.current = quotes;
+  /* Hands each new quote the next placeholder number for as long as the list is alive. */
+  const quoteSeqRef = useRef(0);
 
   /**
    * The file the agent records this conversation in, as the conversation view sees
@@ -1289,6 +1304,12 @@ export function AgentDetail({
   const [shellBusy, setShellBusy] = useState(false);
   /** Whether the scheduled-prompt panel is open. */
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  /** Whether the cc-switch panel is open: provider management for the agents. */
+  // The phone's "…": the actions a narrow topbar cannot fit, as a menu.
+  const [moreOpen, setMoreOpen] = useState(false);
+  // The menu's own view of the theme — the topbar's ThemeToggle is hidden on a
+  // phone, so this copy is the one that acts there.
+  const [menuTheme, setMenuTheme] = useState<Theme>(() => loadTheme());
   const showTerminal = terminalOpen ?? agent === null;
 
   /*
@@ -1365,16 +1386,67 @@ export function AgentDetail({
   /**
    * Attaches a passage the reader quoted to the prompt.
    *
-   * To the chip above the field rather than into the field itself: the passage is
-   * context the reader referred to, not text they meant to write, and a quote
-   * inside the draft would have to be deleted by hand and could be edited into
-   * something else on the way. The field still takes focus afterwards, because
-   * asking the question about the passage is the next thing they do.
+   * The passage itself is kept in the chip above the field — never spliced in
+   * as text, so it cannot be edited into something the reader never picked.
+   * What goes into the field is its placeholder ([引用3]), dropped at the
+   * caret: the reader can move it among their own sentences, and the passage
+   * is expanded from it only on the way out. A passage already quoted, or one
+   * that was refused, adds no placeholder. The field takes focus afterwards,
+   * because asking the question about the passage is the next thing they do.
    */
   const takeQuote = useCallback((text: string, source: QuoteSource) => {
-    setQuotes((current) => addQuote(current, newQuote(text, source)));
-    window.requestAnimationFrame(() => composerRef.current?.focus());
+    const seq = quoteSeqRef.current + 1;
+    const candidate = newQuote(text, source, seq);
+    const next = addQuote(quotesRef.current, candidate);
+    const accepted = next.quotes.indexOf(candidate) !== -1;
+    quotesRef.current = next;
+    setQuotes(next);
+    if (!accepted) return;
+    quoteSeqRef.current = seq;
+    const token = quotePlaceholder(seq);
+    const field = composerRef.current;
+    if (field) {
+      const start = field.selectionStart ?? field.value.length;
+      const end = field.selectionEnd ?? start;
+      setDraft((current) => current.slice(0, start) + token + current.slice(end));
+      window.requestAnimationFrame(() => {
+        const fieldNow = composerRef.current;
+        if (!fieldNow) return;
+        fieldNow.focus();
+        fieldNow.setSelectionRange(start + token.length, start + token.length);
+      });
+    } else {
+      setDraft((current) => current + token);
+    }
   }, []);
+
+  /** Drops one quote, pulling its placeholder out of the field with it. */
+  const dropQuote = useCallback((id: string) => {
+    const current = quotesRef.current;
+    const quote = current.quotes.find((entry) => entry.id === id);
+    const next = removeQuote(current, id);
+    quotesRef.current = next;
+    setQuotes(next);
+    if (quote) setDraft((draft) => stripQuotePlaceholder(draft, quote.seq));
+  }, []);
+
+  /** Drops every quote and every placeholder with them; the numbering starts over. */
+  const dropAllQuotes = useCallback(() => {
+    const current = quotesRef.current;
+    setDraft((draft) => stripAllQuotePlaceholders(draft, current.quotes));
+    setQuotes(NO_QUOTES);
+    quotesRef.current = NO_QUOTES;
+    quoteSeqRef.current = 0;
+  }, []);
+
+  /* The quotes whose placeholder still stands in the field; the rest are not sent. */
+  const placedQuoteSeqs = new Set(
+    quotes.quotes
+      .filter((quote) => draft.includes(quotePlaceholder(quote.seq)))
+      .map((quote) => quote.seq),
+  );
+
+  /* Where each quoted passage came from, marked in the transcript. */
 
   // The list belongs to the agent and is read back from its transcript, so it
   // is refreshed on a slow timer while the agent runs and left alone once it
@@ -1464,6 +1536,12 @@ export function AgentDetail({
           currentBackendId={backend.id}
           onSelect={onSelectAgent}
         />
+        {/*
+          The actions row. Unwrapped on the desktop (`display: contents`), and on
+          a phone reduced to the terminal toggle — the one that shows state —
+          with the rest behind the "…" menu that follows it.
+        */}
+        <div className="topbar-actions">
         {sessionFile?.sizeBytes !== undefined ? (
           /*
            * The session's own file: how large the record has grown, and a way to
@@ -1526,6 +1604,20 @@ export function AgentDetail({
           <SquareTerminal size={15} aria-hidden="true" />
         </button>
         <ThemeToggle />
+        {/*
+          cc-switch manages every agent's provider configurations; this is the
+          page for it, so the CLI's provider ids and JSON documents are not the
+          only way to reach it.
+        */}
+        <button
+          type="button"
+          className="ghost"
+          onClick={() => window.open(ccswitchHref(), "_blank", "noopener")}
+          aria-label="cc-switch"
+          title="cc-switch（管理各 agent 的供应商配置）"
+        >
+          <Plug size={15} aria-hidden="true" />
+        </button>
         <button
           type="button"
           className="ghost settings-toggle"
@@ -1535,6 +1627,76 @@ export function AgentDetail({
         >
           <Settings size={15} aria-hidden="true" />
         </button>
+        </div>
+        <button
+          type="button"
+          className="ghost topbar-more"
+          onClick={() => setMoreOpen((open) => !open)}
+          aria-label="更多操作"
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          title="更多操作"
+        >
+          <MoreHorizontal size={15} aria-hidden="true" />
+        </button>
+        {moreOpen ? (
+          <TopbarOverflowMenu
+            onClose={() => setMoreOpen(false)}
+            items={[
+              ...(sessionFile?.sizeBytes !== undefined
+                ? [
+                    {
+                      key: "download",
+                      icon: <Download size={15} aria-hidden="true" />,
+                      label: `下载会话（${formatBytes(sessionFile.sizeBytes)}）`,
+                      disabled: downloading,
+                      onSelect: () => void downloadSession(),
+                    },
+                  ]
+                : []),
+              {
+                key: "schedule",
+                icon: <AlarmClock size={15} aria-hidden="true" />,
+                label: "定时任务",
+                onSelect: () => setScheduleOpen(true),
+              },
+              {
+                key: "shell",
+                icon: <SquareTerminal size={15} aria-hidden="true" />,
+                label: "新建 Shell",
+                disabled: shellBusy,
+                onSelect: () => void openShell(),
+              },
+              {
+                key: "ccswitch",
+                icon: <Plug size={15} aria-hidden="true" />,
+                label: "cc-switch",
+                onSelect: () => window.open(ccswitchHref(), "_blank", "noopener"),
+              },
+              {
+                key: "theme",
+                icon:
+                  menuTheme === "dark" ? (
+                    <Sun size={15} aria-hidden="true" />
+                  ) : (
+                    <Moon size={15} aria-hidden="true" />
+                  ),
+                label: menuTheme === "dark" ? "切换到浅色主题" : "切换到深色主题",
+                onSelect: () => {
+                  const next = toggleTheme(menuTheme);
+                  setMenuTheme(next);
+                  applyTheme(next);
+                },
+              },
+              {
+                key: "settings",
+                icon: <Settings size={15} aria-hidden="true" />,
+                label: "设置",
+                onSelect: () => setSettingsOpen(true),
+              },
+            ]}
+          />
+        ) : null}
         <ConnectionBadge state={connection} onRetry={onRetry} />
         <span className={`dot ${agent?.status ?? "unknown"}`} aria-label={statusLabel(agent?.status ?? "unknown")} />
       </header>
@@ -1608,6 +1770,7 @@ export function AgentDetail({
           working={agent?.status === "working"}
           onPreviewImage={setLightbox}
           onQuote={takeQuote}
+          quotes={quotes.quotes}
           onSessionInfo={onSessionInfo}
           status={
             <StatusPanel
@@ -1631,6 +1794,7 @@ export function AgentDetail({
         </div>
       ) : (
         <div className="transcript" ref={transcriptRef} onScroll={onScroll}>
+          <QuoteOriginLayer scrollRef={transcriptRef} quotes={quotes.quotes} />
           {loadingOlder ? <p className="pager">loading earlier output…</p> : null}
           {exhausted && pages.length > 1 ? <p className="pager">start of history</p> : null}
           <pre>{transcript || "waiting for output…"}</pre>
@@ -1662,8 +1826,9 @@ export function AgentDetail({
         />
         <QuoteChips
           state={quotes}
-          onRemove={(id) => setQuotes((current) => removeQuote(current, id))}
-          onRemoveAll={() => setQuotes(NO_QUOTES)}
+          placedSeqs={placedQuoteSeqs}
+          onRemove={dropQuote}
+          onRemoveAll={dropAllQuotes}
         />
         <div className="composer-row">
           {tall ? (
@@ -1830,6 +1995,7 @@ export function AgentDetail({
         Last in the document so it needs no stacking contest: the cycle covers
         the whole page, including the file tree and any drawer already open.
       */}
+
       {scheduleOpen ? (
         <SchedulePanel
           client={client}
