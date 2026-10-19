@@ -1436,7 +1436,6 @@ impl App {
         if cursor == Some(0) && handle.window_start_bytes() > 0 {
             let window_start = handle.window_start_bytes();
             let before = handle.session().turns.len();
-            drop(handle);
             let step = self.state.transcript_extend_step_bytes as u64;
             match codex_trace_parser::session::SessionHandle::load_from(
                 std::path::Path::new(&path),
