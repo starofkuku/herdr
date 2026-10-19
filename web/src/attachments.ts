@@ -29,8 +29,15 @@ export type MessagePart =
 /** Extensions worth an inline preview. Anything else stays as written. */
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "bmp", "avif"]);
 
-/** `<32 hex>.<ext>`, which is how the server names every uploaded file. */
-const UPLOADED_FILE = /([0-9a-f]{32})\.([A-Za-z0-9]+)/g;
+/**
+ * `<32 hex>.<image ext>`, which is how the server names every uploaded image.
+ *
+ * The extensions are spelled out rather than matched as "some alphanumerics": a
+ * reference typed straight against the next word (`…/id.png1. next sentence`)
+ * would otherwise swallow the `1` into the extension, fail the image check, and
+ * leave the whole reference as plain text.
+ */
+const UPLOADED_FILE = /([0-9a-f]{32})\.(png|jpe?g|gif|webp|bmp|avif)/gi;
 
 /**
  * Splits a message into prose and previewable uploads.
@@ -40,7 +47,7 @@ const UPLOADED_FILE = /([0-9a-f]{32})\.([A-Za-z0-9]+)/g;
  * existed, drops it. Once a message has no previewable upload the original
  * string is returned untouched, so a normal message renders exactly as before.
  */
-export function splitMessage(text: string): MessagePart[] {
+export function splitMessage(text: string, origin = ""): MessagePart[] {
   const parts: MessagePart[] = [];
   let cursor = 0;
 
@@ -66,7 +73,12 @@ export function splitMessage(text: string): MessagePart[] {
     if (tokenStart > cursor) {
       parts.push({ kind: "text", text: text.slice(cursor, tokenStart) });
     }
-    parts.push({ kind: "image", attachment: { path, url: `/uploads/${id}.${extension}`, name } });
+    parts.push({
+      kind: "image",
+      // Absolute when the conversation lives on another gateway: the file is
+      // served from that machine, not from whatever origin the page has.
+      attachment: { path, url: `${origin}/uploads/${id}.${extension}`, name },
+    });
     cursor = end;
   }
 

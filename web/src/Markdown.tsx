@@ -12,6 +12,7 @@ import { isValidElement, useEffect, useRef, useState, type ReactNode } from "rea
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
+import remarkBreaks from "remark-breaks";
 import { Check, Copy, Download, Maximize2 } from "lucide-react";
 
 /**
@@ -272,12 +273,18 @@ function DataBlock({ text }: { text: string }) {
 }
 
 /** Renders Markdown with the shared blocks and affordances. */
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, breaks = false }: { text: string; breaks?: boolean }) {
   if (hasRunawayLine(text)) return <DataBlock text={text} />;
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        /*
+         * Chat semantics for the reader's own messages: a line they broke
+         * themselves is a line they meant, so it breaks on screen too. The
+         * agent's Markdown is left on the standard rule — one newline is a
+         * space — because its wrapping is incidental, not intended.
+         */
+        remarkPlugins={breaks ? [remarkGfm, remarkBreaks] : [remarkGfm]}
         rehypePlugins={[[rehypeHighlight, { detect: false, ignoreMissing: true }]]}
         components={{
           pre: CodeBlock,

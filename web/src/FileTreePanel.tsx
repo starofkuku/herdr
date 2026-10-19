@@ -62,12 +62,21 @@ export function FileTreePanel({
   paneId,
   cwd,
   hidden,
+  activePath,
   onOpenFile,
 }: {
   client: FilesClient;
   paneId: string;
   /** The pane's project directory, shown as the tree's root. */
   cwd: string;
+  /**
+   * The file the preview is showing, marked in the list.
+   *
+   * A tree that does not say which file is open makes the reader find it by name
+   * again every time; the mark is a row background, the same idea the palette
+   * uses for its own selection.
+   */
+  activePath?: string | null;
   /** True while the conversation is not the visible screen. */
   hidden?: boolean;
   /**
@@ -299,7 +308,8 @@ export function FileTreePanel({
       <div key={key} className="file-tree__node" ref={setRowRef(entry.path)}>
         <button
           type="button"
-          className="file-tree__entry"
+          className={`file-tree__entry${entry.path === activePath ? " active" : ""}`}
+          aria-current={entry.path === activePath ? "true" : undefined}
           style={{ paddingLeft: `${0.3 + depth * 0.6}rem` }}
           title={entry.path}
           onClick={() => {
@@ -429,7 +439,8 @@ export function FileTreePanel({
                 <div key={row.path} className="file-tree__node">
                   <button
                     type="button"
-                    className="file-tree__entry"
+                    className={`file-tree__entry${row.path === activePath ? " active" : ""}`}
+                    aria-current={row.path === activePath ? "true" : undefined}
                     style={{ paddingLeft: "0.3rem" }}
                     title={row.path}
                     onClick={() => onOpenFile(row.path)}

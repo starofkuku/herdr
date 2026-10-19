@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 import { CopyButton, Markdown } from "./Markdown";
 import {
   isImagePath,
@@ -12,6 +12,12 @@ import { ImageViewer } from "./ImageViewer";
 
 interface FilesClient {
   call: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  /**
+   * The HTTP origin this backend serves uploads from; empty or absent means
+   * the page's own origin. `files.publish` answers with a path relative to the
+   * gateway that owns the file, which is not this page for a remote backend.
+   */
+  uploadsOrigin?: () => string;
 }
 
 /**
@@ -160,6 +166,8 @@ function FileHead({
   showText,
   fullscreen,
   onToggleFullscreen,
+  expanded,
+  onToggleExpanded,
   onClose,
 }: {
   path: string;
@@ -167,6 +175,10 @@ function FileHead({
   showText: boolean;
   fullscreen: boolean;
   onToggleFullscreen: () => void;
+  /** Whether the docked panel is showing alone, with the conversation hidden. */
+  expanded?: boolean;
+  /** Absent in the overlay, where the dock's own width is not in play. */
+  onToggleExpanded?: () => void;
   onClose: () => void;
 }) {
   const name = path.split("/").pop() ?? path;
@@ -177,27 +189,54 @@ function FileHead({
       </span>
       <span className="file-preview__path">{path}</span>
       {file ? <span className="file-preview__size">{formatSize(file.size)}</span> : null}
-      {showText && file ? <CopyButton text={file.content} title="复制内容" /> : null}
       {/*
-        Reading a file the panel is too narrow for, without losing the place in
-        the conversation behind it.
+        The controls, in one group pinned to the right: widening the panel, copying,
+        the window-sized view, and closing. Grouped so the first of them does not
+        own the right edge alone.
       */}
-      <button
-        type="button"
-        className="file-preview__expand"
-        aria-label={fullscreen ? "退出全屏" : "全屏查看"}
-        title={fullscreen ? "退出全屏 (Esc)" : "全屏查看"}
-        onClick={onToggleFullscreen}
-      >
-        {fullscreen ? (
-          <Minimize2 size={14} aria-hidden="true" />
-        ) : (
-          <Maximize2 size={14} aria-hidden="true" />
-        )}
-      </button>
-      <button type="button" className="file-preview__close" onClick={onClose} aria-label="关闭">
-        ×
-      </button>
+      <div className="file-preview__actions">
+        {/*
+          Reading a long file with the conversation out of the way. The arrow points
+          the way the panel will move: left to take the whole width, right to give
+          the conversation back.
+        */}
+        {onToggleExpanded ? (
+          <button
+            type="button"
+            className="file-preview__expand"
+            aria-label={expanded ? "恢复对话分栏" : "文件占满，隐藏对话"}
+            title={expanded ? "恢复对话分栏" : "文件占满，隐藏对话"}
+            onClick={onToggleExpanded}
+          >
+            {expanded ? (
+              <ChevronRight size={15} aria-hidden="true" />
+            ) : (
+              <ChevronLeft size={15} aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
+        {showText && file ? <CopyButton text={file.content} title="复制内容" /> : null}
+        {/*
+          Reading a file the panel is too narrow for, without losing the place in
+          the conversation behind it.
+        */}
+        <button
+          type="button"
+          className="file-preview__expand"
+          aria-label={fullscreen ? "退出全屏" : "全屏查看"}
+          title={fullscreen ? "退出全屏 (Esc)" : "全屏查看"}
+          onClick={onToggleFullscreen}
+        >
+          {fullscreen ? (
+            <Minimize2 size={14} aria-hidden="true" />
+          ) : (
+            <Maximize2 size={14} aria-hidden="true" />
+          )}
+        </button>
+        <button type="button" className="file-preview__close" onClick={onClose} aria-label="关闭">
+          ×
+        </button>
+      </div>
     </header>
   );
 }
@@ -272,11 +311,17 @@ export function FilePreview({
   client,
   paneId,
   path,
+  expanded = false,
+  onToggleExpanded,
   onClose,
 }: {
   client: FilesClient;
   paneId: string;
   path: string;
+  /** Whether the conversation is hidden and the file has the whole row. */
+  expanded?: boolean;
+  /** Toggles that; absent when the reader cannot expand it here. */
+  onToggleExpanded?: () => void;
   onClose: () => void;
 }) {
   const [file, setFile] = useState<FileContent | null>(null);
@@ -300,9 +345,17 @@ export function FilePreview({
     setLoading(true);
     if (asImage) {
       setFile(null);
+      // The published URL is relative to the backend's own gateway. On this
+      // page's origin it would 404 whenever the two are different machines,
+      // so it is made absolute before anything renders it.
+      const origin = client.uploadsOrigin?.() ?? "";
       void publishFile(client, paneId, path).then((result) => {
         if (!cancelled) {
-          setImage(result);
+          setImage(
+            result && !/^https?:/i.test(result.url)
+              ? { ...result, url: `${origin}${result.url}` }
+              : result,
+          );
           setLoading(false);
         }
       });
@@ -355,6 +408,8 @@ export function FilePreview({
           {...head}
           fullscreen={false}
           onToggleFullscreen={() => setFullscreen(true)}
+          expanded={expanded}
+          onToggleExpanded={onToggleExpanded}
         />
         <FilePane
           path={path}

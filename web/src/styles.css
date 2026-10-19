@@ -7194,3 +7194,224 @@ textarea {
 .conversation {
   position: relative;
 }
+
+/*
+ * The marks' layer takes no room of its own.
+ *
+ * Its height was once set from the scroll container's `scrollHeight` so that
+ * marks below the fold had somewhere to stand — but that number already counts
+ * the layer, so every repaint read a bigger value and wrote it back: the blank
+ * space under a streaming reply grew with each frame and stayed after the reply
+ * ended. Height zero instead, with the marks overflowing it: they mark real
+ * text, so they can never reach past the content, and the container's scroll
+ * range is exactly the content's own.
+ */
+.quote-origin-layer {
+  height: 0;
+  overflow: visible;
+}
+
+/*
+ * ---- quotes, one language ----
+ *
+ * The chip above the composer (`1 条对话引用`) sets the vocabulary: a quiet
+ * surface, a hairline border, text in the page's own colour and the mark in the
+ * muted one. The three places a quote shows itself follow it — the badge that
+ * stands in for the placeholder while typing, the numbered chip beside the
+ * passage, and the wash over the passage itself — so a quote reads as the same
+ * thing wherever it appears, rather than as an accent-coloured widget in one
+ * place and a neutral pill in another.
+ */
+.composer-quote-token {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+  font-weight: 500;
+  letter-spacing: normal;
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.composer-quote-token::before {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.quote-origin-chip {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: none;
+}
+
+/* The wash over the quoted words: the chip's border, tinted rather than filled,
+   so the text underneath keeps its own contrast in either theme. */
+.quote-origin-rect {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/*
+ * Room above and below the badge's label. The ceiling is the field's own line
+ * height: a taller box would push the layer's line boxes past the field's and
+ * every line after it would drift out of step with the caret.
+ */
+.composer-quote-token {
+  padding: 0.22em 2px;
+}
+
+/*
+ * ---- the mark over a quoted passage, made to be seen ----
+ *
+ * The neutral wash was honest to the chip's language but too quiet in the text
+ * itself: at nine percent it read as another inline code chip rather than as a
+ * passage someone had picked out. A highlighter's amber says "this part" at a
+ * glance, and the number rides on the same hue, deepened until it can carry
+ * white — so the two read as one mark, not as a tint with a label stuck on it.
+ * The composer's badges stay neutral: there the badge *is* the quote, here the
+ * wash is a pointer back to it.
+ */
+.quote-origin-rect {
+  background: color-mix(in srgb, #f59e0b 30%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 50%, transparent);
+}
+
+.quote-origin-chip {
+  border: 0;
+  border-radius: 6px;
+  background: #b45309;
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
+}
+
+/*
+ * The number's own mark: a circle, with the digit centred by layout rather
+ * than by a line height that only happens to line up. Sized for two digits, so
+ * a later quote does not turn the circle back into a squarish blob.
+ */
+.quote-origin-chip {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  min-width: 18px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+/*
+ * The badge keeps the field's own width for its placeholder — that is what
+ * keeps the caret and the rest of the line in step — so its breathing room has
+ * to come from inside: the quote mark in front of the label was eating the
+ * whole of it, and the label sat edge to edge against the words beside it.
+ */
+.composer-quote-token::before {
+  content: none;
+}
+
+/*
+ * Air between the badge and the words beside it.
+ *
+ * The box has to keep the placeholder's own width — that is what holds the
+ * caret and the rest of the line in step — so the gap cannot come from a
+ * margin: it comes from inside the box. The box itself draws nothing; the pill
+ * is a shape inset four pixels from either end, so the badge ends before its
+ * neighbours begin while its advance width is untouched.
+ */
+.composer-quote-token {
+  position: relative;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0.28em 0;
+}
+
+.composer-quote-token::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  right: 4px;
+  z-index: -1;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+/*
+ * 用户消息下方的复制 / 编辑。
+ *
+ * 与气泡右边缘对齐，悬停这一轮对话时淡入 —— 位置固定在气泡下方而不是浮在它
+ * 上面，所以阅读时不会遮住正文，鼠标从气泡移下来也仍在同一轮里，不会闪烁。
+ * 触屏没有悬停状态，直接常显。
+ */
+.user-actions {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  /*
+   * The turn's own 1rem gap would park these a full line away from the bubble;
+   * pulling most of it back puts them snug underneath, the way the reference
+   * shows, while still clearing the bubble's edge.
+   */
+  margin-top: -0.625rem;
+  padding-right: 0.15rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.turn:hover .user-actions,
+.user-actions:focus-within {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .user-actions {
+    opacity: 1;
+  }
+}
+
+/*
+ * 文件占满：对话列让位，文件拿走整行的宽度。
+ *
+ * 文件树仍留在最左列 —— 读者是在它里面换文件的，所以换文件时这个状态保持，
+ * 只有关闭预览才回到分栏。
+ */
+.detail-screen.preview-expanded .detail-main {
+  display: none;
+}
+
+/*
+ * 文件头右侧的动作组。
+ *
+ * 展开/收起、复制、全屏、关闭成一簇贴右；否则第一个按钮自己吃掉
+ * margin-left:auto，箭头就会被甩到文件名旁边去。
+ */
+.file-preview__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+  flex: none;
+}
+
+/*
+ * 文件树里正在预览的那个文件。
+ *
+ * 用强调色的淡淡一层，跟悬停的 surface-2 区分开 —— 悬停是"路过"，这个是"就在这
+ * 里"。行本身要保持可读，所以底色不压过文字。
+ */
+.file-tree__entry.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.file-tree__entry.active .file-tree__name {
+  font-weight: 600;
+}

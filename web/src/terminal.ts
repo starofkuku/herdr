@@ -104,7 +104,14 @@ export async function sendInput(
   await client.call("pane.send_text", { pane_id: paneId, text: data });
 }
 
-/** The id of the workspace web-created shells live in, making one if needed. */
+/**
+ * The id of the workspace web-created shells live in, making one if needed.
+ *
+ * `cwd` only seeds a workspace that does not exist yet. There is one shell
+ * workspace for the whole session, so it outlives the conversation that created
+ * it: its own cwd is the first conversation's, not this one's. Where a new shell
+ * actually starts is decided per pane by the `cwd` handed to `pane.split`.
+ */
 export async function ensureShellWorkspace(
   client: TerminalClient,
   cwd: string | null,
@@ -137,6 +144,11 @@ export async function ensureShellWorkspace(
  * A split of the shell workspace's own pane, which starts the configured shell —
  * the same one the TUI opens — and leaves the workspace's layout to the server
  * rather than to whatever the browser happens to be.
+ *
+ * The `cwd` is the caller's project path and is passed straight to the split. It
+ * has to be: the shell workspace is shared, so without it the server falls back
+ * to following whatever pane that workspace already holds, and a shell opened
+ * from one conversation would start in another conversation's directory.
  */
 export async function createShellPane(
   client: TerminalClient,
@@ -149,6 +161,7 @@ export async function createShellPane(
       workspace_id: workspaceId,
       direction: "right",
       focus: true,
+      ...(cwd ? { cwd } : {}),
     });
     const pane = asRecord(response?.pane);
     return typeof pane?.pane_id === "string" ? pane.pane_id : null;

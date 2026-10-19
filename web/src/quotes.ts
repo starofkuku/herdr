@@ -12,8 +12,13 @@
 /** The most one quote may carry. ZCode's number for the same job. */
 export const QUOTE_MAX_CHARS = 8000;
 
-/** How many quotes a prompt may carry, and how much text they may add up to. */
-export const QUOTE_MAX_COUNT = 8;
+/**
+ * How many quotes a prompt may carry, and how much text they may add up to.
+ * The count is ours — twenty, raised from ZCode's eight — while the two size
+ * caps stay as they were: many short passages are cheap, and one huge pile is
+ * what the total cap is there to stop.
+ */
+export const QUOTE_MAX_COUNT = 20;
 export const QUOTE_MAX_TOTAL = 16_000;
 
 /** Which part of the conversation a quote came out of. */
@@ -125,6 +130,10 @@ export function quotePlaceholder(seq: number): string {
 /** Splits a line into its text and the quote numbers marked inside it. */
 const PLACEHOLDER_SPLIT = /\[引用(\d+)\]/;
 
+/** Any placeholder — a quote's or an attached file's — anchored for reading it off either edge of the caret. */
+const PLACEHOLDER_ENDING = /(?:\[引用\d+\]|\[图片\d+\])$/;
+const PLACEHOLDER_STARTING = /^(?:\[引用\d+\]|\[图片\d+\])/;
+
 /**
  * The draft with every placeholder expanded into its quotation block, standing
  * exactly where the reader put it.
@@ -205,4 +214,97 @@ export function stripAllQuotePlaceholders(text: string, quotes: readonly Quote[]
   let out = text;
   for (const quote of quotes) out = stripQuotePlaceholder(out, quote.seq);
   return out;
+}
+
+
+/**
+ * The draft after the placeholder the caret is against, for a Backspace or a
+ * Delete.
+ *
+ * A placeholder is one thing to the reader — a badge — so a key at its edge
+ * takes all of it. Peeling it character by character would leave `[引用` on
+ * screen, half a badge in plain text, and would drop the quote behind it as
+ * soon as the text stopped being a placeholder at all.
+ *
+ * Returns null when the key is not against a placeholder, so the field keeps
+ * its ordinary behaviour.
+ */
+export function dropQuoteAtCaret(
+  text: string,
+  caret: number,
+  key: "Backspace" | "Delete",
+): { text: string; caret: number } | null {
+  let from: number;
+  let to: number;
+  if (key === "Backspace") {
+    const match = PLACEHOLDER_ENDING.exec(text.slice(0, caret));
+    if (!match) return null;
+    from = caret - match[0].length;
+    to = caret;
+  } else {
+    const match = PLACEHOLDER_STARTING.exec(text.slice(caret));
+    if (!match) return null;
+    from = caret;
+    to = caret + match[0].length;
+  }
+  /* The seam the removal leaves behind: the spaces that stood around the badge
+   * become one, the way removing the quote from its chip does it. */
+  const left = text.slice(0, from);
+  const right = text.slice(to);
+  if (/ $/.test(left) && /^ /.test(right)) {
+    const kept = left.replace(/ +$/, " ");
+    return { text: kept + right.replace(/^ +/, ""), caret: kept.length };
+  }
+  return { text: left + right, caret: from };
+}
+
+/** The placeholder an attached file takes in the draft, so it stands where the
+ * reader pasted it rather than where a list of paths would be appended. */
+export function imagePlaceholder(seq: number): string {
+  return `[图片${seq}]`;
+}
+
+/** One token of a draft: prose, a quote's placeholder, or an attached file's. */
+export type DraftToken =
+  | { text: string }
+  | { kind: "quote"; seq: number }
+  | { kind: "image"; seq: number };
+
+const ANY_TOKEN = /\[(?:引用|图片)(\d+)\]/g;
+
+/** The draft cut at every placeholder, whichever kind, for painting badges. */
+export function splitDraftTokens(text: string): DraftToken[] {
+  const out: DraftToken[] = [];
+  let last = 0;
+  for (const match of text.matchAll(ANY_TOKEN)) {
+    const at = match.index ?? 0;
+    if (at > last) out.push({ text: text.slice(last, at) });
+    const kind = match[0][1] === "图" ? "image" : "quote";
+    out.push({ kind, seq: Number(match[1]) });
+    last = at + match[0].length;
+  }
+  if (last < text.length) out.push({ text: text.slice(last) });
+  return out;
+}
+
+/** The draft with each file's placeholder standing in for its stored path. */
+export function expandImagePlaceholders(text: string, paths: ReadonlyMap<number, string>): string {
+  return text.replace(
+    /\[图片(\d+)\]/g,
+    (token: string, digits: string, offset: number, whole: string) => {
+      const path = paths.get(Number(digits));
+      if (path === undefined) return "";
+      /*
+       * The path has to stand as its own token. A placeholder typed against the
+       * next word — `[图片1]1. 说明` — would otherwise glue into `…id.png1.`, and
+       * nothing downstream could tell where the file name ended. A space is
+       * added on whichever side is missing one, so the sentence keeps its shape.
+       */
+      const before = offset > 0 ? whole[offset - 1] : "";
+      const after = whole[offset + token.length] ?? "";
+      const lead = before && !/\s/.test(before) ? " " : "";
+      const trail = after && !/\s/.test(after) ? " " : "";
+      return `${lead}${path}${trail}`;
+    },
+  );
 }

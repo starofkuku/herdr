@@ -1,9 +1,9 @@
-import { useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useRef, type KeyboardEvent, type RefObject } from "react";
 import { FileMentionMenu } from "./FileMentionMenu";
 import type { MentionClient } from "./fileMentions";
 import { handleSlashKey, SlashMenu, type SlashMenuState } from "./SlashMenu";
 import { useFileMentions } from "./useFileMentions";
-import { quotePlaceholder, splitQuotePlaceholders } from "./quotes";
+import { dropQuoteAtCaret, splitDraftTokens } from "./quotes";
 
 /**
  * A hidden ruler, and what it has measured.
@@ -79,45 +79,54 @@ export function ComposerInput(props: ComposerInputProps) {
   /*
    * A textarea cannot paint part of its own text, so the badges live in a
    * read-only layer behind a transparent-text field (Slack's arrangement),
-   * aligned by matching metrics. IME composition draws its preview in the
-   * field's own colour, so while it runs the field shows plain text and the
-   * badge layer steps aside — otherwise the passage being typed in Chinese
-   * would be invisible.
+   * aligned by matching metrics.
+   *
+   * The layer carries the whole draft, composition included — the field's value
+   * holds the characters an IME is still composing — so nothing is ever hidden
+   * by the transparent text, and stepping the layer aside during composition
+   * would only break the badges back into their raw placeholders mid-typing.
    */
-  const [composing, setComposing] = useState(false);
-  const segments = splitQuotePlaceholders(props.draft);
+  const segments = splitDraftTokens(props.draft);
   return <>
     {mention.open ? <FileMentionMenu menu={mention} />
       : props.slash.open ? <SlashMenu state={props.slash} /> : null}
     <div
       ref={backdropRef}
       aria-hidden="true"
-      className={
-        composing
-          ? "composer-field__backdrop composer-field__backdrop--aside"
-          : "composer-field__backdrop"
-      }
+      className="composer-field__backdrop"
     >
       {segments.map((segment, index) =>
-        "seq" in segment ? (
+        "kind" in segment ? (
           <mark
             className="composer-quote-token"
             key={index}
             /* Exactly the width of the characters it stands in for. */
-            style={{ width: measureTokenWidth(props.fieldRef.current, quotePlaceholder(segment.seq)) }}
+            style={{
+              width: measureTokenWidth(
+                props.fieldRef.current,
+                segment.kind === "quote" ? `[引用${segment.seq}]` : `[图片${segment.seq}]`,
+              ),
+            }}
           >
-            引用{segment.seq}
+            {segment.kind === "quote" ? "引用" : "图片"}
+            {segment.seq}
           </mark>
         ) : (
           segment.text
         ),
       )}
+      {/*
+       * One trailing newline of its own. `pre-wrap` drops a single newline at
+       * the end of its content, while the field counts the empty line the caret
+       * is on — without this, the layer stands one line short and its scroll
+       * can never reach the line being typed on, which is exactly where the
+       * reader is looking.
+       */}
+      {"\n"}
     </div>
     <textarea
-      className={composing ? undefined : "composer-field__ghost"}
+      className="composer-field__ghost"
       value={props.draft} rows={1} ref={props.fieldRef}
-      onCompositionStart={() => setComposing(true)}
-      onCompositionEnd={() => setComposing(false)}
       onScroll={(event) => {
         if (backdropRef.current) {
           backdropRef.current.scrollTop = event.currentTarget.scrollTop;
@@ -144,6 +153,25 @@ export function ComposerInput(props: ComposerInputProps) {
         props.onFiles(files);
       }}
       onKeyDown={(event) => {
+        /*
+         * A badge is deleted whole: Backspace or Delete against a placeholder
+         * takes the placeholder with it, and the quote follows from the draft
+         * losing it. A selection is left to the browser — it deletes whatever
+         * was selected, and the same rule covers the quote behind it.
+         */
+        if (
+          event.currentTarget.selectionStart === event.currentTarget.selectionEnd &&
+          (event.key === "Backspace" || event.key === "Delete")
+        ) {
+          const removed = dropQuoteAtCaret(props.draft, event.currentTarget.selectionStart ?? 0, event.key);
+          if (removed) {
+            event.preventDefault();
+            const field = event.currentTarget;
+            props.onChange(removed.text);
+            window.requestAnimationFrame(() => field.setSelectionRange(removed.caret, removed.caret));
+            return;
+          }
+        }
         if (mention.open) {
           if (mention.onKeyDown(event)) return;
         } else if (handleSlashKey(event, props.slash)) return;

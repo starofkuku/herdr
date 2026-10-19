@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { Subscription, ConnectionState } from "./gateway";
 import { ConnectionBadge } from "./ConnectionBadge";
 import { HISTORY_PAGE_LINES, directoryName, statusLabel, paneIdOfEvent, type AgentView } from "./api";
@@ -14,6 +14,7 @@ import { AgentSwitcher } from "./AgentSwitcher";
 import { useAgentCycle } from "./useAgentCycle";
 import { PendingUploads } from "./PendingUploads";
 import { ComposerInput } from "./ComposerInput";
+import { AgentRestartIconButton } from "./AgentRestartButton";
 import { TerminalView } from "./TerminalView";
 import { SchedulePanel } from "./SchedulePanel";
 import { createShellPane } from "./terminal";
@@ -31,6 +32,7 @@ import {
   type QuoteSource,
   type QuoteState,
 } from "./quotes";
+import { expandImagePlaceholders, imagePlaceholder } from "./quotes";
 import { QuoteOriginLayer } from "./QuoteOriginLayer";
 import { useInputHistory } from "./useInputHistory";
 import { BackendBadge } from "./BackendBadge";
@@ -191,6 +193,12 @@ const BLOCKER_KEY_GROUPS: { keys: string[]; label: string; title: string; varian
 
 export interface DetailClient {
   call: <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  /**
+   * The HTTP origin this backend serves uploads from; empty or absent means
+   * the page's own origin. A remote conversation's images live on the remote
+   * machine, so their URLs have to point there.
+   */
+  uploadsOrigin?: () => string;
   // A kind is a bare name, or a full subscription object for kinds that need
   // extra parameters such as a `pane_id`.
   subscribe: (
@@ -351,6 +359,15 @@ export function AgentDetail({
   const [fieldFloor, setFieldFloor] = useState<number | null>(null);
   /** The file shown in the preview column, if any. */
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  /**
+   * Whether the file has the whole row with the conversation hidden.
+   *
+   * Deliberately not reset when another file is opened: a reader who widened the
+   * panel is usually comparing several files, and having each one snap back to
+   * the split would make them widen it again every time. Closing the preview is
+   * what returns to the conversation.
+   */
+  const [previewExpanded, setPreviewExpanded] = useState(false);
   /** The pane's installed skills, fetched once a slash is first typed. */
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   /** The reader's own slash commands, kept in this browser. */
@@ -794,20 +811,57 @@ export function AgentDetail({
       for (const file of accepted) {
         staged.push(await stageUpload(file));
       }
-      setUploads((current) => [...current, ...staged]);
+      /*
+       * Each file takes a placeholder at the caret, the way a quote does, so
+       * the picture stands where the reader pasted it and the stored paths
+       * replace the placeholders in place on the way out.
+       */
+      const numbered = staged.map((upload, index) => ({ ...upload, seq: uploadSeqRef.current + 1 + index }));
+      uploadSeqRef.current += staged.length;
+      setUploads((current) => [...current, ...numbered]);
+      const tokens = numbered.map((upload) => imagePlaceholder(upload.seq)).join(" ");
+      const field = composerRef.current;
+      if (field) {
+        const at = field.selectionStart ?? field.value.length;
+        const end = field.selectionEnd ?? at;
+        setDraft((current) => current.slice(0, at) + tokens + current.slice(end));
+        window.requestAnimationFrame(() => {
+          const now = composerRef.current;
+          if (!now) return;
+          now.focus();
+          now.setSelectionRange(at + tokens.length, at + tokens.length);
+        });
+      } else {
+        setDraft((current) => (current ? `${current} ${tokens}` : tokens));
+      }
     } finally {
       setPreparing(false);
     }
   }, []);
 
   /** Removes a file from the pending list and releases its preview. */
-  const removeUpload = useCallback((id: string) => {
-    setUploads((current) => {
-      const entry = current.find((upload) => upload.id === id);
-      if (entry) releaseUpload(entry);
-      return current.filter((upload) => upload.id !== id);
-    });
-  }, []);
+  const removeUpload = useCallback(
+    (id: string) => {
+      const seq = uploads.find((upload) => upload.id === id)?.seq;
+      setUploads((current) => {
+        const entry = current.find((upload) => upload.id === id);
+        if (entry) releaseUpload(entry);
+        return current.filter((upload) => upload.id !== id);
+      });
+      /* The strip's entry and the placeholder in the field are one thing. */
+      if (seq !== undefined) {
+        const token = imagePlaceholder(seq);
+        setDraft((current) =>
+          current
+            .split(token)
+            .join("")
+            .replace(/ {2,}/g, " ")
+            .replace(/ $/, ""),
+        );
+      }
+    },
+    [uploads],
+  );
 
   /**
    * Uploads every pending file and returns the paste tokens.
@@ -817,9 +871,9 @@ export function AgentDetail({
    * the send has succeeded. Clearing here would lose the user's files whenever
    * the send failed after a successful upload.
    */
-  const uploadFiles = useCallback(async (): Promise<string[]> => {
+  const uploadFiles = useCallback(async (): Promise<Array<{ seq: number; text: string }>> => {
     if (!paneId || uploads.length === 0) return [];
-    const results: string[] = [];
+    const results: Array<{ seq: number; text: string }> = [];
     for (const upload of uploads) {
       const data = await fileToBase64(upload.file);
       const response = await client.call<Record<string, unknown>>("pane.stage_upload", {
@@ -835,7 +889,7 @@ export function AgentDetail({
       if (!staged?.paste_text) {
         throw new Error(`upload of ${upload.file.name} returned no path`);
       }
-      results.push(staged.paste_text);
+      results.push({ seq: upload.seq, text: staged.paste_text });
     }
     return results;
   }, [client, paneId, uploads]);
@@ -869,8 +923,12 @@ export function AgentDetail({
     setBusy(true);
     try {
       const pasted = await uploadFiles();
-      const text = [expanded, ...pasted].filter((part) => part.length > 0).join("\n");
-      if (!text.trim()) return;
+      /* Each placeholder stands where the reader put it; the stored path takes
+       * its place, and a placeholder without a file (impossible once the strip
+       * and the field agree, but cheap to be safe about) simply goes. */
+      const paths = new Map(pasted.map((entry) => [entry.seq, entry.text]));
+      const text = expandImagePlaceholders(expanded, paths).trim();
+      if (!text) return;
       // The files are only dropped once the message is away: an upload that
       // succeeded must not leave a copy behind, and a send that failed must not
       // take the user's files with it.
@@ -883,6 +941,8 @@ export function AgentDetail({
       setQuotes(NO_QUOTES);
       quotesRef.current = NO_QUOTES;
       quoteSeqRef.current = 0;
+      /* The numbering starts over with the next message, as the quotes' does. */
+      uploadSeqRef.current = 0;
       setError(null);
       // The box was sized for the message that just went. The next one starts
       // from the default again, so a long draft cannot leave a tall empty card
@@ -1282,6 +1342,8 @@ export function AgentDetail({
   quotesRef.current = quotes;
   /* Hands each new quote the next placeholder number for as long as the list is alive. */
   const quoteSeqRef = useRef(0);
+  /* The same numbering for the placeholders of attached files. */
+  const uploadSeqRef = useRef(0);
 
   /**
    * The file the agent records this conversation in, as the conversation view sees
@@ -1420,6 +1482,24 @@ export function AgentDetail({
     }
   }, []);
 
+  /**
+   * Brings one of the reader's own messages back into the composer.
+   *
+   * The message replaces the draft rather than joining it: this is a rewrite of
+   * that prompt, not a second one after it. Any quote or picture placeholder it
+   * drops is released by the same prune that runs when text goes away, so no
+   * attachments are left behind pointing at nothing.
+   */
+  const editUserMessage = useCallback((text: string) => {
+    setDraft(text);
+    window.requestAnimationFrame(() => {
+      const field = composerRef.current;
+      if (!field) return;
+      field.focus();
+      field.setSelectionRange(text.length, text.length);
+    });
+  }, []);
+
   /** Drops one quote, pulling its placeholder out of the field with it. */
   const dropQuote = useCallback((id: string) => {
     const current = quotesRef.current;
@@ -1438,6 +1518,38 @@ export function AgentDetail({
     quotesRef.current = NO_QUOTES;
     quoteSeqRef.current = 0;
   }, []);
+
+  /*
+   * A quote lives exactly as long as its placeholder does.
+   *
+   * The badge is the quote's handle in the field, so removing it — a backspace,
+   * a selection deleted, a cut, the box cleared — takes the quote with it: its
+   * chip above the composer and its numbered wash over the passage in the
+   * conversation both go, because a quote nobody can see in the prompt is not
+   * something to keep showing as attached.
+   */
+  useLayoutEffect(() => {
+    const current = quotesRef.current;
+    const kept = current.quotes.filter((quote) => draft.includes(quotePlaceholder(quote.seq)));
+    if (kept.length === current.quotes.length) return;
+    const next = { quotes: kept, limit: current.limit };
+    quotesRef.current = next;
+    setQuotes(next);
+  }, [draft]);
+
+  /* An attached file lives exactly as long as its placeholder does — the same
+   * rule the quotes follow. Deleting the badge takes the strip's entry, and
+   * its preview URL, with it. */
+  useLayoutEffect(() => {
+    setUploads((current) => {
+      const kept = current.filter((upload) => draft.includes(imagePlaceholder(upload.seq)));
+      if (kept.length === current.length) return current;
+      for (const dropped of current) {
+        if (!kept.includes(dropped)) releaseUpload(dropped);
+      }
+      return kept;
+    });
+  }, [draft]);
 
   /* The quotes whose placeholder still stands in the field; the rest are not sent. */
   const placedQuoteSeqs = new Set(
@@ -1494,7 +1606,9 @@ export function AgentDetail({
 
   return (
     <div
-      className={`detail-screen${dragging ? " dragging" : ""}`}
+      className={`detail-screen${dragging ? " dragging" : ""}${
+        previewExpanded && previewPath ? " preview-expanded" : ""
+      }`}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -1509,6 +1623,7 @@ export function AgentDetail({
         client={client}
         paneId={paneId ?? ""}
         cwd={agent?.cwd ?? ""}
+        activePath={previewPath}
         onOpenFile={setPreviewPath}
       />
       {settingsOpen ? (
@@ -1574,6 +1689,14 @@ export function AgentDetail({
           Timed prompts: made here because the pane is what they talk to, and
           listed here because a task nobody is watching is the point of one.
         */}
+        {agent ? (
+          <AgentRestartIconButton
+            agent={agent}
+            client={client}
+            connected={connection === "ready"}
+            onRestarted={onOpenPane}
+          />
+        ) : null}
         <button
           type="button"
           className="ghost"
@@ -1770,6 +1893,7 @@ export function AgentDetail({
           working={agent?.status === "working"}
           onPreviewImage={setLightbox}
           onQuote={takeQuote}
+          onEdit={editUserMessage}
           quotes={quotes.quotes}
           onSessionInfo={onSessionInfo}
           status={
@@ -1966,7 +2090,12 @@ export function AgentDetail({
           client={client}
           paneId={paneId}
           path={previewPath}
-          onClose={() => setPreviewPath(null)}
+          expanded={previewExpanded}
+          onToggleExpanded={() => setPreviewExpanded((value) => !value)}
+          onClose={() => {
+            setPreviewPath(null);
+            setPreviewExpanded(false);
+          }}
         />
       ) : null}
 

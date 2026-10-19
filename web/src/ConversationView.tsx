@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ChevronRight } from "lucide-react";
+import { ArrowDown, ChevronRight, Pencil } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
 import { useConversationRefresh } from "./useConversationRefresh";
 import { createConversationReader } from "./conversationReader";
@@ -419,16 +419,19 @@ function ScrubLabel({ text, offsetY }: { text: string; offsetY: number }) {
  */
 function MessageBody({
   text,
+  origin,
   onPreviewImage,
 }: {
   text: string;
+  /** Where this backend's uploads are served from; empty means this page. */
+  origin: string;
   onPreviewImage?: (url: string) => void;
 }) {
-  const parts = splitMessage(text);
+  const parts = splitMessage(text, origin);
   // Nothing to preview: render the original so ordinary messages are byte for
   // byte what they were before.
   if (parts.every((part) => part.kind === "text")) {
-    return <Markdown text={text} />;
+    return <Markdown text={text} breaks />;
   }
 
   return (
@@ -449,7 +452,7 @@ function MessageBody({
           // The prose that surrounded the reference. Whitespace-only runs are
           // dropped rather than rendered as an empty block, which would leave a
           // gap where the path used to be.
-          <Markdown key={index} text={part.text} />
+          <Markdown key={index} text={part.text} breaks />
         ) : null,
       )}
     </>
@@ -473,6 +476,51 @@ function Responding() {
 }
 
 /**
+ * The reader's own message, with what they do to one after sending it.
+ *
+ * Two actions sit under the bubble on its right edge: copy the text, or bring
+ * it back into the composer to rewrite it. They are revealed while the turn is
+ * hovered, and always shown where hovering does not exist. A fragment rather
+ * than a wrapper, so the bubble keeps the turn's flex alignment and its own
+ * width rule exactly as before.
+ */
+function UserMessage({
+  text,
+  origin,
+  onPreviewImage,
+  onEdit,
+}: {
+  text: string;
+  /** Where this backend's uploads are served from; empty means this page. */
+  origin: string;
+  onPreviewImage?: (url: string) => void;
+  /** Absent when there is no composer to carry the message into. */
+  onEdit?: (text: string) => void;
+}) {
+  return (
+    <>
+      <div className="bubble user">
+        <MessageBody text={text} origin={origin} onPreviewImage={onPreviewImage} />
+      </div>
+      <div className="user-actions">
+        <CopyButton text={text} title="复制" />
+        {onEdit ? (
+          <button
+            type="button"
+            className="copy-btn"
+            title="编辑"
+            aria-label="编辑"
+            onClick={() => onEdit(text)}
+          >
+            <Pencil size={13} aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+/**
  * A message this client sent that the transcript has not recorded yet.
  *
  * Rendered in the same shape as a real turn so the layout does not shift when
@@ -480,16 +528,23 @@ function Responding() {
  */
 function PendingTurn({
   message,
+  origin,
   onPreviewImage,
+  onEdit,
 }: {
   message: string;
+  origin: string;
   onPreviewImage?: (url: string) => void;
+  onEdit?: (text: string) => void;
 }) {
   return (
     <div className="turn pending">
-      <div className="bubble user">
-        <MessageBody text={message} onPreviewImage={onPreviewImage} />
-      </div>
+      <UserMessage
+        text={message}
+        origin={origin}
+        onPreviewImage={onPreviewImage}
+        onEdit={onEdit}
+      />
       <div className="bubble agent ongoing">
         <div className="bubble-head">
           <span className="agent-name">agent</span>
@@ -731,6 +786,8 @@ function Turn({
   turn,
   index,
   onPreviewImage,
+  uploadsOrigin,
+  onEdit,
   subagents,
   onOpenSubagents,
   onReveal,
@@ -738,6 +795,9 @@ function Turn({
   turn: ConversationTurn;
   index?: number;
   onPreviewImage?: (url: string) => void;
+  /** Where this backend's uploads are served from; empty means this page. */
+  uploadsOrigin: string;
+  onEdit?: (text: string) => void;
   /** Finished runs that started during this turn, shown as their own record. */
   subagents?: SubagentRun[];
   onOpenSubagents?: () => void;
@@ -858,9 +918,12 @@ function Turn({
   return (
     <div className="turn" data-turn-index={index}>
       {turn.user_message ? (
-        <div className="bubble user">
-          <MessageBody text={turn.user_message} onPreviewImage={onPreviewImage} />
-        </div>
+        <UserMessage
+          text={turn.user_message}
+          origin={uploadsOrigin}
+          onPreviewImage={onPreviewImage}
+          onEdit={onEdit}
+        />
       ) : null}
 
       <div className={`bubble agent ${turn.status ?? ""}`}>
@@ -978,6 +1041,7 @@ export function ConversationView({
   working = false,
   onPreviewImage,
   onQuote,
+  onEdit,
   quotes = [],
   onSessionInfo,
   status,
@@ -1020,6 +1084,11 @@ export function ConversationView({
   /** The passages attached to the draft, to be marked where they came from. */
   quotes?: readonly Quote[];
   /**
+   * Brings one of the reader's own messages back into the composer, where it
+   * can be rewritten and sent again.
+   */
+  onEdit?: (text: string) => void;
+  /**
    * Reports the session file behind this conversation: its path, and its size when
    * the session is one file.
    *
@@ -1038,6 +1107,12 @@ export function ConversationView({
    * by the detail view because the data is polled there.
    */
 }) {
+  // Where this backend's uploads are served from. A conversation on a remote
+  // machine holds uploads that only that machine's gateway has, so their image
+  // URLs have to be absolute or the page's own origin is asked for a file it
+  // does not have.
+  const uploadsOrigin = client.uploadsOrigin?.() ?? "";
+
   /*
    * What this pane looked like when the reader left it, if they have been here
    * before. Read once, before the state it feeds: switching panes remounts this
@@ -1565,13 +1640,20 @@ export function ConversationView({
               turn={turn}
               index={index}
               onPreviewImage={onPreviewImage}
+              uploadsOrigin={uploadsOrigin}
+              onEdit={onEdit}
               subagents={subagentsByTurn.get(turn.turn_id)}
               onOpenSubagents={onOpenSubagents}
               onReveal={revealExpanded}
             />
           ))}
           {pending ? (
-            <PendingTurn message={sentMessage ?? ""} onPreviewImage={onPreviewImage} />
+            <PendingTurn
+              message={sentMessage ?? ""}
+              origin={uploadsOrigin}
+              onPreviewImage={onPreviewImage}
+              onEdit={onEdit}
+            />
           ) : null}
         </div>
 

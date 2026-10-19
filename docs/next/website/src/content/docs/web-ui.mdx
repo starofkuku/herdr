@@ -229,7 +229,9 @@ A conversation opens beside the project's own file tree, so the checkout an agen
 
 Which directory the tree shows is the pane's working directory, so it follows the agent when it changes directory. Directories load when you open them rather than all at once, and build output, dependencies, and version-control internals are pruned — `node_modules`, `target`, `dist`, `.git` and the rest — so the tree shows the code rather than everything on disk.
 
-Git status is marked beside each file and aggregated up to the folder that contains it, so a change several levels down is still visible from the top. A file opens in a preview column beside the conversation, which takes half the width the way an editor split does; the preview renders Markdown as Markdown and everything else as highlighted code, and large or binary files say so instead of showing nothing.
+Git status is marked beside each file and aggregated up to the folder that contains it, so a change several levels down is still visible from the top. The file being previewed is marked in the tree, so the open file can be found again without matching names. The preview's own header carries an arrow that gives the file the whole row — the conversation is hidden until the arrow is pressed again — and a long file opened from the tree while that is on stays wide, because switching files is what you do while reading.
+
+A file opens in a preview column beside the conversation, which takes half the width the way an editor split does; the preview renders Markdown as Markdown and everything else as highlighted code, and large or binary files say so instead of showing nothing.
 
 On a narrow window the tree collapses to a button, and the preview covers the conversation rather than splitting it. On a phone both are hidden.
 
@@ -329,6 +331,8 @@ The keys are sent to the pane as raw terminal input, so they behave the same as 
 Agents that publish their native session file — pi, Claude Code, and Codex, when their Herdr integration is installed — can be shown as a structured conversation instead of a terminal screen: one exchange per turn, with tool calls you can expand and the token count for the session.
 
 ZCode is shown the same way, but it is read differently: it keeps its sessions in a SQLite database rather than a file per session, and the only JSONL it writes is a model-I/O diagnostic log that is truncated as it rotates. So it is the one agent whose conversation Herdr reads itself rather than through the transcript parser. The database is opened read-only, and ZCode's own rule for what belongs in a transcript is applied, so hidden runtime traffic such as todo reminders does not surface as conversation.
+
+Pointing at one of your own messages reveals two controls beneath it: copy, and edit. **Edit** brings that message back into the composer — replacing the draft, with the caret at the end — so a prompt can be rewritten and sent again rather than retyped. Uploaded pictures in a message render as pictures; their address is resolved against the gateway that owns the conversation, so a message read from another machine still loads its images.
 
 The transcript is parsed on the server from the agent's own session log, so it reflects what the agent recorded rather than what its TUI happens to be painting. Deep links into that conversation are available through the pane right-click menu; see [codex-trace links](/docs/configuration/#codex-trace-links).
 

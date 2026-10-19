@@ -159,6 +159,24 @@ export class GatewayClient {
     document.addEventListener("visibilitychange", this.onVisibilityChange);
   }
 
+  /**
+   * The HTTP origin this backend's uploads are served from.
+   *
+   * An upload's file lives on the machine this client talks to, and that
+   * machine's gateway is what serves `/uploads/`. A page opened from a
+   * different gateway would otherwise ask its own origin for a file it does
+   * not have — which is exactly what a broken image on a remote backend is.
+   * Empty when the address is not known yet, which means "this origin".
+   */
+  uploadsOrigin(): string {
+    const url = this.credentials?.url ?? "";
+    if (!url) return "";
+    const scheme = /^wss:/i.test(url) || /^https:/i.test(url) ? "https" : "http";
+    const rest = url.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+    const host = rest.split("/")[0];
+    return host ? `${scheme}://${host}` : "";
+  }
+
   connect(url: string, key: string): void {
     this.credentials = { url, key };
     this.closedByUser = false;

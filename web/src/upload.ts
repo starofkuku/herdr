@@ -32,6 +32,8 @@ function uploadId(): string {
 export interface StagedUpload {
   /** Local id, used as a React key and to remove the entry. */
   id: string;
+  /** The number its placeholder in the draft carries, for as long as it waits. */
+  seq: number;
   file: File;
   /** Thumbnail data URL for the pending list. Images only. */
   thumbnail?: string;
@@ -163,6 +165,8 @@ export async function stageUpload(file: File): Promise<StagedUpload> {
   const thumbnail = await makeThumbnail(file);
   return {
     id: uploadId(),
+    /* Renumbered by the caller when it takes its placeholder; 0 until then. */
+    seq: 0,
     file,
     thumbnail,
     previewUrl: isImage(file) ? URL.createObjectURL(file) : undefined,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { AgentLaunchDialog } from "./AgentLaunchDialog";
-import { AgentCloseButton } from "./AgentCloseButton";
+import { AgentRowMenu } from "./AgentRestartButton";
 import type { GatewayClient } from "./gateway";
 import "./agentManagement.css";
 import { AgentIcon } from "./AgentIcon";
@@ -120,7 +120,7 @@ export function AgentList({
                       </span>
                       <span className={`pill ${agent.status}`}>{statusLabel(agent.status)}</span>
                     </button>
-                    <AgentCloseButton agent={agent} client={client} connected={connection === "ready"} onRefresh={onRefresh} />
+                    <AgentRowMenu agent={agent} client={client} connected={connection === "ready"} onRefresh={onRefresh} />
                   </li>
                 ))}
               </ul>

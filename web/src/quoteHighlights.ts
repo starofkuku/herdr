@@ -198,10 +198,6 @@ export function measureQuoteMarks(
  */
 export function drawQuoteMarks(layer: HTMLElement, root: HTMLElement, marks: readonly QuoteMark[]): void {
   layer.replaceChildren();
-  /* The layer is anchored to the container's padding box, which is only as
-   * tall as the viewport; it is stretched to the content so marks below the
-   * fold have somewhere to stand and scroll with it. */
-  layer.style.height = `${root.scrollHeight}px`;
   if (marks.length === 0) return;
   const rootRect = root.getBoundingClientRect();
   const originTop = rootRect.top - root.scrollTop;
@@ -225,7 +221,9 @@ export function drawQuoteMarks(layer: HTMLElement, root: HTMLElement, marks: rea
     chip.className = "quote-origin-chip";
     chip.dataset.seq = String(mark.seq);
     chip.textContent = String(mark.seq);
-    position(chip, first.top - 10, first.right - 6);
+    /* Clamped at the content's own top: a chip above the first line would
+     * otherwise reach past the content and add scroll room of its own. */
+    position(chip, Math.max(first.top - 10, originTop), first.right - 6);
     layer.appendChild(chip);
   }
 }
