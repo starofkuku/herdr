@@ -9,6 +9,7 @@
  * so what the agent reads is what was just saved.
  */
 
+import { Save } from "lucide-react";
 import { Markdown } from "./Markdown";
 import type { CcSwitchPrompt } from "./ccswitch";
 
@@ -118,7 +119,7 @@ export function CcSwitchPromptForm({
           取消
         </button>
         <button type="submit" className="agent-primary-button" disabled={busy || !draft.name.trim()}>
-          {busy ? "保存中…" : created ? "新建预设" : "保存修改"}
+          {busy ? "保存中…" : <><Save size={14} aria-hidden="true" /> {created ? "新建预设" : "保存修改"}</>}
         </button>
       </div>
     </form>

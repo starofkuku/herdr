@@ -13,20 +13,27 @@ import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, BookText, CloudCog, Plug, RefreshCw, Settings2 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import {
+  adoptLegacyCcSwitchSettings,
   appLabel,
   ccswitchHealth,
-  loadCcSwitchSettings,
-  saveCcSwitchSettings,
+  loadActiveCcSwitchBackend,
+  loadCcSwitchServer,
+  saveActiveCcSwitchBackend,
+  saveCcSwitchServer,
+  suggestCcSwitchAddress,
   type CcSwitchHealth,
   type CcSwitchSettings,
 } from "./ccswitch";
+import { CcSwitchServerPicker } from "./CcSwitchServerPicker";
 import { CcSwitchProviders } from "./CcSwitchProviders";
 import { CcSwitchPrompts } from "./CcSwitchPrompts";
+import { CcSwitchModelCatalogEditor } from "./CcSwitchModelCatalog";
+import { CcSwitchCommonConfigEditor } from "./CcSwitchCommonConfig";
 import { CcSwitchSync } from "./CcSwitchSync";
 import { CcSwitchCommon } from "./CcSwitchCommon";
 import "./ccswitch.css";
 
-type Section = "providers" | "prompts";
+type Section = "providers" | "prompts" | "catalog" | "commonconfig";
 
 /** The port cc-switch serves on unless it was told otherwise. */
 const DEFAULT_CCSWITCH_PORT = "7861";
@@ -39,9 +46,61 @@ function portOf(address: string | undefined): string | null {
   return port && /^\d+$/.test(port) ? port : null;
 }
 
-export function CcSwitchPage({ onBack }: { onBack: () => void }) {
-  const [settings, setSettings] = useState<CcSwitchSettings | null>(loadCcSwitchSettings);
-  const [editing, setEditing] = useState(settings === null);
+/** The host part of a saved address, for showing where a server's endpoint is. */
+function hostOf(address: string | undefined): string {
+  const withoutScheme = (address ?? "").trim().replace(/^https?:\/\//i, "");
+  return withoutScheme.split("/")[0]?.split(":")[0] || "127.0.0.1";
+}
+
+/** Which server's cc-switch the page opens on: the one asked for, the one last shown, or the first. */
+function pickBackend(
+  backends: readonly { id: string }[],
+  asked: string | null | undefined,
+): string | null {
+  if (asked && backends.some((backend) => backend.id === asked)) return asked;
+  const remembered = loadActiveCcSwitchBackend();
+  if (remembered && backends.some((backend) => backend.id === remembered)) return remembered;
+  return backends[0]?.id ?? null;
+}
+
+export function CcSwitchPage({
+  onBack,
+  backends,
+  onHerdrRequest,
+  initialBackendId,
+}: {
+  onBack: () => void;
+  /** The herdr servers this browser knows; each may run its own cc-switch. */
+  backends: readonly { id: string; name: string; url: string }[];
+  /**
+   * One API request against a herdr server, connected only for the call. Used
+   * for actions that herdr itself must run — restarting the Codex app-server
+   * daemon, whose restart also clears herdr's cached model catalog.
+   */
+  onHerdrRequest?: (
+    backendId: string,
+    method: string,
+    params: Record<string, unknown>,
+  ) => Promise<unknown>;
+  /** The server the reader was on when opening the tool page, when it is known. */
+  initialBackendId?: string | null;
+}) {
+  /*
+   * Which server's cc-switch is on screen, and that server's saved endpoint.
+   * Each server keeps its own address and token, so switching between servers
+   * is a choice rather than a retyping — and a server never configured yet
+   * starts from the address its own gateway suggests.
+   */
+  const [bootstrap] = useState(() => {
+    const id = pickBackend(backends, initialBackendId);
+    /* The address saved before servers were told apart belongs to one machine:
+     * this one, by the best guess available. Other servers start fresh. */
+    adoptLegacyCcSwitchSettings(id);
+    return { id, settings: loadCcSwitchServer(id) };
+  });
+  const [backendId, setBackendId] = useState<string | null>(bootstrap.id);
+  const [settings, setSettings] = useState<CcSwitchSettings | null>(bootstrap.settings);
+  const [editing, setEditing] = useState(bootstrap.settings === null);
   const [health, setHealth] = useState<CcSwitchHealth | null>(null);
   const [app, setApp] = useState<string | null>(null);
   const [section, setSection] = useState<Section>("providers");
@@ -54,15 +113,37 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
   const [connecting, setConnecting] = useState(false);
 
   /*
-   * The host is not typed, it is observed: cc-switch runs beside the gateway
-   * that served this page, so the name in the address bar is already the right
-   * one — and only it is right, since `127.0.0.1` here would mean the browser's
-   * own machine rather than the one the gateway is on. The port is the one thing
+   * The host is not typed, it is observed: cc-switch runs beside the gateway of
+   * the selected server, so that server's own address is already the right one
+   * — and only it is right, since `127.0.0.1` here would mean the browser's own
+   * machine rather than the one the gateway is on. The port is the one thing
    * that can differ, so it is the one thing offered.
    */
-  const host = window.location.hostname || "127.0.0.1";
+  const backend = backends.find((entry) => entry.id === backendId) ?? null;
+  const host = settings
+    ? hostOf(settings.address)
+    : backend
+      ? hostOf(suggestCcSwitchAddress(backend.url))
+      : window.location.hostname || "127.0.0.1";
   const [port, setPort] = useState(() => portOf(settings?.address) ?? DEFAULT_CCSWITCH_PORT);
   const [token, setToken] = useState(settings?.token ?? "");
+
+  /*
+   * Switching servers loads that server's endpoint — its own, a first guess,
+   * or nothing — and puts the page in the matching state, so a server never
+   * configured yet opens straight into its connection form.
+   */
+  useEffect(() => {
+    const next = loadCcSwitchServer(backendId);
+    setSettings(next);
+    setEditing(next === null);
+    setPort(portOf(next?.address) ?? DEFAULT_CCSWITCH_PORT);
+    setToken(next?.token ?? "");
+    setHealth(null);
+    setApp(null);
+    setError("");
+    saveActiveCcSwitchBackend(backendId);
+  }, [backendId]);
 
   useEffect(() => {
     if (!settings) return;
@@ -94,9 +175,10 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
     setError("");
     try {
       const result = await ccswitchHealth(next);
-      if (!saveCcSwitchSettings(next)) {
+      if (!saveCcSwitchServer(backendId, next)) {
         setError("无法保存到浏览器存储；本次连接仍可用，但刷新后会丢。");
       }
+      saveActiveCcSwitchBackend(backendId);
       setSettings(next);
       setHealth(result);
       setApp(result.apps[0] ?? null);
@@ -107,10 +189,10 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
     } finally {
       setConnecting(false);
     }
-  }, [host, port, token]);
+  }, [host, port, token, backendId]);
 
   const disconnect = () => {
-    saveCcSwitchSettings(null);
+    saveCcSwitchServer(backendId, null);
     setSettings(null);
     setHealth(null);
     setApp(null);
@@ -121,7 +203,7 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
   const changed = () => setRevision((value) => value + 1);
 
   return (
-    <div className="ccswitch-page">
+    <div className="ccswitch-page ccswitch">
       <header className="ccswitch-page__head">
         <button type="button" className="ghost" onClick={onBack} aria-label="返回" title="返回">
           <ArrowLeft size={16} aria-hidden="true" />
@@ -130,6 +212,15 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
           <Plug size={16} />
         </span>
         <h2 className="ccswitch-page__title">cc-switch</h2>
+        {backends.length > 0 ? (
+          /* Which server's cc-switch is on screen. Each keeps its own endpoint,
+           * so this is the choice the page is organized around. */
+          <CcSwitchServerPicker
+            options={backends.map((entry) => ({ id: entry.id, name: entry.name, url: entry.url }))}
+            value={backendId}
+            onPick={setBackendId}
+          />
+        ) : null}
         {settings && !editing ? (
           <>
             <span className="ccswitch__endpoint" title={`${settings.address} · cc-switch ${health?.version ?? ""}`}>
@@ -162,16 +253,16 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
           }}
         >
           <p className="ccswitch__hint">
-            地址取当前页面的服务器，端口默认 7861；令牌与端口只保存在本浏览器，请求由浏览器直接发往该地址（需要 cc-switch
+            地址取所选服务器（默认与该服务器的网关同机，端口 7861）；令牌与端口只保存在本浏览器，请求由浏览器直接发往该地址（需要 cc-switch
             5.10.20+，并绑定到一个浏览器能访问的地址）。
           </p>
           <div className="ccswitch__pair">
             <label className="ccswitch__field">
-              <span>地址（当前服务器）</span>
+              <span>地址（{backend ? backend.name : "当前服务器"}）</span>
               <input
                 value={host}
                 readOnly
-                title="跟随打开本页面的地址：cc-switch 与 herdr 网关在同一台机器上"
+                title="跟随所选服务器：cc-switch 与该服务器的网关在同一台机器上"
               />
             </label>
             <label className="ccswitch__field ccswitch__field--port">
@@ -270,6 +361,8 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
                     [
                       ["providers", "供应商"],
                       ["prompts", "提示词"],
+                      ["commonconfig", "公用配置"],
+                      ...(app === "codex" ? ([["catalog", "模型目录"]] as const) : []),
                     ] as const
                   ).map(([id, label]) => (
                     <button
@@ -286,6 +379,20 @@ export function CcSwitchPage({ onBack }: { onBack: () => void }) {
                 </div>
                 {section === "providers" ? (
                   <CcSwitchProviders settings={settings} app={app} revision={revision} onChanged={changed} />
+                ) : section === "commonconfig" ? (
+                    <CcSwitchCommonConfigEditor settings={settings} app={app} revision={revision} onChanged={changed} />
+                  ) : section === "catalog" ? (
+                  <CcSwitchModelCatalogEditor
+                    settings={settings}
+                    revision={revision}
+                    onChanged={changed}
+                    onRestartDaemon={
+                      onHerdrRequest && backendId
+                        ? () =>
+                            onHerdrRequest(backendId, "server.restart_codex_daemon", {})
+                        : undefined
+                    }
+                  />
                 ) : (
                   <CcSwitchPrompts settings={settings} app={app} revision={revision} onChanged={changed} />
                 )}

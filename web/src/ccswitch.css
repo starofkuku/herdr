@@ -757,3 +757,347 @@
 .ccswitch__import-menu button:hover {
   background: var(--surface-2);
 }
+
+/*
+ * Which server's cc-switch the tool page is on: a small selector in the page
+ * head, matching the endpoint label beside it.
+ */
+.ccswitch-server {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+}
+
+.ccswitch-server select {
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.25rem 0.45rem;
+  font-size: var(--text-ui-caption);
+}
+
+/*
+ * The server picker's own dropdown: the app's popover vocabulary (the same
+ * surface, border and radius the overflow menus use) rather than the
+ * browser's native select, so the menu carries two lines per server — its
+ * name, and the gateway host that tells two servers apart — and looks like
+ * the rest of the page.
+ */
+.ccswitch-server {
+  position: relative;
+  display: inline-flex;
+}
+
+.ccswitch-server__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.26rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch-server__name {
+  max-width: 8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccswitch-server__chevron {
+  color: var(--muted);
+  transition: transform 0.12s ease;
+}
+
+.ccswitch-server__chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.ccswitch-menu__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  background: transparent;
+}
+
+.ccswitch-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.35rem;
+  z-index: 2;
+  min-width: 13rem;
+  max-height: min(60vh, 20rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.3rem;
+  border: 1px solid var(--popover-border);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.ccswitch-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  text-align: left;
+}
+
+.ccswitch-menu__item:hover,
+.ccswitch-menu__item.active {
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+
+.ccswitch-menu__texts {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.ccswitch-menu__name {
+  font-size: var(--text-ui-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccswitch-menu__host {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch-menu__check {
+  color: var(--muted);
+  flex: none;
+}
+
+/*
+ * The model-fetch shortcut on the provider form.
+ */
+.ccswitch-modelfetch {
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ccswitch-modelfetch__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ccswitch-modelfetch__hint {
+  color: var(--muted);
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch-modelfetch__picker {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.ccswitch-modelfetch__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ccswitch-modelfetch__bar input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ccswitch-modelfetch__count {
+  color: var(--muted);
+  font-size: var(--text-ui-caption);
+  white-space: nowrap;
+}
+
+.ccswitch-modelfetch__list {
+  margin: 0;
+  padding: 0 0.2rem;
+  list-style: none;
+  max-height: 14rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ccswitch-modelfetch__list label {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.18rem 0.3rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ccswitch-modelfetch__list label:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.ccswitch-modelfetch__list span {
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ccswitch-modelfetch__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.ccswitch-modelfetch__note {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-ui-sm);
+}
+
+.ccswitch-modelfetch__unmatched {
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  border-radius: 10px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ccswitch-modelfetch__unmatched-head {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch-modelfetch__pickrow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ccswitch-modelfetch__pickid {
+  font-family: var(--font-mono);
+  font-size: var(--text-ui-sm);
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.spin {
+  animation: ccswitch-spin 0.9s linear infinite;
+}
+
+@keyframes ccswitch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/*
+ * The fetch list's "already in the config" marks: a quiet tag beside the id,
+ * and the one-line rule above the list that says what checking does.
+ */
+.ccswitch-modelfetch__tag {
+  flex: none;
+  margin-left: auto;
+  padding: 0.05rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent);
+  border-radius: 999px;
+  color: var(--ok);
+  font-size: var(--text-ui-caption);
+}
+
+.ccswitch-modelfetch__rule {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-ui-caption);
+}
+
+/*
+ * The prompt editor's drawer: wide, because the thing it edits is a whole
+ * prompt file and the split layout needs room on both sides of it.
+ */
+.ccswitch__drawer {
+  width: min(90vw, 90rem);
+}
+
+/*
+ * The catalog's per-entry form and the clone form.
+ */
+.ccswitch-catalog__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.5rem 0.4rem;
+  border-top: 1px dashed var(--border);
+  margin-top: 0.4rem;
+}
+
+.ccswitch-catalog__modalities {
+  display: flex;
+  gap: 0.9rem;
+  padding: 0.3rem 0;
+}
+
+.ccswitch-catalog__modality {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--text-ui-sm);
+}
+
+/*
+ * The cancel button beside every save: not a bare outline, but a quiet
+ * surface that reads as a button at a glance.
+ */
+.ccswitch-page .ccswitch__actions .ghost,
+.ccswitch-page .ccswitch-catalog__form .ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ccswitch-page .ccswitch__actions .ghost:hover:not(:disabled),
+.ccswitch-page .ccswitch-catalog__form .ghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}

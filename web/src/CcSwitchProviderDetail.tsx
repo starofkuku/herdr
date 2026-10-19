@@ -52,7 +52,7 @@ export function CcSwitchProviderDetailView({
 
       <pre className="ccswitch__json">{JSON.stringify(detail.settingsConfig ?? {}, null, 2)}</pre>
       <p className="ccswitch__hint">
-        密钥在这里显示为 <code>***</code>（cc-switch 的掩码）。修改配置时若留着它，真实密钥会被覆盖，所以编辑器会拦住。
+        密钥在这里显示为 <code>***</code>（cc-switch 读取时的掩码）。编辑配置时留着它直接保存即可 —— cc-switch 会在写入前自动还原真实密钥。
       </p>
 
       <div className="ccswitch__detail-actions">

@@ -13,8 +13,10 @@
  */
 
 import { useState } from "react";
-import { needsProviderId, type CcSwitchProviderDetail } from "./ccswitch";
+import { needsProviderId, type CcSwitchProviderDetail, type CcSwitchSettings } from "./ccswitch";
+import { Save } from "lucide-react";
 import { CcSwitchJsonEditor } from "./CcSwitchJsonEditor";
+import { CcSwitchModelFetch } from "./CcSwitchModelFetch";
 
 export interface ProviderDraft {
   id: string;
@@ -53,6 +55,7 @@ export function parseSettings(settings: string): { value?: unknown; error?: stri
 export function CcSwitchProviderForm({
   app,
   editing,
+  connection,
   draft,
   onChange,
   onCancel,
@@ -63,6 +66,8 @@ export function CcSwitchProviderForm({
   app: string;
   /** The provider being edited; null when creating one. */
   editing: CcSwitchProviderDetail | null;
+  /** How to reach cc-switch, for the server-side model fetch. */
+  connection: CcSwitchSettings | null;
   draft: ProviderDraft;
   onChange: (next: ProviderDraft) => void;
   onCancel: () => void;
@@ -70,8 +75,9 @@ export function CcSwitchProviderForm({
   busy: boolean;
   error: string;
 }) {
-  const [showSettings, setShowSettings] = useState(!editing);
-  const masked = hasMaskedSecret(draft.settings);
+  /* Open on both paths: the document is what a provider mostly is, and asking
+   * for a click before it can be read or edited is a click for nothing. */
+  const [showSettings, setShowSettings] = useState(true);
   const created = editing === null;
   const idRequired = created && needsProviderId(app);
 
@@ -85,7 +91,7 @@ export function CcSwitchProviderForm({
         onSubmit(draft);
       }}
     >
-      <div className="ccswitch__pair">
+                <div className="ccswitch__pair">
         <label className="ccswitch__field">
           <span>名称</span>
           <input
@@ -143,18 +149,30 @@ export function CcSwitchProviderForm({
         {editing && !showSettings ? (
           <span className="ccswitch__hint">不改动配置，只保存名称/备注/站点。</span>
         ) : null}
-      </div>
+      
+          {/*
+            The CLI's shortcut on the form: list what the endpoint serves,
+            fill the chosen ids from models.dev, land them in the document
+            above — still editable, still checked by the mask rule on save.
+          */}
+          <CcSwitchModelFetch
+            settings={draft.settings}
+            onMerged={(next) => patch({ settings: next })}
+            app={app}
+            providerId={editing?.id ?? null}
+            connection={connection}
+          />
+        </div>
 
       {showSettings ? (
         <>
           <div className="ccswitch__cm">
             <CcSwitchJsonEditor value={draft.settings} onChange={(next) => patch({ settings: next })} />
           </div>
-          <p className={`ccswitch__hint${masked ? " error" : ""}`}>
-            {masked
-              ? "配置里还有 *** ：那是读取时的掩码占位符，直接保存会把真实密钥覆盖成这三个字符。请把它换成真实值，或收起配置只改其它字段。"
-              : "读取时密钥显示为 ***；保存会把这里的内容原样写入，所以请填真实值。"}
-          </p>
+          <p className="ccswitch__hint">
+              读取时密钥显示为 ***（服务端打的掩码）；直接保存没问题 —— cc-switch
+              会在写入前把 *** 还原成它存储的真实密钥，无需重填。
+            </p>
         </>
       ) : null}
 
@@ -171,9 +189,9 @@ export function CcSwitchProviderForm({
         <button
           type="submit"
           className="agent-primary-button"
-          disabled={busy || !draft.name.trim() || (idRequired && !draft.id.trim()) || (showSettings && masked)}
+          disabled={busy || !draft.name.trim() || (idRequired && !draft.id.trim())}
         >
-          {busy ? "保存中…" : created ? "新建渠道" : "保存修改"}
+          {busy ? "保存中…" : <><Save size={14} aria-hidden="true" /> {created ? "新建渠道" : "保存修改"}</>}
         </button>
       </div>
     </form>

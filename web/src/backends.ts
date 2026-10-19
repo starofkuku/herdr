@@ -98,6 +98,27 @@ export class BackendHub {
   private live = new Map<string, Live>();
   private notify: () => void;
   private pollTimer: number | null = null;
+  /**
+   * Set while the reader is on a page that talks to its own backends and needs
+   * nothing from herdr's. Holding connections open there is pure cost: every
+   * browser connection carries a subscription per stream it watches, and each
+   * of those is a server thread. Suspended, the hub closes everything; the
+   * next sync after waking reopens it exactly as a reload would.
+   */
+  private suspended = false;
+  private profiles: BackendProfile[] = [];
+
+  /** Drops every connection until the next `resume`. */
+  setSuspended(suspended: boolean): void {
+    if (this.suspended === suspended) return;
+    this.suspended = suspended;
+    if (suspended) {
+      for (const id of [...this.live.keys()]) this.close(id);
+      this.notify();
+    } else {
+      this.sync(this.profiles);
+    }
+  }
 
   constructor(notify: () => void) {
     this.notify = notify;
@@ -131,6 +152,10 @@ export class BackendHub {
    * change to either is a different connection.
    */
   sync(profiles: BackendProfile[]): void {
+    // Remembered so a later wake can apply them: while suspended nothing
+    // connects, including profiles that changed meanwhile.
+    this.profiles = profiles;
+    if (this.suspended) return;
     for (const profile of profiles) {
       const existing = this.live.get(profile.id);
       if (!existing) {
@@ -257,6 +282,54 @@ export class BackendHub {
       runtime.refreshTimer = null;
       void this.refreshAgents(runtime.profile.id);
     }, REFRESH_DEBOUNCE_MS);
+  }
+
+  /**
+   * Performs one API request against a backend, connecting only for it.
+   *
+   * The tool page holds no connections by design; an action that still needs
+   * its server — restarting the Codex app-server daemon, say — opens a client,
+   * waits for it to be ready, asks, and closes, so nothing stays connected
+   * between actions.
+   */
+  async requestOnce(
+    id: string,
+    method: string,
+    params: Record<string, unknown> = {},
+  ): Promise<unknown> {
+    const live = this.live.get(id);
+    if (live) return live.client.call(method, params);
+    const profile = this.profiles.find((entry) => entry.id === id);
+    if (!profile?.key) {
+      throw new Error(`没有「${profile?.name ?? id}」的访问密钥，无法向它的服务器发请求`);
+    }
+    let ready: () => void = () => {};
+    let failed: (err: Error) => void = () => {};
+    const client = new GatewayClient({
+      onState: (state, detail) => {
+        if (state === "ready") ready();
+        if (state === "error" || state === "closed") {
+          failed(new Error(detail ?? `连接「${profile.name}」失败`));
+        }
+      },
+      onSessions: () => {},
+    });
+    const settled = new Promise<void>((resolve, reject) => {
+      ready = resolve;
+      failed = reject;
+    });
+    const timer = window.setTimeout(() => failed(new Error(`连接「${profile.name}」超时`)), 15_000);
+    client.connect(profile.url, profile.key);
+    try {
+      await settled;
+      // Server-level requests still ride a session-bound connection; "main" is
+      // the session every herdr gateway has or starts on demand.
+      await client.useSession("main");
+      return await client.call(method, params);
+    } finally {
+      window.clearTimeout(timer);
+      client.close();
+    }
   }
 
   /** Creates the runtime for a profile and connects it. */

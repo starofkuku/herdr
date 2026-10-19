@@ -8,11 +8,10 @@
  */
 
 import { useEffect, useState } from "react";
-import { Check, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import { Check, Loader2, Pencil, Plus } from "lucide-react";
 import {
   ccswitchActivatePrompt,
   ccswitchCreatePrompt,
-  ccswitchDeletePrompt,
   ccswitchPrompts,
   ccswitchUpdatePrompt,
   type CcSwitchPrompt,
@@ -37,10 +36,8 @@ export function CcSwitchPrompts({
 }) {
   const [prompts, setPrompts] = useState<CcSwitchPrompt[] | null>(null);
   const [active, setActive] = useState<string[]>([]);
-  const [openId, setOpenId] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [draft, setDraft] = useState<PromptDraft>(() => draftFromPrompt(null));
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [error, setError] = useState("");
@@ -57,9 +54,7 @@ export function CcSwitchPrompts({
   useEffect(() => {
     let live = true;
     setPrompts(null);
-    setOpenId(null);
     setMode({ kind: "list" });
-    setConfirmingDelete(false);
     ccswitchPrompts(settings, app)
       .then((result) => {
         if (!live) return;
@@ -135,22 +130,6 @@ export function CcSwitchPrompts({
     closeEditor();
   };
 
-  const remove = async (prompt: CcSwitchPrompt) => {
-    setBusy("delete");
-    setError("");
-    setNotice("");
-    try {
-      await ccswitchDeletePrompt(settings, app, prompt.id);
-      setNotice(`已删除「${prompt.name}」。`);
-      setConfirmingDelete(false);
-      setOpenId(null);
-      onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(null);
-    }
-  };
 
   return (
     <div className="ccswitch__section">
@@ -200,24 +179,38 @@ export function CcSwitchPrompts({
                       type="button"
                       className="ccswitch__row-main"
                       onClick={() => {
-                        setOpenId(openId === prompt.id ? null : prompt.id);
-                        setConfirmingDelete(false);
+                        setDraft(draftFromPrompt(prompt));
+                        setMode({ kind: "edit", prompt });
+                        setArmed(false);
+                        setError("");
                       }}
-                      aria-expanded={openId === prompt.id}
+                      title="点击编辑此预设"
                     >
-                      <span className="ccswitch__name">{prompt.name}</span>
-                      {prompt.description ? (
-                        <span className="ccswitch__agent" title={prompt.description}>
-                          {prompt.description}
-                        </span>
-                      ) : null}
-                      {isActive ? (
-                        <span className="ccswitch__badge">
-                          <Check size={11} aria-hidden="true" /> 已启用
-                        </span>
-                      ) : null}
-                    </button>
-                    <button
+                        <span className="ccswitch__name">{prompt.name}</span>
+                        {prompt.description ? (
+                          <span className="ccswitch__agent" title={prompt.description}>
+                            {prompt.description}
+                          </span>
+                        ) : null}
+                        {isActive ? (
+                          <span className="ccswitch__badge">
+                            <Check size={11} aria-hidden="true" /> 已启用
+                          </span>
+                        ) : null}
+                      </button>
+                      <button
+                        type="button"
+                        className="ghost ccswitch__action"
+                        onClick={() => {
+                          setDraft(draftFromPrompt(prompt));
+                          setMode({ kind: "edit", prompt });
+                          setArmed(false);
+                          setError("");
+                        }}
+                        disabled={busy !== null}
+                      >
+                        <Pencil size={13} aria-hidden="true" /> 编辑
+                      </button>                    <button
                       type="button"
                       className="ghost ccswitch__action"
                       disabled={isActive || busy !== null}
@@ -227,63 +220,6 @@ export function CcSwitchPrompts({
                     </button>
                   </div>
 
-                  {openId === prompt.id ? (
-                    <div className="ccswitch__detail">
-                      <pre className="ccswitch__json">{prompt.content ?? "（无内容）"}</pre>
-                      <div className="ccswitch__detail-actions">
-                        {confirmingDelete ? (
-                          <>
-                            <span className="ccswitch__hint">
-                              {isActive
-                                ? "已启用的预设不能删除：先启用其它预设，再回来删它。"
-                                : "删除后无法恢复。"}
-                            </span>
-                            <button
-                              type="button"
-                              className="ghost"
-                              onClick={() => setConfirmingDelete(false)}
-                              disabled={busy !== null || isActive}
-                            >
-                              取消
-                            </button>
-                            <button
-                              type="button"
-                              className="agent-danger-button"
-                              onClick={() => void remove(prompt)}
-                              disabled={busy !== null || isActive}
-                            >
-                              {busy === "delete" ? "删除中…" : "确认删除"}
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              className="ghost"
-                              onClick={() => {
-                                setDraft(draftFromPrompt(prompt));
-                                setMode({ kind: "edit", prompt });
-                                setArmed(false);
-                                setError("");
-                              }}
-                              disabled={busy !== null}
-                            >
-                              <Pencil size={13} aria-hidden="true" /> 编辑
-                            </button>
-                            <button
-                              type="button"
-                              className="ghost"
-                              onClick={() => setConfirmingDelete(true)}
-                              disabled={busy !== null || isActive}
-                              title={isActive ? "已启用的预设不能删除，先启用其它预设" : undefined}
-                            >
-                              <Trash2 size={13} aria-hidden="true" /> 删除
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  ) : null}
                 </li>
               );
             })}

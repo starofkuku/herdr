@@ -19,6 +19,112 @@ export interface CcSwitchSettings {
   token: string;
 }
 
+/*
+ * cc-switch endpoints are kept per herdr server (backend): each machine runs
+ * its own cc-switch beside its gateway, so the tool page needs the endpoint of
+ * the server it is pointed at, not one address for all of them.
+ */
+const SERVERS_KEY = "herdr-ccswitch-servers";
+const ACTIVE_SERVER_KEY = "herdr-ccswitch-active";
+
+type ServerMap = Record<string, CcSwitchSettings>;
+
+function readServerMap(): ServerMap {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(SERVERS_KEY) ?? "{}");
+    if (typeof parsed !== "object" || parsed === null) return {};
+    const out: ServerMap = {};
+    for (const [id, value] of Object.entries(parsed as Record<string, unknown>)) {
+      const record = value as Record<string, unknown>;
+      const address = typeof record.address === "string" ? record.address.trim() : "";
+      if (address) out[id] = { address, token: typeof record.token === "string" ? record.token : "" };
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+function writeServerMap(map: ServerMap): boolean {
+  try {
+    window.localStorage.setItem(SERVERS_KEY, JSON.stringify(map));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The cc-switch endpoint saved for one server.
+ *
+ * A single address saved before servers were told apart is still the best guess
+ * while nothing per-server exists — it was the only endpoint the tool page knew.
+ */
+export function loadCcSwitchServer(backendId: string | null): CcSwitchSettings | null {
+  const map = readServerMap();
+  if (backendId && map[backendId]) return map[backendId];
+  if (Object.keys(map).length > 0) return null;
+  return loadCcSwitchSettings();
+}
+
+/**
+ * Gives the pre-servers address to the server the tool page first opens on.
+ *
+ * That address belonged to exactly one machine, and this is the best guess as
+ * to which: any other server would inherit an endpoint that points somewhere
+ * else, so for them the page starts from their own gateway's suggestion.
+ */
+export function adoptLegacyCcSwitchSettings(backendId: string | null): void {
+  if (!backendId) return;
+  const map = readServerMap();
+  if (Object.keys(map).length > 0 || map[backendId]) return;
+  const legacy = loadCcSwitchSettings();
+  if (!legacy) return;
+  map[backendId] = legacy;
+  if (writeServerMap(map)) saveCcSwitchSettings(null);
+}
+
+/** Stores one server's endpoint, or clears it when given null. */
+export function saveCcSwitchServer(backendId: string | null, settings: CcSwitchSettings | null): boolean {
+  if (!backendId) return saveCcSwitchSettings(settings);
+  const map = readServerMap();
+  if (!settings || !settings.address.trim()) delete map[backendId];
+  else map[backendId] = { address: settings.address.trim(), token: settings.token };
+  if (!writeServerMap(map)) return false;
+  /* The pre-servers address has been superseded: keeping it would resurrect
+   * itself after a server's endpoint is cleared. */
+  saveCcSwitchSettings(null);
+  return true;
+}
+
+/** The server whose cc-switch the tool page last showed. */
+export function loadActiveCcSwitchBackend(): string | null {
+  try {
+    return window.localStorage.getItem(ACTIVE_SERVER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers the server whose cc-switch the tool page is on. */
+export function saveActiveCcSwitchBackend(backendId: string | null): void {
+  try {
+    if (backendId) window.localStorage.setItem(ACTIVE_SERVER_KEY, backendId);
+    else window.localStorage.removeItem(ACTIVE_SERVER_KEY);
+  } catch {
+    /* remembering is a convenience; failing to is not an error */
+  }
+}
+
+/** A first guess for a server's cc-switch address: the machine its gateway runs on. */
+export function suggestCcSwitchAddress(gatewayUrl: string): string {
+  try {
+    return `${new URL(gatewayUrl).hostname}:7861`;
+  } catch {
+    return "127.0.0.1:7861";
+  }
+}
+
 /** The address as a URL: a bare `host:port` is http, which is what it serves. */
 export function ccswitchBase(address: string): string {
   const trimmed = address.trim().replace(/\/+$/, "");
@@ -165,6 +271,75 @@ async function call<T>(
 /** Whether the address and token reach a cc-switch server, and which apps it has. */
 export async function ccswitchHealth(settings: CcSwitchSettings): Promise<CcSwitchHealth> {
   return call<CcSwitchHealth>(settings, "/api/health");
+}
+
+/** The Codex model catalog file, as the read endpoint answers. */
+export interface CcSwitchModelCatalog {
+  content: Record<string, unknown>;
+  referenced: boolean;
+}
+
+/** The per-app common config snippet, as the read endpoint answers. */
+export interface CcSwitchCommonConfig {
+  content: string | null;
+  format: "json" | "toml";
+}
+
+/** The shared config snippet one app carries across provider switches. */
+export async function ccswitchCommonConfig(
+  settings: CcSwitchSettings,
+  app: string,
+): Promise<CcSwitchCommonConfig> {
+  return call<CcSwitchCommonConfig>(settings, `/api/apps/${encodeURIComponent(app)}/common-config`);
+}
+
+/** Writes the snippet; an empty string clears it. */
+export async function ccswitchSaveCommonConfig(
+  settings: CcSwitchSettings,
+  app: string,
+  content: string,
+): Promise<{ written: boolean }> {
+  return call<{ written: boolean }>(settings, `/api/apps/${encodeURIComponent(app)}/common-config`, {
+    method: "PUT",
+    body: { content },
+  });
+}
+
+/** Codex's custom model catalog (`cc-switch-model-catalog.json`), when it exists. */
+export async function ccswitchModelCatalog(settings: CcSwitchSettings): Promise<CcSwitchModelCatalog> {
+  return call<CcSwitchModelCatalog>(settings, "/api/apps/codex/model-catalog");
+}
+
+/** Writes the catalog file and ensures Codex's config.toml actually points at it. */
+export async function ccswitchSaveModelCatalog(
+  settings: CcSwitchSettings,
+  content: unknown,
+): Promise<{ written: boolean; keyAdded: boolean; referenced: boolean }> {
+  return call<{ written: boolean; keyAdded: boolean; referenced: boolean }>(
+    settings,
+    "/api/apps/codex/model-catalog",
+    { method: "PUT", body: content },
+  );
+}
+
+/**
+ * The model ids a stored provider advertises.
+ *
+ * Fetched by the cc-switch server rather than by this page: the server holds
+ * the provider's key (so nothing has to be retyped, and a masked document is
+ * no obstacle), and it is not subject to the cross-origin rules that stop a
+ * browser from calling the provider directly.
+ */
+export async function ccswitchFetchModels(
+  settings: CcSwitchSettings,
+  app: string,
+  id: string,
+): Promise<string[]> {
+  const result = await call<{ models?: string[] }>(
+    settings,
+    `/api/apps/${encodeURIComponent(app)}/providers/${encodeURIComponent(id)}/fetch-models`,
+  );
+  return result?.models ?? [];
 }
 
 /** Every provider of one app, with the id of the one in use. */

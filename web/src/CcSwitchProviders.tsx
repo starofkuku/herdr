@@ -28,7 +28,6 @@ import { CcSwitchDrawer } from "./CcSwitchDrawer";
 import {
   CcSwitchProviderForm,
   draftFrom,
-  hasMaskedSecret,
   parseSettings,
   type ProviderDraft,
 } from "./CcSwitchProviderForm";
@@ -95,22 +94,28 @@ export function CcSwitchProviders({
     setNotice("");
   }, [app]);
 
-  const toggleDetail = async (provider: CcSwitchProvider) => {
-    if (openId === provider.id) {
-      setOpenId(null);
+
+    const beginEdit = async (provider: CcSwitchProvider) => {
+      setError("");
+      try {
+        startEdit(await ccswitchProvider(settings, app, provider.id));
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    };
+
+    const beginDelete = async (provider: CcSwitchProvider) => {
+      setOpenId(provider.id);
       setDetail(null);
-      return;
-    }
-    setOpenId(provider.id);
-    setDetail(null);
-    setConfirmingDelete(false);
-    setError("");
-    try {
-      setDetail(await ccswitchProvider(settings, app, provider.id));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  };
+      setConfirmingDelete(false);
+      setError("");
+      try {
+        setDetail(await ccswitchProvider(settings, app, provider.id));
+        setConfirmingDelete(true);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    };
 
   const switchTo = async (provider: CcSwitchProvider) => {
     if (busy) return;
@@ -187,9 +192,12 @@ export function CcSwitchProviders({
         // able to overwrite a secret with the mask a read put there.
         const changed = next.settings.trim() !== draftFrom(editing).settings.trim();
         if (changed && parsed.error) throw new Error(parsed.error);
-        if (changed && hasMaskedSecret(next.settings)) {
-          throw new Error("配置里还有 *** 占位符，请换成真实值。");
-        }
+        /*
+         * A `***` in the document is the mask a read put there, not a value:
+         * cc-switch restores those leaves from what it stores before writing,
+         * so an edit may be saved with the mask still in it. No guard, no
+         * retyping — this tool is for the reader's own intranet.
+         */
         await ccswitchUpdateProvider(settings, app, editing.id, {
           name: next.name,
           notes: next.notes,
@@ -200,9 +208,6 @@ export function CcSwitchProviders({
       } else {
         const parsed = parseSettings(next.settings);
         if (parsed.error) throw new Error(parsed.error);
-        if (hasMaskedSecret(next.settings)) {
-          throw new Error("配置里还有 *** 占位符，请填入真实值。");
-        }
         const id = await ccswitchCreateProvider(settings, app, {
           id: next.id.trim() || undefined,
           name: next.name,
@@ -348,11 +353,14 @@ export function CcSwitchProviders({
               const isCurrent = provider.id === current;
               return (
                 <li key={provider.id} className={`ccswitch__row${isCurrent ? " current" : ""}`}>
+                  {/* The row itself no longer opens anything on a click: editing and
+                     deleting are explicit buttons beside it, so a tap that only
+                     meant to look costs nothing. */}
                   <button
                     type="button"
                     className="ccswitch__row-main"
-                    onClick={() => void toggleDetail(provider)}
-                    aria-expanded={openId === provider.id}
+                    onClick={() => void beginEdit(provider)}
+                    title="点击编辑此渠道"
                   >
                     <span className="ccswitch__name">{provider.name}</span>
                     <span className="ccswitch__id">{provider.id}</span>
@@ -365,12 +373,28 @@ export function CcSwitchProviders({
                   <button
                     type="button"
                     className="ghost ccswitch__action"
+                    disabled={busy !== null}
+                    onClick={() => void beginEdit(provider)}
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost ccswitch__action"
+                    disabled={busy !== null}
+                    onClick={() => void beginDelete(provider)}
+                  >
+                    删除
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost ccswitch__action"
                     disabled={isCurrent || busy !== null}
                     onClick={() => void switchTo(provider)}
                   >
                     {busy === provider.id ? "切换中…" : isCurrent ? "当前" : "切换"}
                   </button>
-                </li>
+                                  </li>
               );
             })}
           </ul>
@@ -398,6 +422,7 @@ export function CcSwitchProviders({
         >
           <CcSwitchProviderForm
             app={app}
+            connection={settings}
             editing={editing}
             draft={draft}
             onChange={(next) => {

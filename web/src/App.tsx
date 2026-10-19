@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AgentView } from "./api";
 import { AgentDetail } from "./AgentDetail";
 import { AgentList } from "./AgentList";
@@ -17,6 +17,7 @@ import {
   type BackendProfile,
   type StoredSettings,
 } from "./settings";
+import { saveActiveCcSwitchBackend } from "./ccswitch";
 import { currentRoute, navigate, routeHash, type Route } from "./route";
 import { CcSwitchPage } from "./CcSwitchPage";
 
@@ -44,6 +45,29 @@ export default function App() {
   const hub = backendsRef.current;
   const backends = useMemo(() => hub.list(), [hub, revision]);
 
+  /*
+   * The server the reader is working on. The cc-switch tool page has no
+   * backend of its own, so it follows this: remembered as the default whenever
+   * it changes, because the page usually opens in a tab of its own where this
+   * app's memory does not reach.
+   */
+  const activeBackendId = route.view !== "home" && route.view !== "ccswitch" ? route.backendId : null;
+  const lastBackendIdRef = useRef<string | null>(null);
+  if (activeBackendId) {
+    lastBackendIdRef.current = activeBackendId;
+  }
+  useEffect(() => {
+    if (activeBackendId) saveActiveCcSwitchBackend(activeBackendId);
+  }, [activeBackendId]);
+
+  // The cc-switch tool page talks to the cc-switch backend over plain HTTP
+  // and reads nothing from herdr, so it holds no herdr connections while it
+  // is showing. A layout effect so the state is settled before the sync
+  // effect below runs on mount.
+  useLayoutEffect(() => {
+    hub.setSuspended(route.view === "ccswitch");
+  }, [hub, route.view]);
+
   // Every saved backend gets a connection, and a change to the list is applied
   // to those connections rather than to a single active one.
   useEffect(() => {
@@ -51,6 +75,13 @@ export default function App() {
   }, [hub, settings.backends]);
 
   useEffect(() => () => hub.dispose(), [hub]);
+
+  // One-off requests from the tool page, which holds no connections of its own.
+  const requestHerdr = useCallback(
+    (backendId: string, method: string, params: Record<string, unknown>) =>
+      hub.requestOnce(backendId, method, params),
+    [hub],
+  );
 
   /** Persists a settings change and hands it to the connections. */
   const commit = useCallback((next: StoredSettings) => {
@@ -243,8 +274,10 @@ export default function App() {
           hrefFor={linkFor}
         />
       ) : null}
-      {route.view !== "home" ? (
-        <SessionActivity
+      {/* The tool page is not a session screen: the rail of live agents would
+          sit over a page that has nothing to do with them. */}
+      {route.view !== "home" && route.view !== "ccswitch" ? (
+          <SessionActivity
           agents={allAgents}
           currentPaneId={route.view === "detail" ? route.paneId : null}
           hrefFor={linkFor}
@@ -263,6 +296,9 @@ export default function App() {
   if (route.view === "ccswitch") {
     return withActivity(
       <CcSwitchPage
+        backends={settings.backends}
+        onHerdrRequest={requestHerdr}
+        initialBackendId={lastBackendIdRef.current}
         onBack={() => {
           // 从应用内打开时用浏览器返回；直接输链接进来时没有回处，落回首页。
           if (window.history.length > 1) window.history.back();
