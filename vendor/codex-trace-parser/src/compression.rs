@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -66,6 +66,100 @@ pub fn resolve_rollout_path(path: &Path) -> Option<PathBuf> {
 
 /// Read a session file that may be plain text or zstd-compressed.
 /// Detects the zstd frame magic and decompresses transparently.
+/// How a window is opened: by its approximate size from the end, or by the
+/// approximate start it should reach back to.
+pub enum WindowCut {
+    /// Hold roughly this many bytes of the tail.
+    Tail(u64),
+    /// Start at or before this offset.
+    From(u64),
+}
+
+/// A byte window of a session file that starts on a line boundary.
+pub struct SessionFileWindow {
+    pub content: String,
+    /// Where `content` starts in the file: the byte after the newline before
+    /// the cut, so every line held is complete.
+    pub start: u64,
+}
+
+/// Reads the last `approx_bytes` of a session file, whole lines only.
+///
+/// The cut is moved *back* to the newline before it, so the line the cut
+/// landed in is included whole: the window can be slightly larger than asked
+/// for, and never holds a partial JSON line. A compressed stream cannot be
+/// entered at an offset, so it is read whole with `start` at 0.
+pub fn read_session_file_tail(path: &Path, approx_bytes: u64) -> Result<SessionFileWindow, String> {
+    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+    let len = metadata.len();
+    if len <= approx_bytes || path_is_zstd(path)? {
+        let content = read_session_file(path)?;
+        return Ok(SessionFileWindow { content, start: 0 });
+    }
+    let start = line_start_before(path, len - approx_bytes)?;
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    let mut content = String::new();
+    file.read_to_string(&mut content).map_err(|e| e.to_string())?;
+    Ok(SessionFileWindow { content, start })
+}
+
+/// Reads from `approx_start` (moved back to its line start) to the end.
+///
+/// The same boundary rule as [`read_session_file_tail`], for widening an
+/// existing window: the caller hands back the start it was given and asks for
+/// the line-aligned window that begins at or before it.
+pub fn read_session_file_from(path: &Path, approx_start: u64) -> Result<SessionFileWindow, String> {
+    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+    let len = metadata.len();
+    if approx_start == 0 || len <= approx_start || path_is_zstd(path)? {
+        let content = read_session_file(path)?;
+        return Ok(SessionFileWindow { content, start: 0 });
+    }
+    let start = line_start_before(path, approx_start)?;
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
+    let mut content = String::new();
+    file.read_to_string(&mut content).map_err(|e| e.to_string())?;
+    Ok(SessionFileWindow { content, start })
+}
+
+/// Whether the file begins with the zstd frame magic.
+fn path_is_zstd(path: &Path) -> Result<bool, String> {
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let mut magic = [0u8; 4];
+    let read = read_up_to(&mut file, &mut magic).map_err(|e| e.to_string())?;
+    Ok(read == 4 && magic == ZSTD_MAGIC)
+}
+
+/// The offset of the first byte of the line containing `offset`.
+///
+/// Scans backwards in blocks for the newline that opens that line; the start
+/// of the file is the boundary when none precedes it.
+fn line_start_before(path: &Path, offset: u64) -> Result<u64, String> {
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; 8192];
+    let mut pos = offset;
+    loop {
+        let read_from = pos.saturating_sub(buf.len() as u64);
+        file.seek(SeekFrom::Start(read_from)).map_err(|e| e.to_string())?;
+        let read = file.read(&mut buf).map_err(|e| e.to_string())?;
+        if read == 0 {
+            return Ok(0);
+        }
+        for index in (0..read).rev() {
+            let absolute = read_from + index as u64;
+            if buf[index] == b'\n' && absolute < offset {
+                return Ok(absolute + 1);
+            }
+        }
+        if read_from == 0 {
+            return Ok(0);
+        }
+        pos = read_from;
+    }
+}
+
 pub fn read_session_file(path: &Path) -> Result<String, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
     if bytes.starts_with(&ZSTD_MAGIC) {

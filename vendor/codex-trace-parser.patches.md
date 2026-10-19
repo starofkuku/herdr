@@ -15,3 +15,12 @@
 ```sh
 git apply --reverse --check --directory=vendor/codex-trace-parser vendor/patches/codex-trace-parser/explicit-terminal-events.patch
 ```
+
+## tail-window-loading（2026-10-19 ✗
+
+- 问题来源：herdr 打开大会话（数百 MB 的 Codex rollout ✗ 时，`SessionHandle::load` 一次性把整个文件读成 String 并全量解析常驻，服务端内存随文件大小线性暴涨；本机实测 700MB 会话 → RSS 立即 +600MB。上游如此设计，小会话从未暴露。
+- 补丁：`patches/codex-trace-parser/tail-window-loading.patch`。
+- 修改文件：`src/compression.rs`、`src/session.rs`、`src/chat.rs`。
+- 行为：新增 `read_session_file_tail` / `read_session_file_from`（行对齐的尾部窗口读取 ✗ 刀口回退到上一个换行 ✗ 窗口内全部是完整 JSON 行 ✗ `.zst` 压缩文件仍整读 ✗✓ `SessionHandle::load_tail` / `load_from` / `window_start_bytes`；两处 `refresh` 的重建改为窗口感知 ✗ 不再回退到整读。herdr 侧由 `[advanced] transcript_tail_window_bytes`（默认 100MiB ✗ 与 `transcript_extend_step_bytes`（默认 10MiB ✗ 控制首次窗口与向上翻页的扩窗步长。
+- 验证：B 上 `cargo build --release` 通过 ✗ herdr `api::panes` 68 项测试通过 ✗ 补丁对 vendored 树 `patch -p1 --reverse --check` 干净。
+- 移除条件：上游提供等价的窗口化加载（或分页读取 ✗ 后改回固定版本并同步 Cargo.lock。

@@ -923,6 +923,13 @@ pub struct AdvancedConfig {
     /// Maximum scrollback buffer size in bytes retained per pane terminal. Default: 10000000.
     #[serde(alias = "scrollback_lines")]
     pub scrollback_limit_bytes: usize,
+    /// How many bytes of a large agent transcript are parsed on first open.
+    /// A session bigger than this is read from its end, whole lines only;
+    /// paging back widens the window. Default: 104857600 (100 MiB).
+    pub transcript_tail_window_bytes: usize,
+    /// How many more bytes of a windowed transcript are read each time the
+    /// reader pages back past what is loaded. Default: 10485760 (10 MiB).
+    pub transcript_extend_step_bytes: usize,
     /// Write the server's recurring progress and subscription lifecycle records.
     /// Default: false.
     ///
@@ -1246,6 +1253,8 @@ impl Default for AdvancedConfig {
     fn default() -> Self {
         Self {
             scrollback_limit_bytes: DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            transcript_tail_window_bytes: crate::config::DEFAULT_TRANSCRIPT_TAIL_WINDOW_BYTES,
+            transcript_extend_step_bytes: crate::config::DEFAULT_TRANSCRIPT_EXTEND_STEP_BYTES,
             diagnostic_logging: false,
         }
     }

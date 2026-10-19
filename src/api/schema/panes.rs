@@ -971,6 +971,13 @@ pub struct PaneSessionResult {
     /// and the store's own size says nothing about this session's share of it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
+    /// Turns in the whole session file, counted without loading it.
+    ///
+    /// A windowed transcript holds only its newest part, so the parsed turns
+    /// undercount the session; this is the file's own count, taken by scanning
+    /// for turn markers, and it is absent when counting is not possible.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total_turns_file: Option<u64>,
     /// Agent that produced the transcript, for example `pi` or `claude`.
     pub agent: String,
     /// Provider the transcript itself declares.

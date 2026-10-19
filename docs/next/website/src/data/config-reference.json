@@ -1177,6 +1177,18 @@
           "description": "Maximum scrollback buffer size in bytes retained per pane terminal. The legacy key name `scrollback_lines` is accepted as an alias."
         },
         {
+          "key": "advanced.transcript_tail_window_bytes",
+          "type": "integer",
+          "default": "104857600",
+          "description": "How many bytes of a large agent transcript are parsed when a conversation is first opened. A session file bigger than this is read from its end, whole lines only, so memory stays bounded however long the conversation runs; the reader is told there is earlier history and paging back loads it. Default 100 MiB. A compressed (.zst) transcript is always read whole."
+        },
+        {
+          "key": "advanced.transcript_extend_step_bytes",
+          "type": "integer",
+          "default": "10485760",
+          "description": "How many more bytes of a windowed transcript are read each time the reader pages back past what is loaded. Default 10 MiB."
+        },
+        {
           "key": "advanced.diagnostic_logging",
           "type": "boolean",
           "default": "false",

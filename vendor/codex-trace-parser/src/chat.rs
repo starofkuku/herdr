@@ -5,7 +5,10 @@ use std::io::{BufRead, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-use super::compression::{read_session_file, resolve_rollout_path};
+use super::compression::{
+    read_session_file, read_session_file_from, read_session_file_tail, resolve_rollout_path,
+    SessionFileWindow, WindowCut,
+};
 use super::discover::CodexSessionInfo;
 use super::entry::parse_timestamp_secs;
 use super::provider::{chat_content_text, date_group_from_mtime, Provider};
@@ -1199,6 +1202,7 @@ pub struct ChatIncremental {
     byte_offset: u64,
     pending_line: String,
     source_size_bytes: u64,
+    window_start: u64,
     modified: Option<SystemTime>,
     file_identity: Option<(u64, u64)>,
 }
@@ -1222,9 +1226,55 @@ fn file_identity(_metadata: &fs::Metadata) -> Option<(u64, u64)> {
 
 impl ChatIncremental {
     pub fn load(path: &Path, provider: Provider) -> Result<Self, String> {
+        Self::load_windowed(path, provider, None)
+    }
+
+    /// Loads only the tail of a session file, whole lines only; see
+    /// [`super::compression::read_session_file_tail`].
+    pub fn load_tail(path: &Path, provider: Provider, approx_bytes: u64) -> Result<Self, String> {
+        Self::load_windowed(path, provider, Some(WindowCut::Tail(approx_bytes)))
+    }
+
+    /// Widens a window from an approximate start; see
+    /// [`super::compression::read_session_file_from`].
+    pub fn load_from(path: &Path, provider: Provider, approx_start: u64) -> Result<Self, String> {
+        Self::load_windowed(path, provider, Some(WindowCut::From(approx_start)))
+    }
+
+    /// Where the loaded window starts: 0 when the whole file is held.
+    pub fn window_start_bytes(&self) -> u64 {
+        self.window_start
+    }
+
+    fn rebuild(&self) -> Result<Self, String> {
+        if self.window_start > 0 {
+            Self::load_from(&self.requested_path, self.provider, self.window_start)
+        } else {
+            Self::load(&self.requested_path, self.provider)
+        }
+    }
+
+    fn load_windowed(
+        path: &Path,
+        provider: Provider,
+        window: Option<WindowCut>,
+    ) -> Result<Self, String> {
         let resolved_path = resolve_rollout_path(path)
             .ok_or_else(|| format!("session file does not exist: {}", path.display()))?;
-        let content = read_session_file(&resolved_path)?;
+        let file_window = match &window {
+            Some(WindowCut::Tail(approx)) => {
+                read_session_file_tail(&resolved_path, *approx)?
+            }
+            Some(WindowCut::From(approx)) => {
+                read_session_file_from(&resolved_path, *approx)?
+            }
+            None => SessionFileWindow {
+                content: read_session_file(&resolved_path)?,
+                start: 0,
+            },
+        };
+        let window_start = file_window.start;
+        let content = file_window.content;
         let mut builder = ChatSessionBuilder::new(provider);
         for line in content.lines() {
             builder.push_line(line);
@@ -1232,8 +1282,13 @@ impl ChatIncremental {
         let file_fresh = file_is_fresh(&resolved_path);
         let mut session = builder.finish(path, file_fresh);
         session.path = path.to_string_lossy().to_string();
-        let source_size_bytes = content.len() as u64;
         let metadata = fs::metadata(&resolved_path).ok();
+        // The file's real size, not the window's: the session is reported by
+        // what it weighs on disk, and a window always ends at the file's end.
+        let source_size_bytes = metadata
+            .as_ref()
+            .map(|metadata| metadata.len())
+            .unwrap_or(content.len() as u64);
         let modified = metadata.as_ref().and_then(|m| m.modified().ok());
         Ok(Self {
             requested_path: path.to_path_buf(),
@@ -1244,6 +1299,7 @@ impl ChatIncremental {
             byte_offset: source_size_bytes,
             pending_line: String::new(),
             source_size_bytes,
+            window_start,
             modified,
             file_identity: metadata.as_ref().and_then(file_identity),
         })
@@ -1384,7 +1440,7 @@ impl ChatIncremental {
     }
 
     fn reload(&mut self) -> Result<SessionRefresh, String> {
-        let replacement = Self::load(&self.requested_path, self.provider)?;
+        let replacement = self.rebuild()?;
         let session = replacement.session.clone();
         let source_size_bytes = replacement.source_size_bytes;
         *self = replacement;

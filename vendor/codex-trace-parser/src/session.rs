@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use super::activity::ACTIVITY_STALE_AFTER;
-use super::compression::{read_session_file, resolve_rollout_path};
+use super::compression::{
+    read_session_file, read_session_file_from, read_session_file_tail, resolve_rollout_path,
+    SessionFileWindow, WindowCut,
+};
 use super::entry::{extract_session_id, RawEntry};
 use super::toolcall::ToolKind;
 use super::turn::{build_turns, CodexTurn, IncrementalTurnParser, TokenInfo, TurnStatus};
@@ -305,15 +308,68 @@ pub struct IncrementalSession {
     pending_line: String,
     has_session_end: bool,
     source_size_bytes: u64,
+    /// Where the parsed window starts in the file: 0 when the whole file was
+    /// read, the line-aligned cut otherwise.
+    window_start: u64,
     modified: Option<SystemTime>,
     file_identity: Option<(u64, u64)>,
 }
 
 impl IncrementalSession {
     pub fn load(path: &Path) -> Result<Self, String> {
+        Self::load_windowed(path, None)
+    }
+
+    /// Loads only the tail of a session file, whole lines only.
+    ///
+    /// A session that has grown past any bound is read from a line-aligned cut
+    /// `approx_bytes` from the end; the parser sees complete events only, and
+    /// the caller can widen the window later with [`Self::load_from`].
+    pub fn load_tail(path: &Path, approx_bytes: u64) -> Result<Self, String> {
+        Self::load_windowed(path, Some(WindowCut::Tail(approx_bytes)))
+    }
+
+    /// Widens a window: reads from a line-aligned cut at or before
+    /// `approx_start` to the end of the file.
+    pub fn load_from(path: &Path, approx_start: u64) -> Result<Self, String> {
+        Self::load_windowed(path, Some(WindowCut::From(approx_start)))
+    }
+
+    /// Where the loaded window starts: 0 when the whole file is held.
+    pub fn window_start_bytes(&self) -> u64 {
+        self.window_start
+    }
+
+    /// Re-reads the file, holding the window it already has.
+    ///
+    /// A plain rebuild would read the whole file — the very thing a window
+    /// exists to avoid — so a windowed handle is rebuilt from its own start,
+    /// which clamps to the whole file when the file has shrunk under it.
+    fn rebuild(&self) -> Result<Self, String> {
+        if self.window_start > 0 {
+            Self::load_from(&self.requested_path, self.window_start)
+        } else {
+            Self::load(&self.requested_path)
+        }
+    }
+
+    fn load_windowed(path: &Path, window: Option<WindowCut>) -> Result<Self, String> {
         let resolved_path = resolve_rollout_path(path)
             .ok_or_else(|| format!("session file does not exist: {}", path.display()))?;
-        let content = read_session_file(&resolved_path)?;
+        let file_window = match &window {
+            Some(WindowCut::Tail(approx)) => {
+                read_session_file_tail(&resolved_path, *approx)?
+            }
+            Some(WindowCut::From(approx)) => {
+                read_session_file_from(&resolved_path, *approx)?
+            }
+            None => SessionFileWindow {
+                content: read_session_file(&resolved_path)?,
+                start: 0,
+            },
+        };
+        let window_start = file_window.start;
+        let content = file_window.content;
         let entries = parse_entries(&content);
         let parser = IncrementalTurnParser::from_entries(&entries);
         let canonical_path =
@@ -337,16 +393,15 @@ impl IncrementalSession {
         session.path = path.to_string_lossy().to_string();
         visited.remove(&canonical_path);
 
-        let source_size_bytes = content.len() as u64;
         let metadata = fs::metadata(&resolved_path).ok();
-        let byte_offset = if resolved_path.extension().and_then(|ext| ext.to_str()) == Some("zst") {
-            metadata
-                .as_ref()
-                .map(|metadata| metadata.len())
-                .unwrap_or(source_size_bytes)
-        } else {
-            source_size_bytes
-        };
+        // The file's real size, not the window's: it is what the reader is told
+        // the session weighs and what the append offset advances from, and a
+        // window always ends at the file's end.
+        let source_size_bytes = metadata
+            .as_ref()
+            .map(|metadata| metadata.len())
+            .unwrap_or(content.len() as u64);
+        let byte_offset = source_size_bytes;
         let modified = metadata
             .as_ref()
             .and_then(|metadata| metadata.modified().ok());
@@ -362,6 +417,7 @@ impl IncrementalSession {
                 .iter()
                 .any(|entry| entry.entry_type == "session_end"),
             source_size_bytes,
+            window_start,
             modified,
             file_identity: metadata.as_ref().and_then(file_identity),
         })
@@ -464,7 +520,7 @@ impl IncrementalSession {
             || metadata.len() < self.byte_offset
             || (is_zstd && (metadata.len() != self.byte_offset || modified != self.modified))
         {
-            let replacement = Self::load(&self.requested_path)?;
+            let replacement = self.rebuild()?;
             let session = replacement.session.clone();
             let source_size_bytes = replacement.source_size_bytes;
             *self = replacement;
@@ -478,7 +534,7 @@ impl IncrementalSession {
             return Ok(SessionRefresh::Unchanged);
         }
         if metadata.len() == self.byte_offset {
-            let replacement = Self::load(&self.requested_path)?;
+            let replacement = self.rebuild()?;
             let session = replacement.session.clone();
             let source_size_bytes = replacement.source_size_bytes;
             *self = replacement;
@@ -548,7 +604,7 @@ impl IncrementalSession {
         // Newly discovered worker sessions need the recursive embedding pass. Rebuilding is
         // rare and keeps subagent data consistent without reparsing workers on every append.
         if spawned_worker_ids != old_session.spawned_worker_ids {
-            let replacement = Self::load(&self.requested_path)?;
+            let replacement = self.rebuild()?;
             let session = replacement.session.clone();
             let source_size_bytes = replacement.source_size_bytes;
             *self = replacement;
@@ -632,6 +688,40 @@ impl SessionHandle {
         match super::provider::Provider::detect_from_path(path) {
             super::provider::Provider::Codex => IncrementalSession::load(path).map(Self::Codex),
             provider => super::chat::ChatIncremental::load(path, provider).map(Self::Chat),
+        }
+    }
+
+    /// Loads only a tail window; see [`IncrementalSession::load_tail`].
+    pub fn load_tail(path: &Path, approx_bytes: u64) -> Result<Self, String> {
+        match super::provider::Provider::detect_from_path(path) {
+            super::provider::Provider::Codex => {
+                IncrementalSession::load_tail(path, approx_bytes).map(Self::Codex)
+            }
+            provider => {
+                super::chat::ChatIncremental::load_tail(path, provider, approx_bytes)
+                    .map(Self::Chat)
+            }
+        }
+    }
+
+    /// Widens a window; see [`IncrementalSession::load_from`].
+    pub fn load_from(path: &Path, approx_start: u64) -> Result<Self, String> {
+        match super::provider::Provider::detect_from_path(path) {
+            super::provider::Provider::Codex => {
+                IncrementalSession::load_from(path, approx_start).map(Self::Codex)
+            }
+            provider => {
+                super::chat::ChatIncremental::load_from(path, provider, approx_start)
+                    .map(Self::Chat)
+            }
+        }
+    }
+
+    /// Where the loaded window starts: 0 when the whole file is held.
+    pub fn window_start_bytes(&self) -> u64 {
+        match self {
+            Self::Codex(inner) => inner.window_start_bytes(),
+            Self::Chat(inner) => inner.window_start_bytes(),
         }
     }
 

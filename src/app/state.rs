@@ -1633,6 +1633,10 @@ pub struct AppState {
     pub shell_mode: crate::config::ShellModeConfig,
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
+    /// First-open window for a large agent transcript, in bytes.
+    pub transcript_tail_window_bytes: usize,
+    /// Backward-page growth for a windowed transcript, in bytes.
+    pub transcript_extend_step_bytes: usize,
     #[allow(dead_code)] // kept for backward compat; palette.accent is the source of truth
     pub accent: Color,
     pub sound: SoundConfig,
@@ -2116,6 +2120,8 @@ impl AppState {
             shell_mode: crate::config::ShellModeConfig::Auto,
             new_terminal_cwd: NewTerminalCwdConfig::Follow,
             pane_scrollback_limit_bytes: crate::config::DEFAULT_SCROLLBACK_LIMIT_BYTES,
+            transcript_tail_window_bytes: crate::config::DEFAULT_TRANSCRIPT_TAIL_WINDOW_BYTES,
+            transcript_extend_step_bytes: crate::config::DEFAULT_TRANSCRIPT_EXTEND_STEP_BYTES,
             accent: Color::Cyan,
             sound: SoundConfig {
                 enabled: false,

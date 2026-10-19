@@ -1,0 +1,405 @@
+--- a/src/compression.rs
++++ b/src/compression.rs
+@@ -1,4 +1,4 @@
+-use std::fs::File;
++use std::fs::{self, File};
+ use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
+ use std::path::{Path, PathBuf};
+ 
+@@ -66,6 +66,100 @@
+ 
+ /// Read a session file that may be plain text or zstd-compressed.
+ /// Detects the zstd frame magic and decompresses transparently.
++/// How a window is opened: by its approximate size from the end, or by the
++/// approximate start it should reach back to.
++pub enum WindowCut {
++    /// Hold roughly this many bytes of the tail.
++    Tail(u64),
++    /// Start at or before this offset.
++    From(u64),
++}
++
++/// A byte window of a session file that starts on a line boundary.
++pub struct SessionFileWindow {
++    pub content: String,
++    /// Where `content` starts in the file: the byte after the newline before
++    /// the cut, so every line held is complete.
++    pub start: u64,
++}
++
++/// Reads the last `approx_bytes` of a session file, whole lines only.
++///
++/// The cut is moved *back* to the newline before it, so the line the cut
++/// landed in is included whole: the window can be slightly larger than asked
++/// for, and never holds a partial JSON line. A compressed stream cannot be
++/// entered at an offset, so it is read whole with `start` at 0.
++pub fn read_session_file_tail(path: &Path, approx_bytes: u64) -> Result<SessionFileWindow, String> {
++    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
++    let len = metadata.len();
++    if len <= approx_bytes || path_is_zstd(path)? {
++        let content = read_session_file(path)?;
++        return Ok(SessionFileWindow { content, start: 0 });
++    }
++    let start = line_start_before(path, len - approx_bytes)?;
++    let mut file = File::open(path).map_err(|e| e.to_string())?;
++    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
++    let mut content = String::new();
++    file.read_to_string(&mut content).map_err(|e| e.to_string())?;
++    Ok(SessionFileWindow { content, start })
++}
++
++/// Reads from `approx_start` (moved back to its line start) to the end.
++///
++/// The same boundary rule as [`read_session_file_tail`], for widening an
++/// existing window: the caller hands back the start it was given and asks for
++/// the line-aligned window that begins at or before it.
++pub fn read_session_file_from(path: &Path, approx_start: u64) -> Result<SessionFileWindow, String> {
++    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
++    let len = metadata.len();
++    if approx_start == 0 || len <= approx_start || path_is_zstd(path)? {
++        let content = read_session_file(path)?;
++        return Ok(SessionFileWindow { content, start: 0 });
++    }
++    let start = line_start_before(path, approx_start)?;
++    let mut file = File::open(path).map_err(|e| e.to_string())?;
++    file.seek(SeekFrom::Start(start)).map_err(|e| e.to_string())?;
++    let mut content = String::new();
++    file.read_to_string(&mut content).map_err(|e| e.to_string())?;
++    Ok(SessionFileWindow { content, start })
++}
++
++/// Whether the file begins with the zstd frame magic.
++fn path_is_zstd(path: &Path) -> Result<bool, String> {
++    let mut file = File::open(path).map_err(|e| e.to_string())?;
++    let mut magic = [0u8; 4];
++    let read = read_up_to(&mut file, &mut magic).map_err(|e| e.to_string())?;
++    Ok(read == 4 && magic == ZSTD_MAGIC)
++}
++
++/// The offset of the first byte of the line containing `offset`.
++///
++/// Scans backwards in blocks for the newline that opens that line; the start
++/// of the file is the boundary when none precedes it.
++fn line_start_before(path: &Path, offset: u64) -> Result<u64, String> {
++    let mut file = File::open(path).map_err(|e| e.to_string())?;
++    let mut buf = vec![0u8; 8192];
++    let mut pos = offset;
++    loop {
++        let read_from = pos.saturating_sub(buf.len() as u64);
++        file.seek(SeekFrom::Start(read_from)).map_err(|e| e.to_string())?;
++        let read = file.read(&mut buf).map_err(|e| e.to_string())?;
++        if read == 0 {
++            return Ok(0);
++        }
++        for index in (0..read).rev() {
++            let absolute = read_from + index as u64;
++            if buf[index] == b'\n' && absolute < offset {
++                return Ok(absolute + 1);
++            }
++        }
++        if read_from == 0 {
++            return Ok(0);
++        }
++        pos = read_from;
++    }
++}
++
+ pub fn read_session_file(path: &Path) -> Result<String, String> {
+     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+     if bytes.starts_with(&ZSTD_MAGIC) {
+--- a/src/session.rs
++++ b/src/session.rs
+@@ -7,7 +7,10 @@
+ use std::time::SystemTime;
+ 
+ use super::activity::ACTIVITY_STALE_AFTER;
+-use super::compression::{read_session_file, resolve_rollout_path};
++use super::compression::{
++    read_session_file, read_session_file_from, read_session_file_tail, resolve_rollout_path,
++    SessionFileWindow, WindowCut,
++};
+ use super::entry::{extract_session_id, RawEntry};
+ use super::toolcall::ToolKind;
+ use super::turn::{build_turns, CodexTurn, IncrementalTurnParser, TokenInfo, TurnStatus};
+@@ -305,15 +308,68 @@
+     pending_line: String,
+     has_session_end: bool,
+     source_size_bytes: u64,
++    /// Where the parsed window starts in the file: 0 when the whole file was
++    /// read, the line-aligned cut otherwise.
++    window_start: u64,
+     modified: Option<SystemTime>,
+     file_identity: Option<(u64, u64)>,
+ }
+ 
+ impl IncrementalSession {
+     pub fn load(path: &Path) -> Result<Self, String> {
++        Self::load_windowed(path, None)
++    }
++
++    /// Loads only the tail of a session file, whole lines only.
++    ///
++    /// A session that has grown past any bound is read from a line-aligned cut
++    /// `approx_bytes` from the end; the parser sees complete events only, and
++    /// the caller can widen the window later with [`Self::load_from`].
++    pub fn load_tail(path: &Path, approx_bytes: u64) -> Result<Self, String> {
++        Self::load_windowed(path, Some(WindowCut::Tail(approx_bytes)))
++    }
++
++    /// Widens a window: reads from a line-aligned cut at or before
++    /// `approx_start` to the end of the file.
++    pub fn load_from(path: &Path, approx_start: u64) -> Result<Self, String> {
++        Self::load_windowed(path, Some(WindowCut::From(approx_start)))
++    }
++
++    /// Where the loaded window starts: 0 when the whole file is held.
++    pub fn window_start_bytes(&self) -> u64 {
++        self.window_start
++    }
++
++    /// Re-reads the file, holding the window it already has.
++    ///
++    /// A plain rebuild would read the whole file — the very thing a window
++    /// exists to avoid — so a windowed handle is rebuilt from its own start,
++    /// which clamps to the whole file when the file has shrunk under it.
++    fn rebuild(&self) -> Result<Self, String> {
++        if self.window_start > 0 {
++            Self::load_from(&self.requested_path, self.window_start)
++        } else {
++            Self::load(&self.requested_path)
++        }
++    }
++
++    fn load_windowed(path: &Path, window: Option<WindowCut>) -> Result<Self, String> {
+         let resolved_path = resolve_rollout_path(path)
+             .ok_or_else(|| format!("session file does not exist: {}", path.display()))?;
+-        let content = read_session_file(&resolved_path)?;
++        let file_window = match &window {
++            Some(WindowCut::Tail(approx)) => {
++                read_session_file_tail(&resolved_path, *approx)?
++            }
++            Some(WindowCut::From(approx)) => {
++                read_session_file_from(&resolved_path, *approx)?
++            }
++            None => SessionFileWindow {
++                content: read_session_file(&resolved_path)?,
++                start: 0,
++            },
++        };
++        let window_start = file_window.start;
++        let content = file_window.content;
+         let entries = parse_entries(&content);
+         let parser = IncrementalTurnParser::from_entries(&entries);
+         let canonical_path =
+@@ -337,16 +393,15 @@
+         session.path = path.to_string_lossy().to_string();
+         visited.remove(&canonical_path);
+ 
+-        let source_size_bytes = content.len() as u64;
+         let metadata = fs::metadata(&resolved_path).ok();
+-        let byte_offset = if resolved_path.extension().and_then(|ext| ext.to_str()) == Some("zst") {
+-            metadata
+-                .as_ref()
+-                .map(|metadata| metadata.len())
+-                .unwrap_or(source_size_bytes)
+-        } else {
+-            source_size_bytes
+-        };
++        // The file's real size, not the window's: it is what the reader is told
++        // the session weighs and what the append offset advances from, and a
++        // window always ends at the file's end.
++        let source_size_bytes = metadata
++            .as_ref()
++            .map(|metadata| metadata.len())
++            .unwrap_or(content.len() as u64);
++        let byte_offset = source_size_bytes;
+         let modified = metadata
+             .as_ref()
+             .and_then(|metadata| metadata.modified().ok());
+@@ -362,6 +417,7 @@
+                 .iter()
+                 .any(|entry| entry.entry_type == "session_end"),
+             source_size_bytes,
++            window_start,
+             modified,
+             file_identity: metadata.as_ref().and_then(file_identity),
+         })
+@@ -464,7 +520,7 @@
+             || metadata.len() < self.byte_offset
+             || (is_zstd && (metadata.len() != self.byte_offset || modified != self.modified))
+         {
+-            let replacement = Self::load(&self.requested_path)?;
++            let replacement = self.rebuild()?;
+             let session = replacement.session.clone();
+             let source_size_bytes = replacement.source_size_bytes;
+             *self = replacement;
+@@ -478,7 +534,7 @@
+             return Ok(SessionRefresh::Unchanged);
+         }
+         if metadata.len() == self.byte_offset {
+-            let replacement = Self::load(&self.requested_path)?;
++            let replacement = self.rebuild()?;
+             let session = replacement.session.clone();
+             let source_size_bytes = replacement.source_size_bytes;
+             *self = replacement;
+@@ -548,7 +604,7 @@
+         // Newly discovered worker sessions need the recursive embedding pass. Rebuilding is
+         // rare and keeps subagent data consistent without reparsing workers on every append.
+         if spawned_worker_ids != old_session.spawned_worker_ids {
+-            let replacement = Self::load(&self.requested_path)?;
++            let replacement = self.rebuild()?;
+             let session = replacement.session.clone();
+             let source_size_bytes = replacement.source_size_bytes;
+             *self = replacement;
+@@ -635,6 +691,40 @@
+         }
+     }
+ 
++    /// Loads only a tail window; see [`IncrementalSession::load_tail`].
++    pub fn load_tail(path: &Path, approx_bytes: u64) -> Result<Self, String> {
++        match super::provider::Provider::detect_from_path(path) {
++            super::provider::Provider::Codex => {
++                IncrementalSession::load_tail(path, approx_bytes).map(Self::Codex)
++            }
++            provider => {
++                super::chat::ChatIncremental::load_tail(path, provider, approx_bytes)
++                    .map(Self::Chat)
++            }
++        }
++    }
++
++    /// Widens a window; see [`IncrementalSession::load_from`].
++    pub fn load_from(path: &Path, approx_start: u64) -> Result<Self, String> {
++        match super::provider::Provider::detect_from_path(path) {
++            super::provider::Provider::Codex => {
++                IncrementalSession::load_from(path, approx_start).map(Self::Codex)
++            }
++            provider => {
++                super::chat::ChatIncremental::load_from(path, provider, approx_start)
++                    .map(Self::Chat)
++            }
++        }
++    }
++
++    /// Where the loaded window starts: 0 when the whole file is held.
++    pub fn window_start_bytes(&self) -> u64 {
++        match self {
++            Self::Codex(inner) => inner.window_start_bytes(),
++            Self::Chat(inner) => inner.window_start_bytes(),
++        }
++    }
++
+     pub fn session(&self) -> &CodexSession {
+         match self {
+             Self::Codex(inner) => inner.session(),
+--- a/src/chat.rs
++++ b/src/chat.rs
+@@ -5,7 +5,10 @@
+ use std::path::{Path, PathBuf};
+ use std::time::SystemTime;
+ 
+-use super::compression::{read_session_file, resolve_rollout_path};
++use super::compression::{
++    read_session_file, read_session_file_from, read_session_file_tail, resolve_rollout_path,
++    SessionFileWindow, WindowCut,
++};
+ use super::discover::CodexSessionInfo;
+ use super::entry::parse_timestamp_secs;
+ use super::provider::{chat_content_text, date_group_from_mtime, Provider};
+@@ -1199,6 +1202,7 @@
+     byte_offset: u64,
+     pending_line: String,
+     source_size_bytes: u64,
++    window_start: u64,
+     modified: Option<SystemTime>,
+     file_identity: Option<(u64, u64)>,
+ }
+@@ -1222,9 +1226,55 @@
+ 
+ impl ChatIncremental {
+     pub fn load(path: &Path, provider: Provider) -> Result<Self, String> {
++        Self::load_windowed(path, provider, None)
++    }
++
++    /// Loads only the tail of a session file, whole lines only; see
++    /// [`super::compression::read_session_file_tail`].
++    pub fn load_tail(path: &Path, provider: Provider, approx_bytes: u64) -> Result<Self, String> {
++        Self::load_windowed(path, provider, Some(WindowCut::Tail(approx_bytes)))
++    }
++
++    /// Widens a window from an approximate start; see
++    /// [`super::compression::read_session_file_from`].
++    pub fn load_from(path: &Path, provider: Provider, approx_start: u64) -> Result<Self, String> {
++        Self::load_windowed(path, provider, Some(WindowCut::From(approx_start)))
++    }
++
++    /// Where the loaded window starts: 0 when the whole file is held.
++    pub fn window_start_bytes(&self) -> u64 {
++        self.window_start
++    }
++
++    fn rebuild(&self) -> Result<Self, String> {
++        if self.window_start > 0 {
++            Self::load_from(&self.requested_path, self.provider, self.window_start)
++        } else {
++            Self::load(&self.requested_path, self.provider)
++        }
++    }
++
++    fn load_windowed(
++        path: &Path,
++        provider: Provider,
++        window: Option<WindowCut>,
++    ) -> Result<Self, String> {
+         let resolved_path = resolve_rollout_path(path)
+             .ok_or_else(|| format!("session file does not exist: {}", path.display()))?;
+-        let content = read_session_file(&resolved_path)?;
++        let file_window = match &window {
++            Some(WindowCut::Tail(approx)) => {
++                read_session_file_tail(&resolved_path, *approx)?
++            }
++            Some(WindowCut::From(approx)) => {
++                read_session_file_from(&resolved_path, *approx)?
++            }
++            None => SessionFileWindow {
++                content: read_session_file(&resolved_path)?,
++                start: 0,
++            },
++        };
++        let window_start = file_window.start;
++        let content = file_window.content;
+         let mut builder = ChatSessionBuilder::new(provider);
+         for line in content.lines() {
+             builder.push_line(line);
+@@ -1232,8 +1282,13 @@
+         let file_fresh = file_is_fresh(&resolved_path);
+         let mut session = builder.finish(path, file_fresh);
+         session.path = path.to_string_lossy().to_string();
+-        let source_size_bytes = content.len() as u64;
+         let metadata = fs::metadata(&resolved_path).ok();
++        // The file's real size, not the window's: the session is reported by
++        // what it weighs on disk, and a window always ends at the file's end.
++        let source_size_bytes = metadata
++            .as_ref()
++            .map(|metadata| metadata.len())
++            .unwrap_or(content.len() as u64);
+         let modified = metadata.as_ref().and_then(|m| m.modified().ok());
+         Ok(Self {
+             requested_path: path.to_path_buf(),
+@@ -1244,6 +1299,7 @@
+             byte_offset: source_size_bytes,
+             pending_line: String::new(),
+             source_size_bytes,
++            window_start,
+             modified,
+             file_identity: metadata.as_ref().and_then(file_identity),
+         })
+@@ -1384,7 +1440,7 @@
+     }
+ 
+     fn reload(&mut self) -> Result<SessionRefresh, String> {
+-        let replacement = Self::load(&self.requested_path, self.provider)?;
++        let replacement = self.rebuild()?;
+         let session = replacement.session.clone();
+         let source_size_bytes = replacement.source_size_bytes;
+         *self = replacement;

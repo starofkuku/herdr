@@ -178,6 +178,9 @@ pub struct App {
     /// client pages through it repeatedly, so the handle is kept between calls
     /// and advanced incrementally. Entries are evicted least-recently-used once
     /// [`API_SESSION_CACHE_CAPACITY`] transcripts are held.
+    /// Per transcript: how many bytes were scanned for turn markers, and the
+    /// count found — so an active session only ever scans its newest appends.
+    pub(crate) transcript_turn_counts: std::collections::HashMap<String, (u64, u64)>,
     pub(crate) session_cache:
         crate::app::session_cache::SessionCache<crate::app::session_cache::SessionEntry>,
 }
@@ -699,6 +702,8 @@ impl App {
             shell_mode: config.terminal.shell_mode,
             new_terminal_cwd: config.terminal.new_cwd.clone(),
             pane_scrollback_limit_bytes: config.advanced.scrollback_limit_bytes,
+            transcript_tail_window_bytes: config.advanced.transcript_tail_window_bytes,
+            transcript_extend_step_bytes: config.advanced.transcript_extend_step_bytes,
             accent: crate::config::parse_color(&config.ui.accent),
             sound: config.ui.sound.clone(),
             local_sound_playback: true,
@@ -837,6 +842,7 @@ impl App {
             local_input_source_switch: true,
             config_reloaded_from_disk: false,
             session_cache: crate::app::session_cache::SessionCache::new(API_SESSION_CACHE_CAPACITY),
+            transcript_turn_counts: std::collections::HashMap::new(),
             prefix_input_source: Box::new(crate::platform::RealPrefixInputSource::default()),
         }
     }

@@ -1275,6 +1275,56 @@ impl App {
     /// integration reported: either a transcript file or, for an agent that keeps
     /// its sessions in a store of its own, that store. Everything here is
     /// read-only: writing to the agent still goes through `pane.send_input`.
+    /// Counts a transcript file's turns without parsing it.
+    ///
+    /// Only Codex rollouts carry one `turn_context` entry per turn, so only
+    /// those are counted; a chat-style file (pi, Claude — small, kept whole)
+    /// reports its parsed count instead. The scan seeks past what was already
+    /// counted, so repeat calls touch only the newest bytes.
+    fn count_file_turns(&mut self, path: &str, len: u64) -> Option<u64> {
+        use std::io::{BufRead, BufReader, Seek, SeekFrom};
+
+        let provider =
+            codex_trace_parser::provider::Provider::detect_from_path(std::path::Path::new(path));
+        if !matches!(provider, codex_trace_parser::provider::Provider::Codex) {
+            return None;
+        }
+        const MARKER: &[u8] = b"\x22type\x22:\x22turn_context\x22";
+        let entry = self
+            .transcript_turn_counts
+            .entry(path.to_string())
+            .or_insert((0, 0));
+        if entry.0 >= len {
+            return Some(entry.1);
+        }
+        let mut file = std::fs::File::open(path).ok()?;
+        file.seek(SeekFrom::Start(entry.0)).ok()?;
+        let mut reader = BufReader::with_capacity(256 * 1024, file);
+        let mut line = String::new();
+        let mut counted = entry.0;
+        let mut turns = entry.1;
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) => break,
+                Ok(read) => {
+                    counted += read as u64;
+                    if line
+                        .as_bytes()
+                        .windows(MARKER.len())
+                        .any(|window| window == MARKER)
+                    {
+                        turns += 1;
+                    }
+                }
+                Err(_) => return None,
+            }
+        }
+        entry.0 = counted;
+        entry.1 = turns;
+        Some(turns)
+    }
+
     pub(super) fn handle_pane_session(&mut self, id: String, params: PaneSessionParams) -> String {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
@@ -1325,6 +1375,7 @@ impl App {
                     session: PaneSessionResult {
                         pane_id: public_pane_id,
                         path,
+                        total_turns_file: None,
                         // Nothing has been written yet, so there is no file to size.
                         size_bytes: None,
                         agent: reported_agent,
@@ -1343,7 +1394,23 @@ impl App {
 
         // Load on miss, then refresh, so repeated paging does not re-parse.
         if self.session_cache.get_mut(&path).is_none() {
-            match codex_trace_parser::session::SessionHandle::load(std::path::Path::new(&path)) {
+            // A transcript past the configured window is read from its end
+            // only: whole lines, so no event is half-parsed, and memory stays
+            // bounded however long the conversation has run. Paging back past
+            // the window widens it, below.
+            let tail_window = self.state.transcript_tail_window_bytes as u64;
+            let oversized = std::fs::metadata(&path)
+                .map(|meta| meta.len() > tail_window)
+                .unwrap_or(false);
+            let loaded = if oversized {
+                codex_trace_parser::session::SessionHandle::load_tail(
+                    std::path::Path::new(&path),
+                    tail_window,
+                )
+            } else {
+                codex_trace_parser::session::SessionHandle::load(std::path::Path::new(&path))
+            };
+            match loaded {
                 Ok(loaded) => self.session_cache.insert(path.clone(), loaded),
                 Err(err) => return encode_error(id, "transcript_unreadable", err),
             }
@@ -1359,11 +1426,51 @@ impl App {
             return encode_error(id, "transcript_unreadable", err);
         }
 
+        // Paging back past the top of a windowed transcript widens the window
+        // instead of answering "no more": the reader asked for earlier history
+        // and the file has it — it was left out only to bound memory. The
+        // widened handle replaces the cached one, and the cursor shifts by the
+        // turns the widening prepended, so the page continues exactly where the
+        // reader left off.
+        let mut cursor = params.cursor.map(|cursor| cursor as usize);
+        if cursor == Some(0) && handle.window_start_bytes() > 0 {
+            let window_start = handle.window_start_bytes();
+            let before = handle.session().turns.len();
+            drop(handle);
+            let step = self.state.transcript_extend_step_bytes as u64;
+            match codex_trace_parser::session::SessionHandle::load_from(
+                std::path::Path::new(&path),
+                window_start.saturating_sub(step),
+            ) {
+                Ok(widened) => {
+                    cursor = Some(widened.session().turns.len().saturating_sub(before));
+                    self.session_cache.insert(path.clone(), widened);
+                }
+                Err(err) => return encode_error(id, "transcript_unreadable", err),
+            }
+        }
+
+        let Some(handle) = self.session_cache.get_mut(&path) else {
+            return encode_error(id, "transcript_unreadable", "transcript cache miss");
+        };
         let source_size = handle.source_size_bytes();
+        let has_earlier_in_file = handle.window_start_bytes() > 0;
+        // The file's own turn count, for a window the reader cannot see past.
+        // Counted by scanning for turn markers — no parsing, no allocation per
+        // line, one pass over the bytes not counted yet — and remembered per
+        // file, so an active session only ever scans its newest appends.
+        // A windowed file needs the scan; a file held whole already knows its
+        // count from parsing, so the caller is spared the extra pass.
+        let count_len = if has_earlier_in_file {
+            Some(source_size)
+        } else {
+            None
+        };
+        let parsed_total_turns = handle.session().turns.len() as u64;
         let paged = match codex_trace_parser::session::page_session(
             handle.session(),
             codex_trace_parser::session::SessionPageDirection::Backward,
-            params.cursor.map(|cursor| cursor as usize),
+            cursor,
             params.max_bytes.map(|bytes| bytes as usize),
             source_size,
         ) {
@@ -1371,14 +1478,30 @@ impl App {
             Err(err) => return encode_error(id, "transcript_unreadable", err),
         };
 
-        let pagination = paged
-            .pagination
-            .as_ref()
-            .map(|pagination| PaneSessionPagination {
-                next_cursor: pagination.next_cursor.map(|cursor| cursor as u64),
-                has_more: pagination.has_more,
+        let file_total_turns: Option<u64> = match count_len {
+            Some(len) => Some(
+                self.count_file_turns(&path, len)
+                    .unwrap_or(parsed_total_turns),
+            ),
+            None => Some(parsed_total_turns),
+        };
+
+        let pagination = paged.pagination.as_ref().map(|pagination| {
+            // "No more" from the parser means the loaded window is exhausted;
+            // a windowed file still has earlier content, and the next backward
+            // page widens the window rather than ending the history.
+            let has_more = pagination.has_more || has_earlier_in_file;
+            let next_cursor = match (pagination.next_cursor, has_earlier_in_file) {
+                (Some(cursor), _) => Some(cursor as u64),
+                (None, true) => Some(0),
+                (None, false) => None,
+            };
+            PaneSessionPagination {
+                next_cursor,
+                has_more,
                 total_turns: pagination.total_turns as u64,
-            });
+            }
+        });
 
         let turns = paged.turns.iter().map(pane_session_turn).collect();
 
@@ -1391,6 +1514,7 @@ impl App {
                     // The whole file rather than the page: a client showing this is
                     // describing the session, not the part of it it holds.
                     size_bytes: Some(source_size),
+                    total_turns_file: file_total_turns,
                     agent: reported_agent,
                     // The transcript itself says which agent wrote it. That can
                     // disagree with the label detected on the pane, for example
@@ -1963,6 +2087,7 @@ impl App {
                     session: PaneSessionResult {
                         pane_id: public_pane_id,
                         path: database.display().to_string(),
+                        total_turns_file: None,
                         // A store is not one file, so there is no size to report.
                         size_bytes: None,
                         agent,
@@ -1992,6 +2117,7 @@ impl App {
             ResponseResult::PaneSession {
                 session: PaneSessionResult {
                     pane_id: public_pane_id,
+                    total_turns_file: None,
                     // The file that was read. A store has no per-session path,
                     // and this is the honest answer to "what did you read".
                     path: database.display().to_string(),
