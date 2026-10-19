@@ -67,6 +67,8 @@ pub enum Method {
     ServerReloadAgentManifests(EmptyParams),
     #[serde(rename = "server.load")]
     ServerLoad(EmptyParams),
+    #[serde(rename = "server.restart_codex_daemon")]
+    ServerRestartCodexDaemon(EmptyParams),
     #[serde(rename = "config.notification.get")]
     ConfigNotificationGet(EmptyParams),
     #[serde(rename = "config.notification.set")]

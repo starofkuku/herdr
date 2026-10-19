@@ -5647,6 +5647,22 @@
         {
           "properties": {
             "method": {
+              "const": "server.restart_codex_daemon",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "config.notification.get",
               "type": "string"
             },

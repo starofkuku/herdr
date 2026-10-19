@@ -356,6 +356,7 @@ fn handle_request(
             super::agent_catalog::directories(&params),
         ),
         Method::ServerLoad(_) => super::server_load::response(request.id),
+        Method::ServerRestartCodexDaemon(_) => super::codex_daemon::response(request.id),
         Method::Ping(_) => serde_json::to_string(&SuccessResponse {
             id: request.id,
             result: ResponseResult::Pong {
@@ -386,6 +387,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::ServerAgentManifests(_) => "server.agent_manifests",
         Method::ServerReloadAgentManifests(_) => "server.reload_agent_manifests",
         Method::ServerLoad(_) => "server.load",
+        Method::ServerRestartCodexDaemon(_) => "server.restart_codex_daemon",
         Method::ConfigNotificationGet(_) => "config.notification.get",
         Method::ConfigNotificationSet(_) => "config.notification.set",
         Method::NotificationShow(_) => "notification.show",
@@ -827,6 +829,17 @@ fn stream_subscriptions(
         let due = std::time::Instant::now() - CONNECTION_POLL_INTERVAL;
         subscriptions.push((active, due));
     }
+
+    // The pairing start for the stream_closed completion line that already
+    // logs on the way out: with this, a subscription that never closed shows
+    // in the log as a start with no matching end.
+    info!(
+        event = "subscription.stream",
+        outcome = "started",
+        request_id = %request_id,
+        subscriptions = subscriptions.len(),
+        "event stream started"
+    );
 
     diagnostics.reason("ack_write_error");
     if let Err(err) = write_json_line(

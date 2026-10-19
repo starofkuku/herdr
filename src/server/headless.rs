@@ -5388,6 +5388,9 @@ pub fn run_server() -> io::Result<()> {
         // periodic trim is what turns a burst into a bump instead of a new
         // floor. See platform::spawn_heap_trim_task.
         crate::platform::spawn_heap_trim_task();
+        // Resource diagnostic: records thread/fd counts every minute, so the
+        // next time the web gateway stops answering, the log says what grew.
+        crate::web::diag::spawn_web_diag_task();
 
         // Create the App (with AppState, event channels, etc.).
         let mut app = app::App::new(
@@ -5497,6 +5500,11 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
         .map_err(io::Error::other)?;
 
     let result = rt.block_on(async {
+        // Same background upkeep the fresh-start server gets; a live-handoff
+        // replacement runs for days too, and skipping these here is why a
+        // handed-off server had neither heap trimming nor the resource log.
+        crate::platform::spawn_heap_trim_task();
+        crate::web::diag::spawn_web_diag_task();
         let mut app = app::App::new_from_handoff(
             &loaded_config.config,
             config::config_diagnostic_summary(&loaded_config.diagnostics),

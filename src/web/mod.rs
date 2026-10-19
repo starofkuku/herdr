@@ -12,6 +12,7 @@
 pub(crate) mod api;
 pub(crate) mod auth;
 pub(crate) mod control;
+pub(crate) mod diag;
 pub(crate) mod http;
 pub(crate) mod protocol;
 pub(crate) mod update;
@@ -48,6 +49,26 @@ impl Drop for LiveSubscription {
     }
 }
 
+/// Live browser WebSocket connections, read by the periodic resource log.
+pub(crate) static WEB_CLIENTS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Subscription streams this gateway is actually reading right now. Each is
+/// one blocking thread and one session-server connection, so this is the
+/// number that grows when a client leaks streams.
+pub(crate) static WEB_SUBSCRIPTIONS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Decrements [`WEB_CLIENTS`] when a client connection ends, from any return
+/// path, so the counter cannot drift upward forever.
+struct ClientCount;
+
+impl Drop for ClientCount {
+    fn drop(&mut self) {
+        WEB_CLIENTS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Runtime settings for one gateway process.
 pub(crate) struct WebOptions {
     pub bind: String,
@@ -65,6 +86,12 @@ pub(crate) struct WebOptions {
 /// Fails before binding when the address is unavailable, so a misconfigured
 /// gateway does not silently sit on a port it cannot serve.
 pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
+    // The `herdr web` command path never passes through main's logging init,
+    // and without a subscriber every info!/warn! in this module is a no-op —
+    // which is why the gateway used to run with no log at all. Same rotating
+    // file the detached stdio redirection uses, so both land in one place.
+    crate::logging::init_file_logging("herdr-web.log");
+    crate::logging::startup("web");
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -105,6 +132,7 @@ pub(crate) fn run(options: WebOptions) -> std::io::Result<()> {
             key_source = %options.key.source(),
             "web gateway listening"
         );
+        diag::spawn_web_diag_task();
         println!("herdr web listening on http://{addr}");
         println!("web key source: {}", options.key.source());
 
@@ -205,12 +233,30 @@ pub(crate) fn expand_tilde(path: &Path) -> PathBuf {
     PathBuf::from(home).join(rest)
 }
 
+/// How long a connection may take to send its request head.
+///
+/// Browsers open speculative connections — Safari preconnects, and holds several
+/// per origin — and a path can vanish between the TCP handshake and the request.
+/// Without this bound the read below waits forever, pinning the socket on this
+/// side; the browser then reuses its own copy of that connection for the next
+/// navigation and waits for an answer that is never coming. That is what a page
+/// which stays unreachable after the network came back looks like, and why only
+/// quitting the browser appeared to fix it.
+const REQUEST_HEAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 async fn handle_connection(
     mut stream: TcpStream,
     peer: SocketAddr,
     shared: Arc<SharedState>,
 ) -> std::io::Result<()> {
-    let (request, rest) = http::read_request(&mut stream).await?;
+    let (request, rest) =
+        match tokio::time::timeout(REQUEST_HEAD_TIMEOUT, http::read_request(&mut stream)).await {
+            Ok(result) => result?,
+            Err(_) => {
+                info!(%peer, "web connection sent no request, closing");
+                return Ok(());
+            }
+        };
 
     if request.is_upgrade() {
         return handle_websocket(stream, peer, shared, &request, rest).await;
@@ -453,10 +499,23 @@ async fn handle_websocket(
     .await;
 
     info!(%peer, "web client connected");
+    let started = std::time::Instant::now();
     let result = run_client(ws, shared, peer).await;
-    info!(%peer, "web client disconnected");
+    info!(
+        %peer,
+        ms = started.elapsed().as_millis() as u64,
+        reason = result.as_ref().err().map(|err| err.to_string()).unwrap_or_default(),
+        "web client disconnected"
+    );
     result
 }
+
+/// How long one outgoing frame may take before the peer is considered gone.
+///
+/// A browser that stopped reading — crashed, suspended, its network gone —
+/// lets the TCP send buffer fill, and a write to it then waits forever. Timing
+/// the write out is what turns that wait into a dropped connection.
+const SEND_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// Per-connection state machine for one browser client.
 async fn run_client(
@@ -464,6 +523,8 @@ async fn run_client(
     shared: Arc<SharedState>,
     peer: SocketAddr,
 ) -> std::io::Result<()> {
+    WEB_CLIENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _clients = ClientCount;
     let (mut sink, mut source) = ws.split();
 
     send(
@@ -485,9 +546,49 @@ async fn run_client(
     // Events produced by subscription tasks.
     let (events_tx, mut events_rx) = mpsc::unbounded_channel::<ServerMessage>();
 
+    /*
+     * Liveness is measured on incoming frames only. The earlier idle timeout
+     * reset on every loop pass — including the passes that were streaming
+     * events out — so a connection whose browser had vanished kept looking
+     * alive for as long as its own subscriptions fed it, and every reconnect
+     * left the previous one (with all its streams) behind forever.
+     *
+     * Browsers answer a websocket ping by themselves, without any page code,
+     * so a ping every PING_EVERY keeps the incoming clock honest: a live tab
+     * pongs within seconds, and one that has gone silent for DEAD_AFTER — no
+     * frames, no pongs — is dropped, which is what finally reaps the streams
+     * it was holding.
+     */
+    const PING_EVERY: std::time::Duration = std::time::Duration::from_secs(30);
+    const DEAD_AFTER: std::time::Duration = std::time::Duration::from_secs(150);
+    let mut last_incoming = std::time::Instant::now();
+    let mut ping = tokio::time::interval(PING_EVERY);
+    ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
     let result: std::io::Result<()> = loop {
         tokio::select! {
+            _ = ping.tick() => {
+                if last_incoming.elapsed() >= DEAD_AFTER {
+                    info!(
+                        %peer,
+                        quiet_ms = last_incoming.elapsed().as_millis() as u64,
+                        "web client went quiet, closing"
+                    );
+                    break Ok(());
+                }
+                if tokio::time::timeout(
+                    SEND_TIMEOUT,
+                    sink.send(Message::Ping(Vec::new().into())),
+                )
+                .await
+                .map_err(std::io::Error::other)
+                .is_err()
+                {
+                    break Ok(());
+                }
+            }
             incoming = source.next() => {
+                last_incoming = std::time::Instant::now();
                 let Some(incoming) = incoming else { break Ok(()) };
                 match incoming {
                     Ok(Message::Text(text)) => {
@@ -630,6 +731,7 @@ async fn handle_message(
 
             match resolved {
                 Ok(socket) => {
+                    info!(%peer, session = %name_for_log, "web client bound session");
                     *api_socket = Some(socket);
                     send(sink, &ServerMessage::SessionReady { name: name_for_log }).await
                 }
@@ -717,6 +819,26 @@ async fn handle_message(
                 previous.handle.abort();
             }
 
+            // What a stream watches, for the log line that answers "which
+            // subscription was created when": one `type` per entry, with the
+            // pane it is scoped to where it has one.
+            let kinds = subs
+                .iter()
+                .map(|entry| {
+                    let kind = entry.get("type").and_then(|v| v.as_str()).unwrap_or("?");
+                    match entry.get("pane_id").and_then(|v| v.as_str()) {
+                        Some(pane) => format!("{kind}({pane})"),
+                        None => kind.to_string(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut kinds = kinds;
+            if kinds.chars().count() > 160 {
+                kinds = kinds.chars().take(160).collect::<String>() + "…";
+            }
+            info!(%peer, id = %id, kinds = %kinds, "web subscription started");
+
             let line = serde_json::to_string(&serde_json::json!({
                 "id": id,
                 "method": "events.subscribe",
@@ -726,9 +848,12 @@ async fn handle_message(
 
             let tx = events_tx.clone();
             let sub_id = id.clone();
+            let sub_id_for_log = id.clone();
             let stop = Arc::new(AtomicBool::new(false));
             let stop_for_task = Arc::clone(&stop);
             let handle = tokio::task::spawn_blocking(move || {
+                WEB_SUBSCRIPTIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let started = std::time::Instant::now();
                 let result = api::subscribe(&socket, &line, &stop_for_task, |line| {
                     let payload = match serde_json::from_str::<serde_json::Value>(line) {
                         Ok(value) => value,
@@ -740,6 +865,22 @@ async fn handle_message(
                     })
                     .is_ok()
                 });
+                WEB_SUBSCRIPTIONS.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                match &result {
+                    Ok(()) => info!(
+                        id = %sub_id_for_log,
+                        ms = started.elapsed().as_millis() as u64,
+                        outcome = "cancelled",
+                        "web subscription ended"
+                    ),
+                    Err(err) => info!(
+                        id = %sub_id_for_log,
+                        ms = started.elapsed().as_millis() as u64,
+                        outcome = "failed",
+                        reason = %err,
+                        "web subscription ended"
+                    ),
+                }
                 if let Err(err) = result {
                     let _ = tx.send(ServerMessage::EventClosed {
                         id: sub_id,
@@ -786,8 +927,11 @@ async fn send(
     message: &ServerMessage,
 ) -> std::io::Result<()> {
     let text = serde_json::to_string(message).map_err(std::io::Error::other)?;
-    sink.send(Message::Text(text.into()))
+    tokio::time::timeout(SEND_TIMEOUT, sink.send(Message::Text(text.into())))
         .await
+        .map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "web client write timed out")
+        })?
         .map_err(std::io::Error::other)
 }
 

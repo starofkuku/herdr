@@ -4,6 +4,7 @@ pub(crate) mod agent_history;
 pub(crate) mod agent_launch;
 mod agent_launch_support;
 pub mod client;
+pub(crate) mod codex_daemon;
 mod event_hub;
 pub(crate) mod process_metrics;
 pub mod schema;

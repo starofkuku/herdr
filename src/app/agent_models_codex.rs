@@ -79,6 +79,23 @@ fn refresh_backed_off(now: Instant) -> bool {
         .is_some_and(|guard| guard.is_some_and(|not_before| now < not_before))
 }
 
+/// Drops the cached catalog and any recorded failure.
+///
+/// Called after the app-server daemon is restarted: every answer cached from
+/// the old daemon is wrong now, and a recorded failure from it would keep the
+/// menu explaining a problem that no longer exists.
+pub(crate) fn invalidate() {
+    if let Ok(mut guard) = cache().lock() {
+        *guard = None;
+    }
+    if let Ok(mut guard) = last_error().lock() {
+        *guard = None;
+    }
+    if let Ok(mut guard) = retry_after().lock() {
+        *guard = None;
+    }
+}
+
 /// Reads the catalog, from a cache that never blocks the caller.
 ///
 /// The list comes from the app-server over a socket, and a socket call can take

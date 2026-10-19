@@ -92,7 +92,7 @@ herdr pane read w1:p2 --source recent --lines 50
 
 | 领域 | 方法 |
 | --- | --- |
-| 服务器 | `ping`、`server.stop`、`server.reload_config`、`server.agent_manifests`、`server.reload_agent_manifests` |
+| 服务器 | `ping`、`server.stop`、`server.reload_config`、`server.agent_manifests`、`server.reload_agent_manifests`、`server.restart_codex_daemon` |
 | 通知 | `notification.show` |
 | 客户端 | `client.window_title.set`、`client.window_title.clear` |
 | 会话 | `session.snapshot` |
@@ -106,6 +106,8 @@ herdr pane read w1:p2 --source recent --lines 50
 | 事件 | `events.subscribe`、`events.wait` |
 | 集成 | `integration.install`、`integration.uninstall` |
 | 插件 | `plugin.link`、`plugin.list`、`plugin.unlink`、`plugin.enable`、`plugin.disable`、`plugin.action.list`、`plugin.action.invoke`、`plugin.log.list`、`plugin.pane.open`、`plugin.pane.focus`、`plugin.pane.close` |
+
+`server.restart_codex_daemon` 重启请求所到达机器上的共享 Codex app-server daemon，并丢弃 Herdr 缓存的模型目录。Codex 只在 daemon 启动时读取一次配置（含模型目录），所以磁盘上改过的目录对每个 pane 和模型选择器都不可见，直到该 daemon 重启。重启由 Herdr 自己的干净环境发起：继承过某个 pane 环境的 daemon 会被拒绝共享，因为共享服务的 hooks 不能只回报给一个 pane。
 
 `agent.wait` 由服务器拥有并由事件驱动。它会固定到已解析的窗格占用者,因此替换后的智能体不能满足该等待。`agent.prompt` 接受可选的 `wait` 对象,其中包含 `until` 和 `timeout_ms`;这样可在一个请求中提交提示并开始等待,避免两个独立调用之间的竞态。
 
