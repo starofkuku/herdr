@@ -122,6 +122,59 @@ export function quotedPromptBlock(quote: Quote): string {
   return `> 引用${QUOTE_SOURCE_LABELS[quote.source]}：\n${body}`;
 }
 
+/** One piece of a message: prose, or a passage that was quoted into it. */
+export type QuotedPart =
+  | { kind: "text"; text: string }
+  | { kind: "quote"; source: string; body: string };
+
+/** Our own reference header, which is what tells a quote apart from a markdown blockquote. */
+const QUOTE_HEADER = /^>\s*引用(.+?)：\s*$/;
+
+/**
+ * Splits a message into its prose and the passages it quoted.
+ *
+ * A quote is written into the prompt as a markdown blockquote whose first line
+ * names its source (`> 引用agent的回答：`). Only a block opened that way is
+ * treated as a reference — an ordinary `>` blockquote the reader typed stays
+ * markdown, because there is nothing to jump to for it. The body keeps its text
+ * exactly as it was quoted, which is what the caller looks the passage up by.
+ */
+export function splitQuotedBlocks(text: string): QuotedPart[] {
+  const lines = text.split("\n");
+  const parts: QuotedPart[] = [];
+  let prose: string[] = [];
+
+  const flushProse = () => {
+    if (prose.length === 0) return;
+    parts.push({ kind: "text", text: prose.join("\n") });
+    prose = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = QUOTE_HEADER.exec(lines[index]);
+    if (!header) {
+      prose.push(lines[index]);
+      continue;
+    }
+    const body: string[] = [];
+    let cursor = index + 1;
+    while (cursor < lines.length && /^>/.test(lines[cursor])) {
+      body.push(lines[cursor].replace(/^>\s?/, ""));
+      cursor += 1;
+    }
+    if (body.length === 0) {
+      prose.push(lines[index]);
+      continue;
+    }
+    flushProse();
+    parts.push({ kind: "quote", source: header[1].trim(), body: body.join("\n") });
+    index = cursor - 1;
+  }
+
+  flushProse();
+  return parts.length > 0 ? parts : [{ kind: "text", text }];
+}
+
 /** The placeholder a quote takes inside the draft, so the reader can point at a passage where they mean it. */
 export function quotePlaceholder(seq: number): string {
   return `[引用${seq}]`;

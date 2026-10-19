@@ -83,6 +83,31 @@ export default function App() {
     [hub],
   );
 
+  /*
+   * The tab's title names the server being read, so two tabs on two servers are
+   * told apart in the browser's tab strip instead of both saying "herdr web".
+   * The picker and the tool page are not on any one server, so they keep the
+   * plain name.
+   */
+  const activeBackendName =
+    route.view !== "home" && route.view !== "ccswitch"
+      ? backends.find((entry) => entry.profile.id === route.backendId)?.profile.name
+      : undefined;
+  const activeProjectName =
+    route.view === "detail" && route.backendId
+      ? backends
+          .find((entry) => entry.profile.id === route.backendId)
+          ?.agents.find((agent) => agent.paneId === route.paneId)
+          ?.cwd?.split("/")
+          .filter(Boolean)
+          .pop()
+      : undefined;
+  useEffect(() => {
+    if (route.view === "ccswitch") return;
+    const parts = [activeProjectName, activeBackendName].filter(Boolean);
+    document.title = parts.length > 0 ? parts.join(" · ") : "herdr";
+  }, [activeBackendName, activeProjectName, route.view]);
+
   /** Persists a settings change and hands it to the connections. */
   const commit = useCallback((next: StoredSettings) => {
     setSettings(next);

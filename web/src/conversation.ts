@@ -107,6 +107,8 @@ export interface Conversation {
    * a client offering the session for download has nothing to offer.
    */
   sizeBytes?: number;
+  /** Turns in the whole session file, counted without loading it. */
+  totalTurnsFile?: number;
   turns: ConversationTurn[];
   pagination?: ConversationPagination;
 }
@@ -204,6 +206,7 @@ interface SessionResponse {
     pane_id: string;
     path: string;
     size_bytes?: number;
+    total_turns_file?: number;
     agent: string;
     provider: string;
     cwd?: string;
@@ -234,6 +237,7 @@ export async function loadConversation(
     paneId: session.pane_id,
     path: session.path,
     sizeBytes: session.size_bytes,
+    totalTurnsFile: session.total_turns_file,
     agent: session.agent,
     provider: session.provider,
     cwd: session.cwd,

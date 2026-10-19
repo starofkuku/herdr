@@ -7415,3 +7415,79 @@ textarea {
 .file-tree__entry.active .file-tree__name {
   font-weight: 600;
 }
+
+/*
+ * 消息里被引用的那段原文。
+ *
+ * 它不是写作者说的话，是一段被带进来的原文，所以用引用块的样子呈现，并且可以点：
+ * 点一下跳到这段话原来的位置。用 button 而不是 div，键盘也能用。
+ */
+.quoted-passage {
+  display: block;
+  width: 100%;
+  margin: 0.4rem 0;
+  padding: 0.45rem 0.7rem;
+  border: 0;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 0.35rem;
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.quoted-passage:hover {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.quoted-passage__source {
+  display: block;
+  margin-bottom: 0.15rem;
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+}
+
+.quoted-passage__body > :first-child {
+  margin-top: 0;
+}
+
+.quoted-passage__body > :last-child {
+  margin-bottom: 0;
+}
+
+/* 跳过去之后闪一下，让读者看见落点在哪。 */
+.passage-flash {
+  animation: passage-flash 1.2s ease-out;
+}
+
+@keyframes passage-flash {
+  0%,
+  40% {
+    background: color-mix(in srgb, var(--accent) 26%, transparent);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* 引用原文没在当前已加载的消息里时的提示；点一下收起。 */
+.passage-notice {
+  margin: 0 0 0.4rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 0.35rem;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  cursor: pointer;
+}
+
+/*
+ * 顶栏的会话轮次：和文件大小并排，在它前面。窗口化会话的"已加载轮次"
+ * 只是窗口内的数，这个数字来自整个文件，所以用同一个视觉重量呈现。
+ */
+.session-file__turns {
+  font-size: var(--text-ui-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}

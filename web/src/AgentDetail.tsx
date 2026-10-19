@@ -1350,7 +1350,11 @@ export function AgentDetail({
    * it while reading. Absent until a session is read, and never reported for a
    * session an agent keeps in a store, which has no file of its own.
    */
-  const [sessionFile, setSessionFile] = useState<{ path: string; sizeBytes?: number } | null>(null);
+  const [sessionFile, setSessionFile] = useState<{
+    path: string;
+    sizeBytes?: number;
+    totalTurnsFile?: number;
+  } | null>(null);
   /** Set while the server is being asked for a download link. */
   const [downloading, setDownloading] = useState(false);
   /**
@@ -1379,7 +1383,8 @@ export function AgentDetail({
    * reader's effect, which reloads the conversation whenever it re-runs. The
    * equality check keeps a refresh with an unchanged size from re-rendering at all.
    */
-  const onSessionInfo = useCallback((info: { path: string; sizeBytes?: number }) => {
+  const onSessionInfo = useCallback(
+    (info: { path: string; sizeBytes?: number; totalTurnsFile?: number }) => {
     setSessionFile((current) =>
       current && current.path === info.path && current.sizeBytes === info.sizeBytes ? current : info,
     );
@@ -1665,6 +1670,11 @@ export function AgentDetail({
            * turns.
            */
           <div className="session-file">
+            {sessionFile.totalTurnsFile !== undefined ? (
+              <span className="session-file__turns" title="整个会话文件的轮次">
+                {sessionFile.totalTurnsFile} 轮
+              </span>
+            ) : null}
             <span className="session-file__size" title={sessionFile.path}>
               {formatBytes(sessionFile.sizeBytes)}
             </span>

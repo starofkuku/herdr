@@ -99,6 +99,16 @@ export function CcSwitchPage({
     return { id, settings: loadCcSwitchServer(id) };
   });
   const [backendId, setBackendId] = useState<string | null>(bootstrap.id);
+
+  /*
+   * The tab names the server this page is managing, so a tab left open on one
+   * machine's cc-switch is told apart from another's — the picker's choice is
+   * the page's own connection, not the route's.
+   */
+  const backendName = backends.find((entry) => entry.id === backendId)?.name;
+  useEffect(() => {
+    document.title = backendName ? `${backendName} · cc-switch` : "cc-switch";
+  }, [backendName]);
   const [settings, setSettings] = useState<CcSwitchSettings | null>(bootstrap.settings);
   const [editing, setEditing] = useState(bootstrap.settings === null);
   const [health, setHealth] = useState<CcSwitchHealth | null>(null);

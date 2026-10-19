@@ -49,12 +49,26 @@ function blockOf(node: Node): Element | null {
  * crosses from one block element to another — the shape a selection's text has
  * between blocks, so a passage picked across paragraphs still finds its place.
  */
-export function buildTranscriptIndex(root: Element, skipSelector: string): TranscriptIndex {
+export function buildTranscriptIndex(
+  root: Element,
+  skipSelector: string,
+  exclude?: Element | null,
+): TranscriptIndex {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       const parent = node.parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
-      if (parent.closest(skipSelector)) return NodeFilter.FILTER_REJECT;
+      // A quotation is reading text even though it is also a control: it has to be
+    // searchable, or following a citation that points at it would find nothing.
+    const skipped = parent.closest(skipSelector);
+    if (skipped && !skipped.classList.contains("quoted-passage")) {
+      return NodeFilter.FILTER_REJECT;
+    }
+      // A quotation matches its own quoted passage; leaving the subtree out is
+      // what makes the remaining match the place the passage came from.
+      if (exclude && exclude !== parent && exclude.contains(parent)) {
+        return NodeFilter.FILTER_REJECT;
+      }
       return NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -168,6 +182,28 @@ export function mergeRects(rects: ArrayLike<MarkRect>): MarkRect[] {
 export interface QuoteMark {
   seq: number;
   rects: MarkRect[];
+}
+
+/**
+ * The element holding a quoted passage, found the same way the marks are.
+ *
+ * A quotation inside a message would otherwise match itself, so the caller's
+ * own subtree is skipped while the index is built; with it skipped, the first
+ * match is the passage the quotation was taken from.
+ */
+export function locatePassageElement(
+  root: Element,
+  skipSelector: string,
+  text: string,
+  exclude?: Element | null,
+): Element | null {
+  if (!text.trim()) return null;
+  const index = buildTranscriptIndex(root, skipSelector, exclude);
+  const located = locateQuote(index, text);
+  if (!located) return null;
+  let node: Node | null = located.start.node;
+  while (node && node.nodeType !== Node.ELEMENT_NODE) node = node.parentNode;
+  return (node as Element | null) ?? null;
 }
 
 /** Every quote's marks, measured against the transcript as it stands. */

@@ -11,7 +11,8 @@ import {
 } from "./conversationCache";
 import { CopyButton, Markdown } from "./Markdown";
 import { SelectionQuoteMenu } from "./SelectionQuoteMenu";
-import type { Quote, QuoteSource } from "./quotes";
+import { splitQuotedBlocks, type Quote, type QuoteSource } from "./quotes";
+import { locatePassageElement, QUOTE_SKIP_SELECTOR } from "./quoteHighlights";
 import { QuoteOriginLayer } from "./QuoteOriginLayer";
 import {
   editDiffLines,
@@ -421,16 +422,22 @@ function MessageBody({
   text,
   origin,
   onPreviewImage,
+  onJumpToPassage,
 }: {
   text: string;
   /** Where this backend's uploads are served from; empty means this page. */
   origin: string;
   onPreviewImage?: (url: string) => void;
+  /** Scrolls to where a quoted passage came from; absent when nothing can. */
+  onJumpToPassage?: (text: string, from: Element) => void;
 }) {
   const parts = splitMessage(text, origin);
-  // Nothing to preview: render the original so ordinary messages are byte for
-  // byte what they were before.
-  if (parts.every((part) => part.kind === "text")) {
+  // Nothing to preview and nothing quoted: render the original so ordinary
+  // messages are byte for byte what they were before.
+  if (
+    parts.every((part) => part.kind === "text") &&
+    (!onJumpToPassage || splitQuotedBlocks(text).every((part) => part.kind === "text"))
+  ) {
     return <Markdown text={text} breaks />;
   }
 
@@ -452,6 +459,58 @@ function MessageBody({
           // The prose that surrounded the reference. Whitespace-only runs are
           // dropped rather than rendered as an empty block, which would leave a
           // gap where the path used to be.
+          <MessageProse key={index} text={part.text} onJumpToPassage={onJumpToPassage} />
+        ) : null,
+      )}
+    </>
+  );
+}
+
+/**
+ * A message's prose, with any passage it quoted rendered as a reference.
+ *
+ * A quote in a prompt is a markdown blockquote whose first line names where it
+ * came from. Showing it as one makes it read as a citation rather than as
+ * something the writer said, and it can then be followed back: pressing it
+ * scrolls the transcript to the passage it was taken from.
+ */
+function MessageProse({
+  text,
+  onJumpToPassage,
+}: {
+  text: string;
+  onJumpToPassage?: (text: string, from: Element) => void;
+}) {
+  const parts = onJumpToPassage ? splitQuotedBlocks(text) : [{ kind: "text" as const, text }];
+  return (
+    <>
+      {parts.map((part, index) =>
+        part.kind === "quote" ? (
+          /*
+           * A div with button semantics rather than a <button>: the transcript
+           * search skips every button (they hold controls, not reading text), and
+           * a quotation must stay searchable — it is what the reader scrolls to
+           * when following another citation into this passage.
+           */
+          <div
+            key={index}
+            role="button"
+            tabIndex={0}
+            className="quoted-passage"
+            title="跳到这段引用所在的位置"
+            onClick={(event) => onJumpToPassage?.(part.body, event.currentTarget)}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              onJumpToPassage?.(part.body, event.currentTarget);
+            }}
+          >
+            <span className="quoted-passage__source">引用{part.source}</span>
+            <span className="quoted-passage__body">
+              <Markdown text={part.body} breaks />
+            </span>
+          </div>
+        ) : part.text.trim() ? (
           <Markdown key={index} text={part.text} breaks />
         ) : null,
       )}
@@ -488,19 +547,27 @@ function UserMessage({
   text,
   origin,
   onPreviewImage,
+  onJumpToPassage,
   onEdit,
 }: {
   text: string;
   /** Where this backend's uploads are served from; empty means this page. */
   origin: string;
   onPreviewImage?: (url: string) => void;
+  /** Scrolls to where a quoted passage came from; absent when nothing can. */
+  onJumpToPassage?: (text: string, from: Element) => void;
   /** Absent when there is no composer to carry the message into. */
   onEdit?: (text: string) => void;
 }) {
   return (
     <>
       <div className="bubble user">
-        <MessageBody text={text} origin={origin} onPreviewImage={onPreviewImage} />
+        <MessageBody
+          text={text}
+          origin={origin}
+          onPreviewImage={onPreviewImage}
+          onJumpToPassage={onJumpToPassage}
+        />
       </div>
       <div className="user-actions">
         <CopyButton text={text} title="复制" />
@@ -530,11 +597,13 @@ function PendingTurn({
   message,
   origin,
   onPreviewImage,
+  onJumpToPassage,
   onEdit,
 }: {
   message: string;
   origin: string;
   onPreviewImage?: (url: string) => void;
+  onJumpToPassage?: (text: string, from: Element) => void;
   onEdit?: (text: string) => void;
 }) {
   return (
@@ -543,6 +612,7 @@ function PendingTurn({
         text={message}
         origin={origin}
         onPreviewImage={onPreviewImage}
+        onJumpToPassage={onJumpToPassage}
         onEdit={onEdit}
       />
       <div className="bubble agent ongoing">
@@ -787,6 +857,7 @@ function Turn({
   index,
   onPreviewImage,
   uploadsOrigin,
+  onJumpToPassage,
   onEdit,
   subagents,
   onOpenSubagents,
@@ -797,6 +868,8 @@ function Turn({
   onPreviewImage?: (url: string) => void;
   /** Where this backend's uploads are served from; empty means this page. */
   uploadsOrigin: string;
+  /** Scrolls to where a quoted passage came from; absent when nothing can. */
+  onJumpToPassage?: (text: string, from: Element) => void;
   onEdit?: (text: string) => void;
   /** Finished runs that started during this turn, shown as their own record. */
   subagents?: SubagentRun[];
@@ -922,6 +995,7 @@ function Turn({
           text={turn.user_message}
           origin={uploadsOrigin}
           onPreviewImage={onPreviewImage}
+          onJumpToPassage={onJumpToPassage}
           onEdit={onEdit}
         />
       ) : null}
@@ -1100,7 +1174,7 @@ export function ConversationView({
    * Must be stable — it is reported from the reader's effect, and a new identity
    * there would reload the conversation every time the parent rendered.
    */
-  onSessionInfo?: (info: { path: string; sizeBytes?: number }) => void;
+  onSessionInfo?: (info: { path: string; sizeBytes?: number; totalTurnsFile?: number }) => void;
   /**
    * The session's live state — the todo list and running subagents — which
    * floats over the conversation's top right (ZCode's status panel). Rendered
@@ -1148,6 +1222,8 @@ export function ConversationView({
   const loadingOlderRef = useRef(false);
   const historyLoaded = useRef(restored?.historyLoaded ?? false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  /* Says why a citation could not be followed; cleared on the next attempt. */
+  const [passageNotice, setPassageNotice] = useState("");
   /**
    * How far down the pane is, tracked as the reader scrolls.
    *
@@ -1238,7 +1314,11 @@ export function ConversationView({
     const reader = createConversationReader(
       () => loadConversation(client, paneId, { maxBytes: PAGE_BYTES }),
       (data) => {
-        reportSessionInfo.current?.({ path: data.path, sizeBytes: data.sizeBytes });
+        reportSessionInfo.current?.({
+          path: data.path,
+          sizeBytes: data.sizeBytes,
+          totalTurnsFile: data.totalTurnsFile,
+        });
         // An agent that started a new session since this was kept: the held pages
         // belong to the session before it, so they go rather than being shown as
         // the history of the one that replaced it.
@@ -1475,6 +1555,34 @@ export function ConversationView({
   }, []);
 
   /**
+   * Scrolls to where a quoted passage came from.
+   *
+   * The quotation inside the message would match itself, so its own element is
+   * left out of the search — what remains is the passage it was taken from. A
+   * reader at the bottom is taken up to it; a reader already reading back keeps
+   * their place around it, since `scrollIntoView` centres the target either way.
+   */
+  const jumpToPassage = useCallback((text: string, from: Element) => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const target = locatePassageElement(element, QUOTE_SKIP_SELECTOR, text, from);
+    if (!target) {
+      setPassageNotice("引用的原文不在当前已加载的消息里");
+      return;
+    }
+    setPassageNotice("");
+    // Following a citation is leaving the bottom: the view must not fight the
+    // reader by sticking to the newest message while they read backwards.
+    pinnedToBottom.current = false;
+    // Instant, not smooth: a citation is a jump, and a smooth scroll inside a
+    // container that keeps re-clamping to the newest message is either fought or
+    // skipped outright.
+    target.scrollIntoView({ block: "center" });
+    target.classList.add("passage-flash");
+    window.setTimeout(() => target.classList.remove("passage-flash"), 1200);
+  }, []);
+
+  /**
    * Brings a turn to the top of the transcript.
    *
    * The rail is only useful if the reader can land on the turn they picked, so
@@ -1589,6 +1697,11 @@ export function ConversationView({
       ) : null}
       <div className="conversation" ref={scrollRef} onScroll={onScroll}>
         <QuoteOriginLayer scrollRef={scrollRef} quotes={quotes} />
+        {passageNotice ? (
+          <p className="passage-notice" role="status" onClick={() => setPassageNotice("")}>
+            {passageNotice}
+          </p>
+        ) : null}
         <div className="conversation-bar">
           <span className="conversation-title">{label}</span>
           {conversation?.provider ? (
@@ -1641,6 +1754,7 @@ export function ConversationView({
               index={index}
               onPreviewImage={onPreviewImage}
               uploadsOrigin={uploadsOrigin}
+              onJumpToPassage={jumpToPassage}
               onEdit={onEdit}
               subagents={subagentsByTurn.get(turn.turn_id)}
               onOpenSubagents={onOpenSubagents}
@@ -1652,6 +1766,7 @@ export function ConversationView({
               message={sentMessage ?? ""}
               origin={uploadsOrigin}
               onPreviewImage={onPreviewImage}
+              onJumpToPassage={jumpToPassage}
               onEdit={onEdit}
             />
           ) : null}
