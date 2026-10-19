@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+## [0.8.9] - 2026-10-19
+
+### Added
+
+- 新增 `server.restart_codex_daemon`：在干净环境下重启 Codex 共享 app-server，并清掉 herdr 缓存的模型目录。cc-switch 的 Codex 模型目录页提供「重启 App Server」按钮，两步确认后执行；改动磁盘上的模型目录后不必再手动重启 daemon，也不必离开 herdr。
+- cc-switch 每个 app 增加「公用配置」标签：编辑切换渠道时会合并进 live 配置的公共片段（Claude 的 hooks/permissions、Codex 的非 provider TOML 段、Gemini 的代理环境）。
+- cc-switch Codex 模型目录支持逐条编辑 9 个安全字段与克隆新增，并可从端点拉取模型、用 models.dev 补全缺失字段。
+- 网页会话页：指针移到自己的消息上会出现复制与编辑，编辑把那条消息送回输入框（替换草稿、光标置尾）。
+- 文件预览可在全宽与分栏之间切换（全宽时隐藏对话），换文件保持全宽；正在预览的文件在文件树中标出。
+- 网关新增资源诊断日志 `web_diag`（线程/fd/WebSocket 客户端/双侧订阅数，每分钟记变化、每五分钟记心跳）与订阅流生命周期日志。
+
+### Changed
+
+- 网关改为按入站帧判活：每 30 秒 ping，150 秒无任何入站帧即断开，并对每次写出设 30 秒上限；半死的浏览器连接不再被无限期挂着。
+- `herdr web` 进程开始写 `herdr-web.log`。此前这条命令路径从未初始化 tracing，网关的所有日志调用都是空操作。
+- cc-switch 工具页不再占用 herdr 后端连接（它只用 cc-switch 自己的 HTTP 接口），离开时恢复。
+- 会话里图片地址按拥有该对话的网关解析，从另一台机器读到的消息不再图裂。
+
+### Fixed
+
+- 修复图片占位符替换后与后续文字粘连（`…png1.`）导致图片退化成纯文本的问题：替换时补齐词边界，识别扩展名时也不再吞掉后面的字符。
+- 修复 grok 检测清单里 `version`/`min_engine_version`/`updated_at` 重复导致 TOML 解析失败、文档校验中断的问题。
+- 重新钉住桌面框架的内容指纹（0.8.8 发版时未随版本号重钉，该测试一直失败）。
+
 ## [0.8.8] - 2026-10-15
 
 ### Added
@@ -271,17 +295,6 @@
 - Native Windows servers now detach from the terminal console that launched them, so closing WezTerm, Windows Terminal, or another host terminal no longer stops persistent pane processes. (#1329)
 - Windows API clients now remain connected while waiting for initial named-pipe request bytes, so `status server`, `api snapshot`, and other socket commands no longer intermittently fail with BrokenPipe. (#1279)
 - `herdr --remote` now installs remote helper binaries without routing the binary stream through a multiline `/bin/sh -c` command, fixing installs for non-POSIX login shells such as xonsh. (#1203, thanks @nhumrich)
-- Codex detection now recognizes reordered title spinners instead of dropping active panes to idle. (#1281)
-- Graceful server shutdown now allows slower sessions up to 15 seconds to stop before timing out.
-- Claude Code remains working while `/btw` side questions are active. (#1366)
-- Detached custom command children are now reaped after exit instead of accumulating as zombie processes. (#1360, #1384)
-- Renamed single tabs now remain visible in Agent sidebar labels instead of being hidden as automatic tab names. (#1369)
-- Documentation search results now stay within the current language and stable or preview channel.
-- OMP lifecycle reports retry a dropped first response before publishing queued state, reducing stale agent status. (#1310)
-- Horizontal wheel events now reach pane applications that enabled mouse reporting. (#1349, #1402)
-
-### Breaking Changes
-- The `custom_status` API field and `--custom-status` / `--clear-custom-status` CLI options were removed from `pane.report_agent` and `pane.report_metadata`. Use named metadata tokens such as `--token summary="indexing"` and reference them as `$summary` in sidebar row layouts.
 
 ## [0.7.3] - 2026-07-08
 

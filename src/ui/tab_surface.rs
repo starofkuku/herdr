@@ -292,7 +292,7 @@ mod tests {
     ///
     /// The digest covers the sidebar footer, which renders the build's version
     /// and the footer's load row, so it changes whenever either changes and must
-    /// be re-pinned: `698a4be7…` is the 0.8.7 rendering with the collapsed load
+    /// be re-pinned: `e9eb703a…` is the 0.8.9 rendering with the collapsed load
     /// row, and the same value on Linux and macOS is what makes the pin portable
     /// rather than platform-local.
     #[tokio::test]
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(frame.hyperlinks, vec![uri.to_owned()]);
         assert_eq!(
             frame_digest(&frame),
-            "698a4be741445e98053497467b8d18bb4fbe5ad715e99333a86da010729bfbee"
+            "e9eb703a63da5c76ced010765550e5ca799f5a72d378bb4aa357facc79e88474"
         );
     }
 
