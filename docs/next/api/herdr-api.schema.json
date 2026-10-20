@@ -10509,6 +10509,15 @@
                 "null"
               ]
             },
+            "total_turns_file": {
+              "description": "Turns in the whole session file, counted without loading it.\n\nA windowed transcript holds only its newest part, so the parsed turns\nundercount the session; this is the file's own count, taken by scanning\nfor turn markers, and it is absent when counting is not possible.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
             "turns": {
               "items": {
                 "$ref": "#/schemas/success_response/$defs/PaneSessionTurn"
