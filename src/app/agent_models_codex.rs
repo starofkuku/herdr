@@ -338,9 +338,21 @@ pub(crate) fn thread_id(path: &Path) -> Option<String> {
         return None;
     }
     let entry = serde_json::from_str::<Value>(&line).ok()?;
+    /*
+     * `id`, not `session_id`.
+     *
+     * A thread forked from another writes both: `id` is the fork's own thread,
+     * and `session_id` is the thread it was forked from — an ancestor. Reading
+     * `session_id` therefore named every fork by its base, which sent a model
+     * switch to a thread the daemon has never heard of ("thread not found") and
+     * made two forks in one folder resolve to the same rollout file. The two
+     * fields agree on a session that was not forked, so `id` is right either way.
+     */
     entry
-        .pointer("/payload/session_id")
+        .pointer("/payload/id")
         .and_then(Value::as_str)
+        .filter(|id| !id.is_empty())
+        .or_else(|| entry.pointer("/payload/session_id").and_then(Value::as_str))
         .filter(|id| !id.is_empty())
         .map(str::to_string)
 }
@@ -390,9 +402,53 @@ pub(crate) fn switch_model(thread_id: &str, model: &str, effort: Option<&str>) -
 ///
 /// The walk is bounded the way the id lookup's is, and the first line of each
 /// candidate is the only part read.
+/// The rollout of one thread, found by the id in its own name.
+///
+/// A fork's file is named after the fork and its first record names the fork
+/// too, so the id is enough — and it is the only lookup that cannot land on the
+/// base a pane was forked from.
+pub(crate) fn transcript_for_thread(thread_id: &str) -> Option<std::path::PathBuf> {
+    let id = thread_id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    let root = codex_sessions_root()?;
+    let mut stack = vec![(root, 0_usize)];
+    let mut visited = 0_usize;
+    while let Some((directory, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            visited += 1;
+            if visited > 20_000 {
+                return None;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                if depth < 6 {
+                    stack.push((path, depth + 1));
+                }
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            if name.starts_with("rollout-") && name.ends_with(".jsonl") && name.contains(id) {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
 pub(crate) fn discover_transcript(cwd: Option<&Path>) -> Option<std::path::PathBuf> {
     let root = codex_sessions_root()?;
     let cwd = cwd?;
+    // One pass for the ids that something else was forked from: a file with one
+    // of those is a base, and two panes in one folder would otherwise both
+    // settle on it, showing the same conversation twice.
+    let bases = forked_from_ids(&root);
     let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
     let mut stack = vec![(root, 0_usize)];
     let mut visited = 0_usize;
@@ -427,12 +483,69 @@ pub(crate) fn discover_transcript(cwd: Option<&Path>) -> Option<std::path::PathB
             if rollout_working_directory(&path).as_deref() != Some(cwd) {
                 continue;
             }
+            if first_session_meta(&path)
+                .and_then(|meta| meta.get("id").and_then(Value::as_str).map(str::to_string))
+                .is_some_and(|id| bases.contains(&id))
+            {
+                continue;
+            }
             if newest.as_ref().is_none_or(|(time, _)| modified > *time) {
                 newest = Some((modified, path.clone()));
             }
         }
     }
     newest.map(|(_, path)| path)
+}
+
+/// Every thread id something else in the store was forked from.
+///
+/// Bounded the way discovery is, and read from first records only: this is a
+/// guard against naming a base, not an index of the tree.
+fn forked_from_ids(root: &Path) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    let mut stack = vec![(root.to_path_buf(), 0_usize)];
+    let mut visited = 0_usize;
+    while let Some((directory, depth)) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            visited += 1;
+            if visited > 20_000 {
+                return ids;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                if depth < 6 {
+                    stack.push((path, depth + 1));
+                }
+                continue;
+            }
+            let Some(meta) = first_session_meta(&path) else {
+                continue;
+            };
+            if let Some(source) = meta.get("forked_from_id").and_then(Value::as_str) {
+                if !source.is_empty() {
+                    ids.insert(source.to_string());
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// The `payload` of a rollout's first `session_meta` record.
+fn first_session_meta(path: &Path) -> Option<Value> {
+    let file = File::open(path).ok()?;
+    let mut reader = io::BufReader::with_capacity(8 * 1024, file);
+    let mut line = String::new();
+    if reader.read_line(&mut line).ok()? == 0 {
+        return None;
+    }
+    let entry = serde_json::from_str::<Value>(&line).ok()?;
+    (entry.get("type").and_then(Value::as_str) == Some("session_meta"))
+        .then(|| entry.get("payload").cloned())
+        .flatten()
 }
 
 /// The directory the pane's Codex records for one rollout, from its first line.
@@ -467,4 +580,53 @@ fn query(method: &str, params: Value) -> io::Result<Value> {
         .enable_all()
         .build()?;
     runtime.block_on(crate::codex_bridge::query(method, params))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write as _;
+
+    /// Writes rollout lines to a temp file and returns its path.
+    fn rollout(name: &str, lines: &[&str]) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("herdr-codex-fork-{}-{}", std::process::id(), name));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join(format!("rollout-{name}.jsonl"));
+        let mut file = std::fs::File::create(&path).expect("create");
+        for line in lines {
+            writeln!(file, "{line}").expect("write");
+        }
+        path
+    }
+
+    #[test]
+    fn thread_id_names_the_fork_not_the_thread_it_came_from() {
+        // A fork writes its own id in `id` and its base in `session_id`; the base
+        // is what a model switch and a transcript lookup must not use.
+        let path = rollout(
+            "fork",
+            &[
+                r#"{"type":"session_meta","payload":{"id":"fork-thread","session_id":"base-thread","forked_from_id":"base-thread"}}"#,
+                r#"{"type":"session_meta","payload":{"id":"base-thread","session_id":"base-thread"}}"#,
+            ],
+        );
+        assert_eq!(thread_id(&path).as_deref(), Some("fork-thread"));
+    }
+
+    #[test]
+    fn thread_id_falls_back_to_session_id_when_id_is_absent() {
+        // Rollouts written before the id field existed only carry session_id.
+        let path = rollout(
+            "old",
+            &[r#"{"type":"session_meta","payload":{"session_id":"only-session-id"}}"#],
+        );
+        assert_eq!(thread_id(&path).as_deref(), Some("only-session-id"));
+    }
+
+    #[test]
+    fn first_session_meta_ignores_a_line_that_is_not_one() {
+        let path = rollout("plain", &[r#"{"type":"turn_context","payload":{}}"#]);
+        assert!(first_session_meta(&path).is_none());
+    }
 }

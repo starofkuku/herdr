@@ -783,6 +783,15 @@ fn process_argv(pid: u32) -> Option<Vec<String>> {
     procargs2_argv(&buf)
 }
 
+/// A process's environment block, for the readers that need a named variable.
+pub(crate) fn process_environ(pid: u32) -> Option<Vec<u8>> {
+    if pid == 0 {
+        return None;
+    }
+    let buf = kern_procargs2(pid)?;
+    procargs2_env(&buf).map(<[u8]>::to_vec)
+}
+
 /// Read a Herdr agent identity hint from a process environment.
 pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
     if pid == 0 {

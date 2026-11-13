@@ -341,6 +341,48 @@ pub(crate) fn parse_agent_env_hint(environ: &[u8]) -> Option<crate::detect::Agen
     None
 }
 
+/// The variable named `name` in a process's environment.
+///
+/// The one thing a process cannot lie about on its own behalf: a fork of a Codex
+/// thread writes its parent's id into its rollout, but `CODEX_THREAD_ID` in its
+/// environment is its own. Reading it is what lets a pane be identified without
+/// asking the agent, whose hooks only speak once per session.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub fn process_env_value(pid: u32, name: &str) -> Option<String> {
+    if pid == 0 || name.is_empty() {
+        return None;
+    }
+    #[cfg(target_os = "macos")]
+    let environ = macos::process_environ(pid)?;
+    #[cfg(target_os = "linux")]
+    let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
+    parse_env_value(&environ, name)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+pub fn process_env_value(_pid: u32, _name: &str) -> Option<String> {
+    None
+}
+
+/// One entry's value out of a NUL-separated environment block.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+pub(crate) fn parse_env_value(environ: &[u8], name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
+    for record in environ.split(|&byte| byte == 0) {
+        let Some(value) = record.strip_prefix(prefix.as_bytes()) else {
+            continue;
+        };
+        // An empty value names nothing: `CODEX_THREAD_ID=` is what an agent
+        // clears, not what it reports.
+        return std::str::from_utf8(value)
+            .ok()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+    }
+    None
+}
+
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[derive(Debug)]
 pub(crate) struct InputSourceRestore;
@@ -438,6 +480,26 @@ mod tests {
             pane_custom_command_pty_builder("echo hello").get_argv(),
             &expected
         );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn parse_env_value_finds_the_named_entry_only() {
+        let environ = b"PATH=/bin\0CODEX_THREAD_ID=thread-7\0TERM=xterm\0";
+        assert_eq!(
+            parse_env_value(environ, "CODEX_THREAD_ID").as_deref(),
+            Some("thread-7")
+        );
+        // A prefix is not a name: `CODEX_THREAD_ID_OLD` must not answer for it.
+        assert_eq!(parse_env_value(environ, "CODEX_THREAD_ID_OLD"), None);
+        assert_eq!(parse_env_value(environ, "MISSING"), None);
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn parse_env_value_treats_an_empty_value_as_absent() {
+        let environ = b"CODEX_THREAD_ID=\0";
+        assert_eq!(parse_env_value(environ, "CODEX_THREAD_ID"), None);
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]

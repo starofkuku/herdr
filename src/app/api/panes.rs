@@ -1942,20 +1942,29 @@ impl App {
         pane_id: PaneId,
         terminal: &crate::terminal::TerminalState,
     ) -> Option<crate::api::schema::AgentSessionInfo> {
+        let is_codex = terminal.effective_agent_label() == Some("codex");
+        /*
+         * A Codex pane is identified by the thread its own process is on.
+         *
+         * Its hooks speak once, at session start, and a forked thread records
+         * its base's id in `session_id` — so both the report and any lookup by
+         * that field lead to the thread the pane was forked *from*. Two forks in
+         * one folder then resolve to the same rollout: the same conversation in
+         * both panes. `CODEX_THREAD_ID` is the process's own answer, which no
+         * ancestor can overwrite.
+         */
+        if is_codex {
+            if let Some(info) = self.codex_thread_from_process(ws_idx, pane_id) {
+                return Some(info);
+            }
+        }
         if let Some(info) = crate::app::creation::terminal_agent_session_info(terminal) {
             return Some(info);
         }
-        if terminal.effective_agent_label() != Some("codex") {
+        if !is_codex {
             return None;
         }
-        let (runtime, _) = self.lookup_runtime(ws_idx, pane_id)?;
-        let shell_pid = runtime.child_pid()?;
-        let job = crate::detect::foreground_job(shell_pid)?;
-        let codex = job
-            .processes
-            .iter()
-            .find(|process| process.argv.as_deref().is_some_and(is_codex_process))?;
-        let cwd = crate::platform::process_cwd(codex.pid);
+        let cwd = self.codex_process_cwd(ws_idx, pane_id);
         let path = crate::app::agent_models_codex::discover_transcript(cwd.as_deref())?;
         Some(crate::api::schema::AgentSessionInfo {
             source: "herdr:codex".to_string(),
@@ -1963,6 +1972,44 @@ impl App {
             kind: crate::agent_resume::AgentSessionRefKind::Path,
             value: path.display().to_string(),
         })
+    }
+
+    /// The thread the pane's live Codex process reports for itself.
+    ///
+    /// Read from the process rather than asked of the agent, because a hook
+    /// answer arrives once per session and a resumed one may never arrive at
+    /// all; the environment travels with the process either way.
+    fn codex_thread_from_process(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Option<crate::api::schema::AgentSessionInfo> {
+        let thread = crate::platform::process_env_value(
+            self.codex_process_pid(ws_idx, pane_id)?,
+            "CODEX_THREAD_ID",
+        )?;
+        let path = crate::app::agent_models_codex::transcript_for_thread(&thread)?;
+        Some(crate::api::schema::AgentSessionInfo {
+            source: "herdr:codex".to_string(),
+            agent: "codex".to_string(),
+            kind: crate::agent_resume::AgentSessionRefKind::Path,
+            value: path.display().to_string(),
+        })
+    }
+
+    /// The Codex process running in a pane, found through its foreground job.
+    fn codex_process_pid(&self, ws_idx: usize, pane_id: PaneId) -> Option<u32> {
+        let (runtime, _) = self.lookup_runtime(ws_idx, pane_id)?;
+        let job = crate::detect::foreground_job(runtime.child_pid()?)?;
+        job.processes
+            .iter()
+            .find(|process| process.argv.as_deref().is_some_and(is_codex_process))
+            .map(|process| process.pid)
+    }
+
+    /// The directory the pane's Codex process runs in.
+    fn codex_process_cwd(&self, ws_idx: usize, pane_id: PaneId) -> Option<std::path::PathBuf> {
+        crate::platform::process_cwd(self.codex_process_pid(ws_idx, pane_id)?)
     }
 
     /// Where a pane's conversation has to be read from.
