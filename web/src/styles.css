@@ -681,6 +681,7 @@ textarea {
   min-width: 0;
   display: flex;
   align-items: center;
+  gap: 0.5rem;
 }
 
 /*
@@ -718,6 +719,57 @@ textarea {
   white-space: nowrap;
   font-weight: 600;
   font-size: 1rem;
+}
+
+/*
+ * The Space the pane lives in, read as a breadcrumb step rather than as a
+ * control: a bordered pill beside the title looked like a button nobody could
+ * press, and in a Space named after its folder it only repeated the title.
+ */
+.topbar-identity__space {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: min(26vw, 18rem);
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-identity__space::before {
+  content: "\00b7";
+  flex: none;
+  margin-right: 0.4rem;
+  opacity: 0.55;
+}
+
+/*
+ * The session, one step further out than the Space.
+ *
+ * Same breadcrumb voice, dimmer still: a gateway usually has one session worth
+ * reading, so this answers "which one am I in" without competing with the two
+ * facts beside it.
+ */
+.topbar-identity__session {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: min(22vw, 14rem);
+  color: var(--muted);
+  font-size: var(--text-ui-sm);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar-identity__session::before {
+  content: "\00b7";
+  flex: none;
+  margin-right: 0.4rem;
+  opacity: 0.4;
 }
 
 /*
@@ -1732,6 +1784,54 @@ textarea {
  * everywhere except a pinched top-right corner that acts as the tail, and
  * generous `px-4 py-3` padding.
  */
+/* A long user message keeps its height; one press shows the rest. */
+.user-clamp:not(.user-clamp--open) {
+  max-height: 16rem;
+  overflow: hidden;
+  /* The cut fades out so the button below reads as "more below"; a mask does
+     that without having to know the bubble's background colour. */
+  -webkit-mask-image: linear-gradient(180deg, #000 87%, transparent);
+  mask-image: linear-gradient(180deg, #000 87%, transparent);
+}
+
+/* The card the pill hangs from has to be its positioning context, and the row
+   below needs room for the half that hangs past the edge. */
+.bubble.user.bubble--clamped {
+  position: relative;
+  margin-bottom: 0.75rem;
+}
+
+.user-clamp-btn {
+  /*
+   * Floating on the card's bottom edge, centred on the card: the clamp already
+   * ends mid-sentence, so a pill sitting on the cut reads as "more below"
+   * instead of as a separate control under the message.
+   */
+  position: absolute;
+  left: 50%;
+  bottom: -0.7rem;
+  transform: translateX(-50%);
+  z-index: 2;
+  /* Text and arrow sit on one line, the arrow trailing the label. */
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 12px;
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  padding: 2px 14px;
+  cursor: pointer;
+  /* Lifted off the card so the overlap reads as floating, not as a glitch. */
+  box-shadow: 0 2px 10px rgb(0 0 0 / 0.28);
+}
+
+.user-clamp-btn:hover {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
 .bubble.user {
   align-self: flex-end;
   max-width: 85%;
@@ -2408,6 +2508,52 @@ textarea {
  * control, then the code. The header says what the block is, the way ZCode's
  * code chrome does, and the copy spares the reader a selection gesture.
  */
+/* A mermaid block: the diagram first, its source a press away. */
+.mermaid-block {
+  margin: 0.75rem 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+
+.mermaid-block__diagram {
+  display: flex;
+  justify-content: center;
+  padding: 0.9rem;
+  overflow-x: auto;
+}
+
+.mermaid-block__diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-block__source,
+.mermaid-block__problem,
+.mermaid-block__pending {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.mermaid-block__source {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-1);
+}
+
+.mermaid-block__problem {
+  color: var(--danger, #e5645d);
+  border-bottom: 1px solid var(--border);
+}
+
+.mermaid-block__pending {
+  color: var(--text-2);
+}
+
 .code-block {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
@@ -2942,6 +3088,12 @@ textarea {
  * together, and repeating the name beside each of them would crowd the line
  * that has to carry the agent's own name and directory.
  */
+.palette__group-session {
+  margin-left: 0.5rem;
+  font-weight: 400;
+  opacity: 0.62;
+}
+
 .palette__group {
   position: sticky;
   top: 0;
@@ -4801,6 +4953,50 @@ textarea {
 }
 
 /* A code file is one block, so its frame reaches the column's edges. */
+/* An SVG preview: the picture, with the source a press away. */
+.file-preview__svg-bar {
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0 0.45rem;
+}
+
+.file-preview__svg-toggle {
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 12px;
+  cursor: pointer;
+}
+
+.file-preview__svg-toggle:hover {
+  color: var(--text-1);
+  border-color: var(--border-strong);
+}
+
+.file-preview__svg {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  object-fit: contain;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+/* Megabyte-scale text: no highlighter, just what the browser can draw. */
+.file-preview__plain {
+  margin: 0;
+  padding: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .file-preview__code .code-block {
   margin: 0;
 }

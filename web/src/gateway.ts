@@ -582,11 +582,6 @@ export class GatewayClient {
       this.reconnectTimer = null;
     }
     this.resetConnection();
-    if (this.socket) {
-      this.socket.onclose = null;
-      this.socket.close();
-      this.socket = null;
-    }
     this.credentials = null;
     this.setState("closed");
   }
@@ -601,6 +596,25 @@ export class GatewayClient {
     this.dropQueued(new Error("connection reset"));
     this.eventHandlers.clear();
     // `sessionName` is deliberately kept: it is what the reconnect re-binds to.
+    /*
+     * The old socket is closed, not merely forgotten. A WebSocket the browser
+     * still holds stays connected, and the gateway keeps every subscription it
+     * opened for it: a tab that reconnects a few dozen times then holds a few
+     * dozen live connections, each with its own streams, until the tab itself
+     * closes. Its handlers are detached first so a socket on its way out cannot
+     * schedule a reconnect for the socket that replaced it.
+     */
+    const socket = this.socket;
     this.socket = null;
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onclose = null;
+    socket.onerror = null;
+    try {
+      socket.close();
+    } catch {
+      // Already closing: nothing left to release.
+    }
   }
 }

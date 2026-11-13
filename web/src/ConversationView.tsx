@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ChevronRight, Pencil } from "lucide-react";
+import { ArrowDown, ChevronDown, ChevronRight, ChevronUp, Pencil } from "lucide-react";
 import type { DetailClient } from "./AgentDetail";
 import { useConversationRefresh } from "./useConversationRefresh";
 import { createConversationReader } from "./conversationReader";
@@ -559,15 +559,69 @@ function UserMessage({
   /** Absent when there is no composer to carry the message into. */
   onEdit?: (text: string) => void;
 }) {
+  /*
+   * A long sent message keeps its height: past the clamp the rest hides
+   * behind one press instead of stretching the page past every question
+   * around it. Keep USER_CLAMP_PX in step with `.user-clamp`'s max-height.
+   */
+  const USER_CLAMP_PX = 16 * 16 + 4;
+  const [open, setOpen] = useState(false);
+  const [clampable, setClampable] = useState(false);
+  const clampRef = useRef<HTMLDivElement | null>(null);
+  // The button exists only when there is hidden content, and images and quotes
+  // arriving later can change that, so the measure follows the element.
+  useEffect(() => {
+    const element = clampRef.current;
+    if (!element) return;
+    const measure = () => setClampable(element.scrollHeight > USER_CLAMP_PX);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  // A citation jump into a clamped message expands it first (see
+  // `jumpToPassage`); the listener lives on the element the jump reaches.
+  useEffect(() => {
+    const element = clampRef.current;
+    if (!element) return;
+    const onExpand = () => setOpen(true);
+    element.addEventListener("user-clamp:expand", onExpand);
+    return () => element.removeEventListener("user-clamp:expand", onExpand);
+  }, []);
   return (
     <>
-      <div className="bubble user">
-        <MessageBody
-          text={text}
-          origin={origin}
-          onPreviewImage={onPreviewImage}
-          onJumpToPassage={onJumpToPassage}
-        />
+      {/*
+        The control sits inside the card so it centres on the message itself:
+        the bubble is right-aligned and narrower than the column, so a row below
+        it would centre on the column and drift to the left of the text.
+      */}
+      <div className={`bubble user${clampable ? " bubble--clamped" : ""}`}>
+        <div
+          ref={clampRef}
+          className={`user-clamp${open ? " user-clamp--open" : ""}`}
+        >
+          <MessageBody
+            text={text}
+            origin={origin}
+            onPreviewImage={onPreviewImage}
+            onJumpToPassage={onJumpToPassage}
+          />
+        </div>
+        {clampable ? (
+          <button
+            type="button"
+            className="user-clamp-btn"
+            aria-expanded={open}
+            onClick={() => setOpen((value) => !value)}
+          >
+            {open ? "收起" : "展开"}
+            {open ? (
+              <ChevronUp size={12} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={12} aria-hidden="true" />
+            )}
+          </button>
+        ) : null}
       </div>
       <div className="user-actions">
         <CopyButton text={text} title="复制" />
@@ -1477,17 +1531,46 @@ export function ConversationView({
   const onScroll = () => {
     const element = scrollRef.current;
     if (!element) return;
-    // Distance from the bottom, tolerant of sub-pixel rounding and of the
-    // scrollbar itself so sitting at the end still counts as pinned.
-    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    lastScrollTop.current = element.scrollTop;
-    pinnedToBottom.current = distance < 40;
+    const scrollTop = element.scrollTop;
+    // Tolerant of sub-pixel rounding and of the scrollbar itself, so sitting at
+    // the end still counts as the end.
+    const distance = element.scrollHeight - scrollTop - element.clientHeight;
+    const moved = scrollTop - lastScrollTop.current;
+    lastScrollTop.current = scrollTop;
+    /*
+     * Following is decided by what the reader did, not by the distance alone.
+     * A streaming reply folds — a reasoning block becomes one line, a tool row
+     * collapses — and that can shrink the transcript by hundreds of pixels under a
+     * reader who is in the middle of it. A distance that turns negative would then
+     * read as "at the bottom" and re-arm following, which pulled them to the end
+     * on the next chunk of output.
+     */
+    if (moved < -1) {
+      // Upward movement is the reader taking over, whatever the content did.
+      pinnedToBottom.current = false;
+    } else if (moved > 1 && distance < 40) {
+      // Back at the end, having gone down to get there.
+      pinnedToBottom.current = true;
+    }
+    // `moved === 0` is content changing under the reader; the decision stays
+    // where the reader left it.
     setAwayFromBottom(distance > 120);
     // Reaching the top pulls in the previous page.
-    if (element.scrollTop < 80) void loadOlder();
+    if (scrollTop < 80) void loadOlder();
     // Scrolling means the reader is looking for a position, so the rail is worth
     // showing at full strength while it lasts.
     wakeNavigator();
+  };
+
+  /**
+   * Catches an upward gesture before the browser has moved anything.
+   *
+   * A scroll event arrives after the move; a chunk of output landing in between
+   * would be enough to pull the reader back to the end, so the intent is taken
+   * from the gesture itself.
+   */
+  const onWheel = (event: React.WheelEvent) => {
+    if (event.deltaY < 0) pinnedToBottom.current = false;
   };
 
   /**
@@ -1574,12 +1657,27 @@ export function ConversationView({
     // Following a citation is leaving the bottom: the view must not fight the
     // reader by sticking to the newest message while they read backwards.
     pinnedToBottom.current = false;
-    // Instant, not smooth: a citation is a jump, and a smooth scroll inside a
-    // container that keeps re-clamping to the newest message is either fought or
-    // skipped outright.
-    target.scrollIntoView({ block: "center" });
-    target.classList.add("passage-flash");
-    window.setTimeout(() => target.classList.remove("passage-flash"), 1200);
+    /*
+     * The passage may sit inside a clamped user message, hidden past the
+     * clamp's height: expanding it first means the jump below lands on the
+     * passage itself and not on wherever the clamp used to end. React needs
+     * one frame to lay the opened message out, so the jump waits for it.
+     */
+    const reveal = () => {
+      // Instant, not smooth: a citation is a jump, and a smooth scroll inside a
+      // container that keeps re-clamping to the newest message is either fought or
+      // skipped outright.
+      target.scrollIntoView({ block: "center" });
+      target.classList.add("passage-flash");
+      window.setTimeout(() => target.classList.remove("passage-flash"), 1200);
+    };
+    const clamp = target.closest<HTMLElement>(".user-clamp:not(.user-clamp--open)");
+    if (clamp) {
+      clamp.dispatchEvent(new CustomEvent("user-clamp:expand"));
+      window.requestAnimationFrame(reveal);
+    } else {
+      reveal();
+    }
   }, []);
 
   /**
@@ -1595,6 +1693,12 @@ export function ConversationView({
     const container = scrollRef.current;
     const element = container?.querySelector<HTMLElement>(`[data-turn-index="${index}"]`);
     if (!container || !element) return;
+      /*
+       * The rail is deliberate navigation, so following stops here: a chunk of
+       * output arriving mid-scroll would otherwise win the race and drag the reader
+       * back to the end they just left.
+       */
+      pinnedToBottom.current = false;
     const margin = Number.parseFloat(getComputedStyle(element).scrollMarginTop) || 0;
     const top =
       element.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop;
@@ -1695,7 +1799,7 @@ export function ConversationView({
           <ArrowDown size={18} aria-hidden="true" />
         </button>
       ) : null}
-      <div className="conversation" ref={scrollRef} onScroll={onScroll}>
+      <div className="conversation" ref={scrollRef} onScroll={onScroll} onWheel={onWheel}>
         <QuoteOriginLayer scrollRef={scrollRef} quotes={quotes} />
         {passageNotice ? (
           <p className="passage-notice" role="status" onClick={() => setPassageNotice("")}>

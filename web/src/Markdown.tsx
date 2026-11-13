@@ -11,6 +11,7 @@
 import { isValidElement, useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import { MermaidDiagram } from "./Mermaid";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { Check, Copy, Download, Maximize2 } from "lucide-react";
@@ -214,6 +215,14 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   const className: unknown = code?.props?.className;
   const language =
     typeof className === "string" ? (/language-([\w+-]+)/.exec(className)?.[1] ?? "") : "";
+  /*
+   * Mermaid is drawn rather than coloured: the block is a diagram the model
+   * described, and reading its syntax is the fallback, not the point. It brings
+   * its own header, because the source stays one press away.
+   */
+  if (language === "mermaid") {
+    return <MermaidDiagram source={textFromChildren(children).replace(/\n$/, "")} />;
+  }
   return (
     <div className="code-block">
       <div className="code-block-head">

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
 import { CopyButton, Markdown } from "./Markdown";
 import {
@@ -7,6 +7,7 @@ import {
   publishFile,
   type FileContent,
   type PublishedFile,
+  isSvgPath,
 } from "./files";
 import { ImageViewer } from "./ImageViewer";
 
@@ -126,6 +127,42 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** An SVG previewed as the picture it draws, with the source one press away. */
+function SvgBody({ name, content }: { name: string; content: string }) {
+  const [showSource, setShowSource] = useState(false);
+  /*
+   * The gateway serves a published SVG as a download — navigating to one is
+   * how its scripts would run on the page's origin — so the picture comes
+   * from a blob the <img> draws instead: scripts in an image context never
+   * execute, and no server path has to change for the preview to exist.
+   */
+  const url = useMemo(
+    () => URL.createObjectURL(new Blob([content], { type: "image/svg+xml" })),
+    [content],
+  );
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+  return (
+    <>
+      <div className="file-preview__svg-bar">
+        <button
+          type="button"
+          className="file-preview__svg-toggle"
+          onClick={() => setShowSource((value) => !value)}
+        >
+          {showSource ? "查看图形" : "查看 XML 源码"}
+        </button>
+      </div>
+      {showSource ? (
+        <div className="file-preview__code">
+          <Markdown text={fenceFor(content, "xml")} />
+        </div>
+      ) : (
+        <img className="file-preview__svg" src={url} alt={`SVG ${name}`} />
+      )}
+    </>
+  );
+}
+
 /**
  * One file's text, rendered for reading.
  *
@@ -137,6 +174,18 @@ function FileBody({ path, file }: { path: string; file: FileContent }) {
   if (file.binary) return <p className="file-tree__note">二进制文件，无法预览</p>;
   if (file.tooLarge) {
     return <p className="file-tree__note">文件过大（{formatSize(file.size)}），无法预览</p>;
+  }
+  /*
+    An SVG reads as text, so a complete one is drawn as the picture it
+    describes; a truncated one would be broken XML and stays as source.
+  */
+  if (isSvgPath(path) && !file.truncated) {
+    return <SvgBody name={path.slice(path.lastIndexOf("/") + 1)} content={file.content} />;
+  }
+  // Highlighting megabytes freezes the tab; past a megabyte the renderer
+  // steps aside for a plain <pre> the browser can draw on its own.
+  if (file.content.length > 1_000_000) {
+    return <pre className="file-preview__plain">{file.content}</pre>;
   }
   return (
     <>

@@ -1065,6 +1065,31 @@
   margin-top: 0.4rem;
 }
 
+/* The source view: one entry as JSON, monospace, room to breathe. */
+.ccswitch-catalog__mode-tabs {
+  margin-bottom: 0.75rem;
+}
+
+.ccswitch-catalog__json {
+  width: 100%;
+  min-height: 22rem;
+  padding: 0.6rem 0.7rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  tab-size: 2;
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  resize: vertical;
+}
+
+.ccswitch-catalog__json:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
 .ccswitch-catalog__modalities {
   display: flex;
   gap: 0.9rem;

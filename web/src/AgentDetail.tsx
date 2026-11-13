@@ -227,7 +227,7 @@ export interface DetailClient {
  * Click rather than hover to open it: this is the only way to reach these two
  * values, and a touch screen has no hover to give.
  */
-function AgentIdentity({ agent }: { agent: AgentView | null }) {
+function AgentIdentity({ agent, session }: { agent: AgentView | null; session: string }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -252,10 +252,20 @@ function AgentIdentity({ agent }: { agent: AgentView | null }) {
   const details: { label: string; value: string }[] = [];
   if (agent?.cwd) details.push({ label: "工作目录", value: agent.cwd });
   if (agent?.sessionId) details.push({ label: "会话 ID", value: agent.sessionId });
+  // The file the conversation is read from: the ID names the session, the path
+  // is where its history actually lives — and where to point another tool when
+  // the transcript is what is wanted.
+  if (agent?.transcriptPath)
+    details.push({ label: "会话文件", value: agent.transcriptPath });
 
-  const name = agent?.cwd
-    ? directoryName(agent.cwd)
-    : agent?.project || agent?.label || "agent";
+  /*
+   * A pane someone named goes by that name: the card beside it already does, and
+   * a folder name in its place made the same pane read as two different things.
+   * Everything else keeps the folder, which is what identifies the work.
+   */
+  const name =
+    agent?.customName ??
+    (agent?.cwd ? directoryName(agent.cwd) : agent?.project || agent?.label || "agent");
 
   return (
     <div className="topbar-identity" ref={root}>
@@ -270,6 +280,23 @@ function AgentIdentity({ agent }: { agent: AgentView | null }) {
         <AgentIcon agent={agent?.agent} size={17} />
         <span className="topbar-identity__name">{name}</span>
       </button>
+      {agent?.project && agent.project !== name ? (
+        <span className="topbar-identity__space" title={`Space：${agent.project}`}>
+          {agent.project}
+        </span>
+      ) : null}
+      {/*
+        The session the pane belongs to, spelled out.
+
+        Sessions are invisible anywhere else: the only other record of one is in
+        the address, which is how two sessions of one gateway came to look like
+        one machine with panes missing from it.
+      */}
+      {session ? (
+        <span className="topbar-identity__session" title={`Session：${session}`}>
+          {session}
+        </span>
+      ) : null}
       {details.length > 0 ? (
         <div className={`topbar-identity__panel${open ? " open" : ""}`}>
           {details.map((row) => (
@@ -314,8 +341,11 @@ export function AgentDetail({
   onSelectAgent,
   onOpenPane,
   routePaneId,
+  session,
 }: {
   agent: AgentView | null;
+  /** The session this conversation belongs to, shown beside its Space. */
+  session: string;
   agents: AgentView[];
   /**
    * Every agent on every backend, for the switcher.
@@ -1649,7 +1679,7 @@ export function AgentDetail({
           out. See `AgentIdentity` for why the name and the panel are shaped the
           way they are.
         */}
-        <AgentIdentity agent={agent} />
+        <AgentIdentity agent={agent} session={session} />
         <AgentSwitcher
           agents={switchableAgents}
           current={agent?.paneId ?? null}

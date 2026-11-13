@@ -74,14 +74,30 @@ export function loadCcSwitchServer(backendId: string | null): CcSwitchSettings |
  * to which: any other server would inherit an endpoint that points somewhere
  * else, so for them the page starts from their own gateway's suggestion.
  */
-export function adoptLegacyCcSwitchSettings(backendId: string | null): void {
+export function adoptLegacyCcSwitchSettings(
+  backendId: string | null,
+  gatewayUrl?: string,
+): void {
   if (!backendId) return;
   const map = readServerMap();
   if (Object.keys(map).length > 0 || map[backendId]) return;
   const legacy = loadCcSwitchSettings();
   if (!legacy) return;
+  /*
+   * Only a server whose gateway is on the same machine as that endpoint may
+   * inherit it. Handing it to whichever server the page happened to open first
+   * aims every edit at a different machine's cc-switch, where nothing the reader
+   * expects to change does — the failure looks like "saving does nothing".
+   */
+  if (hostnameOf(legacy.address) !== hostnameOf(gatewayUrl ?? "")) return;
   map[backendId] = legacy;
   if (writeServerMap(map)) saveCcSwitchSettings(null);
+}
+
+/** The host of an address or gateway URL, for asking "are these the same machine". */
+function hostnameOf(value: string): string {
+  const bare = value.trim().replace(/^[a-z][a-z0-9+.-]*:\/\//i, "");
+  return (bare.split("/")[0] ?? "").split(":")[0] ?? "";
 }
 
 /** Stores one server's endpoint, or clears it when given null. */

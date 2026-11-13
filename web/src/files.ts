@@ -98,6 +98,9 @@ export async function loadDirectory(
   }
 }
 
+/** Bytes the preview will pull in one read: the API's own hard ceiling. */
+const MAX_READ_BYTES = 4 * 1024 * 1024;
+
 /** Loads one file for preview. Resolves to null when it cannot be read. */
 export async function loadFileContent(
   client: FilesClient,
@@ -105,9 +108,13 @@ export async function loadFileContent(
   path: string,
 ): Promise<FileContent | null> {
   try {
+    // Asking for the ceiling beats the handler's 256 KB default: a config file
+    // or an uncompressed diagram routinely clears it, and the text pane has its
+    // own guard against rendering megabytes through the highlighter.
     const response = await client.call<{ file?: unknown }>("files.read", {
       pane_id: paneId,
       path,
+      max_bytes: MAX_READ_BYTES,
     });
     const file = response?.file as Record<string, unknown> | undefined;
     if (!file) return null;
@@ -139,6 +146,12 @@ export function isImagePath(path: string): boolean {
   const dot = name.lastIndexOf(".");
   if (dot <= 0) return false;
   return IMAGE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+}
+
+/** Whether a path names an SVG, previewed as the picture it draws. */
+export function isSvgPath(path: string): boolean {
+  const name = path.slice(path.lastIndexOf("/") + 1).toLowerCase();
+  return name.endsWith(".svg");
 }
 
 /** A project file published at a URL the browser fetches for itself. */

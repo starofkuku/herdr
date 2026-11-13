@@ -93,15 +93,16 @@ export default function App() {
     route.view !== "home" && route.view !== "ccswitch"
       ? backends.find((entry) => entry.profile.id === route.backendId)?.profile.name
       : undefined;
-  const activeProjectName =
+  const activeAgent =
     route.view === "detail" && route.backendId
       ? backends
           .find((entry) => entry.profile.id === route.backendId)
           ?.agents.find((agent) => agent.paneId === route.paneId)
-          ?.cwd?.split("/")
-          .filter(Boolean)
-          .pop()
       : undefined;
+  // The pane's chosen name when it has one, matching the panel's own title;
+  // otherwise the folder, which names the work rather than the process.
+  const activeProjectName =
+    activeAgent?.customName ?? activeAgent?.cwd?.split("/").filter(Boolean).pop();
   useEffect(() => {
     if (route.view === "ccswitch") return;
     const parts = [activeProjectName, activeBackendName].filter(Boolean);
@@ -242,6 +243,10 @@ export default function App() {
           ...agent,
           backendId: entry.profile.id,
           backendName: entry.profile.name,
+          // The session is part of an agent's identity: two sessions on one
+          // gateway can each hold a pane with the same id, so lists that span
+          // backends carry the session alongside the backend.
+          session: entry.agentsSession ?? undefined,
         })),
       ),
     [backends],
@@ -249,15 +254,17 @@ export default function App() {
 
   /** Where an agent on `backendId` lives, or null when it cannot be opened. */
   const targetFor = useCallback(
-    (paneId: string, backendId: string | undefined) => {
+    (paneId: string, backendId: string | undefined, agentSession?: string) => {
       const id =
         backendId ?? (route.view === "home" || route.view === "ccswitch" ? null : route.backendId);
       if (!id) return null;
       const entry = hub.get(id);
       // An agent is only listed once its session is bound, and that session is
       // what the route needs: without one the route would parse as a different
-      // screen. Nothing is opened rather than a wrong link.
-      const session = entry?.agentsSession;
+      // screen. Nothing is opened rather than a wrong link. The agent carries
+      // its own session for the rare case the runtime rebound since the list
+      // was built — the route must name where the agent actually lives.
+      const session = agentSession ?? entry?.agentsSession;
       if (!session) return null;
       return { view: "detail" as const, backendId: id, session, paneId };
     },
@@ -273,8 +280,8 @@ export default function App() {
    * page rather than a fragment of whatever the reader has open.
    */
   const linkFor = useCallback(
-    (paneId: string, backendId: string | undefined) => {
-      const target = targetFor(paneId, backendId);
+    (paneId: string, backendId: string | undefined, agentSession?: string) => {
+      const target = targetFor(paneId, backendId, agentSession);
       return target ? new URL(routeHash(target), window.location.href).href : null;
     },
     [targetFor],
@@ -289,12 +296,15 @@ export default function App() {
           currentBackendId={
             route.view === "home" || route.view === "ccswitch" ? null : route.backendId
           }
-          onOpen={(paneId, backendId) => {
-            const target = targetFor(paneId, backendId);
+          onOpen={(paneId, backendId, agentSession) => {
+            const target = targetFor(paneId, backendId, agentSession);
             if (!target) return;
             navigate(target);
             setRoute(target);
           }}
+          currentSession={
+            route.view === "detail" || route.view === "agents" ? route.session : null
+          }
           onClose={() => setPaletteOpen(false)}
           hrefFor={linkFor}
         />
@@ -376,6 +386,7 @@ export default function App() {
         client={runtime.client}
         agent={agent}
         routePaneId={route.paneId}
+        session={route.session}
         agents={agents}
         backend={runtime.profile}
         connection={runtime.state}

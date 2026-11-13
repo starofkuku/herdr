@@ -94,8 +94,8 @@ export function CcSwitchPage({
   const [bootstrap] = useState(() => {
     const id = pickBackend(backends, initialBackendId);
     /* The address saved before servers were told apart belongs to one machine:
-     * this one, by the best guess available. Other servers start fresh. */
-    adoptLegacyCcSwitchSettings(id);
+     * only the server whose gateway is on that same machine may inherit it. */
+    adoptLegacyCcSwitchSettings(id, backends.find((entry) => entry.id === id)?.url);
     return { id, settings: loadCcSwitchServer(id) };
   });
   const [backendId, setBackendId] = useState<string | null>(bootstrap.id);
@@ -130,11 +130,16 @@ export function CcSwitchPage({
    * that can differ, so it is the one thing offered.
    */
   const backend = backends.find((entry) => entry.id === backendId) ?? null;
-  const host = settings
+  const gatewayHost = backend ? hostOf(suggestCcSwitchAddress(backend.url)) : null;
+  /*
+   * The host is the server's, never the stored one: cc-switch runs beside the
+   * gateway it serves, so only that address can be right. A stored address that
+   * names another machine is stale — trusting it aims every edit at a box the
+   * reader is not looking at, where the file he expects to change never does.
+   */
+  const host = gatewayHost ?? (settings
     ? hostOf(settings.address)
-    : backend
-      ? hostOf(suggestCcSwitchAddress(backend.url))
-      : window.location.hostname || "127.0.0.1";
+    : window.location.hostname || "127.0.0.1");
   const [port, setPort] = useState(() => portOf(settings?.address) ?? DEFAULT_CCSWITCH_PORT);
   const [token, setToken] = useState(settings?.token ?? "");
 
@@ -144,7 +149,19 @@ export function CcSwitchPage({
    * configured yet opens straight into its connection form.
    */
   useEffect(() => {
-    const next = loadCcSwitchServer(backendId);
+    const loaded = loadCcSwitchServer(backendId);
+    /* A stored endpoint on another machine is stale: rewrite its host to this
+     * server's and keep the port, so the next save writes here. */
+    const expected = backends.find((entry) => entry.id === backendId);
+    const expectedHost = expected ? hostOf(suggestCcSwitchAddress(expected.url)) : null;
+    const next =
+      loaded && expectedHost && hostOf(loaded.address) !== expectedHost
+        ? {
+            address: `${expectedHost}:${portOf(loaded.address) ?? DEFAULT_CCSWITCH_PORT}`,
+            token: loaded.token,
+          }
+        : loaded;
+    if (next !== loaded && next) saveCcSwitchServer(backendId, next);
     setSettings(next);
     setEditing(next === null);
     setPort(portOf(next?.address) ?? DEFAULT_CCSWITCH_PORT);
@@ -352,7 +369,7 @@ export function CcSwitchPage({
           </nav>
 
           <div className="settings-panel__content">
-            {error ? (
+                        {error ? (
               <p className="ccswitch__note error" role="alert">
                 {error}
                 <button type="button" className="ghost" onClick={disconnect}>

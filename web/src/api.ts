@@ -88,8 +88,25 @@ export interface AgentView {
   backendId?: string;
   /** The backend's display name, for the same reason. */
   backendName?: string;
+  /**
+   * The session this agent's conversation lives in.
+   *
+   * A gateway holds one session per connection, and two sessions on one
+   * gateway can each have a pane with the same id: backend and session
+   * together are what identifies an agent, so anywhere a list spans sessions
+   * the session travels with the agent.
+   */
+  session?: string;
   /** Name shown as the card title. */
   label: string;
+  /**
+   * The pane name, when a reader chose it.
+   *
+   * herdr names a started agent after its kind (`pi-1`, `codex-2`), so a name
+   * that follows that shape says nothing the folder name does not; one that does
+   * not is a name somebody typed, and the detail view prefers it.
+   */
+  customName?: string;
   /** Detected agent, for example "pi" or "codex". */
   agent: string;
   status: AgentStatus;
@@ -140,6 +157,21 @@ function asStatus(value: unknown): AgentStatus {
 }
 
 /** True when a workspace contains an activity report for any known agent. */
+/**
+ * The name a reader typed for a pane, if the name is theirs.
+ *
+ * herdr's own names follow `<kind>-<n>` (`pi-1`, `codex-3`), and the bare kind is
+ * herdr's label for an unnamed pane; the folder name answers both better, so
+ * only anything else counts as chosen.
+ */
+function chosenName(agent: Partial<AgentRecord>, detected: string): string | undefined {
+  const name = asString(agent.name);
+  if (!name) return undefined;
+  if (detected && name === detected) return undefined;
+  if (/^[a-z0-9._]+-\d+$/u.test(name)) return undefined;
+  return name;
+}
+
 export function agentsFromSnapshot(
   agents: unknown,
   workspaces: unknown,
@@ -174,6 +206,7 @@ export function agentsFromSnapshot(
         asString(agent.display_agent) ??
         (detected || paneId),
       agent: detected,
+      customName: chosenName(agent, detected),
       status: asStatus(agent.agent_status),
       project: workspaceLabels.get(workspaceId) ?? workspaceId,
       cwd: asString(agent.foreground_cwd) ?? asString(agent.cwd) ?? "",

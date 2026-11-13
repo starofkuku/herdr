@@ -112,5 +112,12 @@ export function opensBackendGroup(agents: AgentView[], index: number): boolean {
   const agent = agents[index];
   if (!agent) return false;
   const previous = agents[index - 1];
-  return !previous || previous.backendId !== agent.backendId;
+  // Sessions are part of the identity: one backend can hold two sessions,
+  // each with its own agents, and a heading that merged them would hide the
+  // very difference that tells two same-id panes apart.
+  return (
+    !previous ||
+    previous.backendId !== agent.backendId ||
+    previous.session !== agent.session
+  );
 }

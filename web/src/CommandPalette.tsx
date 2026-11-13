@@ -20,6 +20,7 @@ export function CommandPalette({
   agents,
   currentPaneId,
   currentBackendId,
+  currentSession,
   onOpen,
   onClose,
   hrefFor,
@@ -30,15 +31,20 @@ export function CommandPalette({
   currentPaneId?: string | null;
   /** The backend the current pane is on, so the mark is not drawn twice. */
   currentBackendId?: string | null;
-  /** Opens one. The backend comes with it: the list spans all of them. */
-  onOpen: (paneId: string, backendId?: string) => void;
+  /** The session the current pane is in, for the same reason as the backend. */
+  currentSession?: string | null;
+  /**
+   * Opens one. The backend and session come with it: the list spans
+   * backends, and a backend can hold more than one session.
+   */
+  onOpen: (paneId: string, backendId?: string, session?: string) => void;
   /**
    * The address a row can be opened at in another tab, or null for a row that
    * cannot be opened at all. An anchor rather than a second button: the browser's
    * own new-tab gestures come with it, and a button inside a button is not a thing
    * a document may contain.
    */
-  hrefFor?: (paneId: string, backendId?: string) => string | null;
+  hrefFor?: (paneId: string, backendId?: string, session?: string) => string | null;
   onClose: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -75,13 +81,20 @@ export function CommandPalette({
     if (row instanceof HTMLElement) row.scrollIntoView({ block: "nearest" });
   }, [active]);
 
+  /*
+   * Pane ids repeat across sessions of one backend, so the mark needs the
+   * session as well: without it the row for another session's same-id pane
+   * would read as the one on screen.
+   */
   const isCurrent = (agent: AgentView) =>
-    agent.paneId === currentPaneId && agent.backendId === currentBackendId;
+    agent.paneId === currentPaneId &&
+    agent.backendId === currentBackendId &&
+    (agent.session ?? null) === (currentSession ?? null);
 
   const choose = (agent: AgentView | undefined) => {
     if (!agent) return;
     onClose();
-    if (!isCurrent(agent)) onOpen(agent.paneId, agent.backendId);
+    if (!isCurrent(agent)) onOpen(agent.paneId, agent.backendId, agent.session);
   };
 
   const onKeyDown = (event: React.KeyboardEvent) => {
@@ -138,12 +151,15 @@ export function CommandPalette({
               // A heading each time the backend changes. The rows stay one flat
               // list so the arrow keys walk them without stepping into headings.
               const opensGroup = opensBackendGroup(results, index);
-              const href = hrefFor?.(agent.paneId, agent.backendId) ?? null;
+              const href = hrefFor?.(agent.paneId, agent.backendId, agent.session) ?? null;
               return (
                 <Fragment key={`${agent.backendId ?? ""}:${agent.paneId}`}>
                   {opensGroup ? (
                     <li className="palette__group" role="presentation">
                       {agent.backendName ?? "backend"}
+                      {agent.session ? (
+                        <span className="palette__group-session">{agent.session}</span>
+                      ) : null}
                     </li>
                   ) : null}
                   <li

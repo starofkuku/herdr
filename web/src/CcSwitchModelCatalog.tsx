@@ -181,6 +181,27 @@ export function CcSwitchModelCatalogEditor({
     void saveAll(next, `已保存「${fields.display_name}」。`);
   };
 
+  /**
+   * Replaces one entry wholesale, as the source view produces it.
+   *
+   * Validated before it lands: Codex parses the catalog strictly, so a single
+   * unusable entry would take every model down with it. The slug has to stay
+   * unique — renaming it here is the same act as editing the field, just with
+   * the rest of the object in view.
+   */
+  const saveModel = (index: number, model: Model) => {
+    if (!models) return;
+    const slug = String(model.slug ?? "").trim();
+    if (models.some((entry, position) => position !== index && entry.slug === slug)) {
+      setError(`slug「${slug}」已存在。`);
+      return;
+    }
+    setError("");
+    const next = [...models];
+    next[index] = model;
+    void saveAll(next, `已保存「${String(model.display_name ?? slug)}」。`);
+  };
+
   const createFrom = (templateIndex: number, fields: EditableFields) => {
     if (!models) return;
     const problem = validate(models, fields, -1);
@@ -191,6 +212,18 @@ export function CcSwitchModelCatalogEditor({
     const clone = structuredClone(models[templateIndex]);
     const next = [...models, applyEditable(clone, fields)];
     void saveAll(next, `已新建「${fields.display_name}」（从「${models[templateIndex]?.slug}」克隆）。`);
+  };
+
+  /** Appends a whole entry, as the source view produces one. */
+  const createModel = (model: Model) => {
+    if (!models) return;
+    const slug = String(model.slug ?? "").trim();
+    if (models.some((entry) => entry.slug === slug)) {
+      setError(`slug「${slug}」已存在。`);
+      return;
+    }
+    setError("");
+    void saveAll([...models, model], `已新建「${String(model.display_name ?? slug)}」。`);
   };
 
   const remove = (index: number) => {
@@ -363,10 +396,12 @@ export function CcSwitchModelCatalogEditor({
         >
           <ModelForm
             initial={pickEditable(models[editingIndex])}
+            model={models[editingIndex]}
             template={models[editingIndex]}
             busy={state === "saving"}
             onCancel={() => setEditingIndex(null)}
             onSubmit={(fields) => saveEntry(editingIndex, fields)}
+            onSaveModel={(model) => saveModel(editingIndex, model)}
           />
         </CcSwitchDrawer>
       ) : null}
@@ -383,6 +418,7 @@ export function CcSwitchModelCatalogEditor({
             busy={state === "saving"}
             onCancel={() => setCopyIndex(null)}
             onCreate={(fields) => createFrom(copyIndex, fields)}
+            onCreateModel={(model) => createModel(model)}
           />
         </CcSwitchDrawer>
       ) : null}
@@ -401,23 +437,197 @@ export function CcSwitchModelCatalogEditor({
   );
 }
 
-/** The form for the nine editable fields, with the untouched keys listed beside. */
-function ModelForm({
-  initial,
-  template,
+/** Which editor a model is open in: the field form, or its source. */
+function ModeTabs({
+  mode,
+  onChange,
+}: {
+  mode: "fields" | "json";
+  onChange: (mode: "fields" | "json") => void;
+}) {
+  const tabs = [
+    ["fields", "表单"],
+    ["json", "源 JSON"],
+  ] as const;
+  return (
+    <div className="ccswitch__tabs ccswitch-catalog__mode-tabs" role="tablist">
+      {tabs.map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          role="tab"
+          aria-selected={mode === value}
+          className={`ccswitch__tab${mode === value ? " active" : ""}`}
+          onClick={() => onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A raw-JSON view of one catalog entry, for the keys no field covers.
+ *
+ * The form is deliberately a whitelist — nine fields, everything else passed
+ * through untouched — so a model that needs any other key had no way in. This
+ * edits the whole entry instead: the text is parsed back into a model object,
+ * and anything that would make the catalog unreadable is refused before it is
+ * saved. Codex parses the file strictly, so a single bad entry would take every
+ * model down with it, not just this one.
+ */
+function JsonEntryEditor({
+  model,
   busy,
   onCancel,
   onSubmit,
 }: {
+  /** The entry as it stands, which is also the starting text. */
+  model: Model;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (model: Model) => void;
+}) {
+  const [text, setText] = useState(() => JSON.stringify(model, null, 2));
+  const [problem, setProblem] = useState("");
+
+  const submit = () => {
+    const parsed = parseEntry(text);
+    if (typeof parsed === "string") {
+      setProblem(parsed);
+      return;
+    }
+    setProblem("");
+    onSubmit(parsed);
+  };
+
+  return (
+    <form
+      className="ccswitch-catalog__form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
+      <p className="ccswitch__hint">
+        整条模型定义都可以改 ✗ 表单覆盖不到的字段（工具形态 ✗ 指令包 ✗ 计划分层等 ✗ 在这里加
+      </p>
+      <label className="ccswitch__field">
+        <span>源 JSON（单个模型对象 ✗</span>
+        <textarea
+          className="ccswitch-catalog__json"
+          value={text}
+          spellCheck={false}
+          rows={22}
+          onChange={(e) => {
+            setText(e.target.value);
+            setProblem("");
+          }}
+        />
+      </label>
+      {problem ? <p className="error" role="alert">{problem}</p> : null}
+      <div className="ccswitch__actions">
+        <button type="button" className="ghost" onClick={onCancel} disabled={busy}>
+          取消
+        </button>
+        <button type="button" className="ghost" onClick={() => { setText(JSON.stringify(model, null, 2)); setProblem(""); }} disabled={busy}>
+          还原
+        </button>
+        <button type="submit" className="agent-primary-button" disabled={busy}>
+          {busy ? "保存中…" : <><Save size={14} aria-hidden="true" /> 保存此条</>}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * Parses one entry, or returns the reason it cannot be saved.
+ *
+ * The checks mirror what makes the file loadable at all: an object, with the
+ * identifying and numeric fields the rest of the catalog relies on. Being
+ * stricter here than Codex is the point — a rejected entry is one message in
+ * this panel, while a rejected catalog is every model disappearing from the
+ * picker.
+ */
+function parseEntry(text: string): Model | string {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    return `JSON 语法错误：${error instanceof Error ? error.message : String(error)}`;
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return "必须是一个 JSON 对象（单个模型条目 ✗，不是数组。";
+  }
+  const model = value as Model;
+  const slug = model.slug;
+  if (typeof slug !== "string" || !slug.trim()) return "slug 不能为空，且必须是字符串。";
+  for (const key of ["context_window", "max_context_window"] as const) {
+    const number = model[key];
+    if (typeof number !== "number" || !Number.isInteger(number) || number <= 0) {
+      return `${key} 必须是正整数。`;
+    }
+  }
+  const maxContext = model.max_context_window as number;
+  const context = model.context_window as number;
+  if (maxContext < context) return "max_context_window 不能小于 context_window。";
+  const compact = model.auto_compact_token_limit;
+  if (
+    compact !== undefined &&
+    compact !== null &&
+    (typeof compact !== "number" || !Number.isInteger(compact) || compact <= 0)
+  ) {
+    return "auto_compact_token_limit 必须是正整数或 null。";
+  }
+  const modalities = model.input_modalities;
+  if (modalities !== undefined) {
+    if (!Array.isArray(modalities) || modalities.length === 0) {
+      return "input_modalities 必须是非空数组（text / image ✗。";
+    }
+  }
+  return model;
+}
+
+/** The form for the nine editable fields, with the untouched keys listed beside. */
+function ModelForm({
+  initial,
+  model,
+  template,
+  busy,
+  onCancel,
+  onSubmit,
+  onSaveModel,
+}: {
   initial: EditableFields;
+  /** The entry being edited, which the source view edits whole. */
+  model: Model;
   template: Model;
   busy: boolean;
   onCancel: () => void;
   onSubmit: (fields: EditableFields) => void;
+  /** Saves a whole entry, as the source view produces one. */
+  onSaveModel: (model: Model) => void;
 }) {
   const [fields, setFields] = useState(initial);
+  const [mode, setMode] = useState<"fields" | "json">("fields");
   const patch = (part: Partial<EditableFields>) => setFields((current) => ({ ...current, ...part }));
   const untouchedKeys = Object.keys(template).filter((key) => !EDITABLE_KEYS.includes(key as keyof EditableFields));
+
+  /*
+   * The source view edits the saved entry, not the half-edited form: a reader
+   * who switches across expects to see what is on disk, and merging the two
+   * would let a JSON save silently drop the field edits beside it.
+   */
+  if (mode === "json") {
+    return (
+      <>
+        <ModeTabs mode={mode} onChange={setMode} />
+        <JsonEntryEditor model={model} busy={busy} onCancel={onCancel} onSubmit={onSaveModel} />
+      </>
+    );
+  }
 
   return (
     <form
@@ -427,6 +637,7 @@ function ModelForm({
         onSubmit(fields);
       }}
     >
+      <ModeTabs mode={mode} onChange={setMode} />
       <div className="ccswitch__pair">
         <label className="ccswitch__field">
           <span>slug（API 请求的模型 id ✗ 必须与渠道一致 ✗</span>
@@ -548,14 +759,37 @@ function CloneForm({
   busy,
   onCancel,
   onCreate,
+  onCreateModel,
 }: {
   model: Model;
   busy: boolean;
   onCancel: () => void;
   onCreate: (fields: EditableFields) => void;
+  /** Creates from a whole entry, as the source view produces one. */
+  onCreateModel: (model: Model) => void;
 }) {
   const [fields, setFields] = useState<EditableFields>(() => pickEditable(model));
+  const [mode, setMode] = useState<"fields" | "json">("fields");
   const patch = (part: Partial<EditableFields>) => setFields((current) => ({ ...current, ...part }));
+
+  /*
+   * The source view starts from a copy of the template with the slug already
+   * changed: the slug is the one field a new model must not inherit, and
+   * leaving that to a reader to notice would produce a duplicate on save.
+   */
+  if (mode === "json") {
+    return (
+      <>
+        <ModeTabs mode={mode} onChange={setMode} />
+        <JsonEntryEditor
+          model={{ ...model, slug: fields.slug }}
+          busy={busy}
+          onCancel={onCancel}
+          onSubmit={onCreateModel}
+        />
+      </>
+    );
+  }
 
   return (
     <form
@@ -565,6 +799,7 @@ function CloneForm({
         onCreate(fields);
       }}
     >
+      <ModeTabs mode={mode} onChange={setMode} />
       <p className="ccswitch__hint">
         从「{String(model.slug ?? "")}」复制 ✗ 工具形态 ✗ 指令包等字段全部继承 ✗ 下面改掉需要不同的部分
       </p>
