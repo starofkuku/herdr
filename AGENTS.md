@@ -171,10 +171,14 @@ follows the rule above.
 在本机 `/home/administrator/githubwork/herdr` 修改前端后，必须将最新页面部署到
 `/home/administrator/herdr-web/index.html`，供用户刷新测试，不能只修改源码。
 
-- 用户已持续授权此本机部署流程。部署所需的 `pnpm build`（含 TypeScript 检查）
-  是“前端仅执行 lint、不构建”限制的明确例外；使用 pnpm，并优先复用已安装依赖。
-- 在 `web/` 目录通过 `capped` 执行构建，根据本机资源限制内存和 CPU；使用独特的
-  `HERDR_WEB_UI_VERSION` 标记本次页面，产物为 `web/dist/index.html`。
+- 用户已持续授权此本机部署流程。但**本项目所有构建一律在服务器 B 上执行，严禁在
+  A 上构建**（包括 `web/` 前端的 `pnpm build`、TypeScript 检查在内的一切会产生
+  大量 CPU/内存/磁盘 IO 的构建任务）。
+- 部署流程：把 `web/` 源码 rsync 到 B 的 `~/workspace/herdr/web/`（排除
+  `node_modules`、`dist`）；在 B 上用 nvm 安装的 node/pnpm
+  （`~/.nvm/versions/node/<ver>/bin` 加入 PATH）执行 `pnpm install
+  --frozen-lockfile`，再以独特的 `HERDR_WEB_UI_VERSION` 标记执行 `pnpm build`，
+  产物为 `web/dist/index.html`，拷回 A 后部署。
 - 只有构建成功才能部署。原子替换目标 `index.html`，保留 `uploads/` 和目录中的
   其他文件，不清空部署目录，也不为静态页面更新重启 Herdr 或 Codex 进程。
 - 部署后核对产物与目标文件的哈希，并检查运行中的网页是否返回新版本；向用户说明
